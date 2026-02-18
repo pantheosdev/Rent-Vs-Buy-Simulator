@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+venv/
+ENV/
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Logs / outputs
+*.log
+
+# Visual regression artifacts (keep baseline tracked)
+tools/visual_regression/output/
+tools/visual_regression/diffs/
+
+# QA artifacts
+rbv/qa/_artifacts/
+
+# Misc
+*.zip

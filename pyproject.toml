@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 120
+# Keep lint extremely lightweight to avoid noisy public CI.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.ruff.format]
+quote-style = "preserve"

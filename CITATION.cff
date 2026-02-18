@@ -1,0 +1,7 @@
+cff-version: 1.2.0
+title: "Rent vs Buy Simulator (Canada-focused)"
+message: "If you use this software, please cite it using these metadata."
+authors:
+  - name: "Project Maintainers"
+version: "2.84"
+license: "MIT"

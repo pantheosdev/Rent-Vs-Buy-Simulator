@@ -1,0 +1,8 @@
+[theme]
+base = "dark"
+# The UI is primarily custom-CSS; this only sets a sane dark default for new installs.
+primaryColor = "#3AA0FF"
+backgroundColor = "#0B0F14"
+secondaryBackgroundColor = "#111823"
+textColor = "#E6EEF8"
+font = "sans serif"

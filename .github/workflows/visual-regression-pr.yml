@@ -1,0 +1,54 @@
+name: Visual Regression (PR)
+
+on:
+  pull_request:
+
+jobs:
+  vr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Install Playwright browser
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run visual regression (compare if baselines exist)
+        run: |
+          CHROME_PATH=$(which chromium || which chromium-browser)
+          echo "Using Chromium at: $CHROME_PATH"
+          if ls tools/visual_regression/baseline/*.png >/dev/null 2>&1; then
+            RBV_CHROMIUM_EXECUTABLE="$CHROME_PATH" python tools/visual_regression/vr_playwright.py
+          else
+            echo "No baselines committed; running smoke only."
+            RBV_CHROMIUM_EXECUTABLE="$CHROME_PATH" python tools/visual_regression/vr_playwright.py --smoke
+          fi
+
+      - name: Upload snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vr-snapshots
+          path: tools/visual_regression/output
+
+      - name: Upload diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vr-diffs
+          path: tools/visual_regression/diffs
