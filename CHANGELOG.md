@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.89 (2026-02-18)
+
+- CI: update GitHub Actions to v6 majors (checkout/setup-python/upload-artifact).
+- CI: make Visual Regression (PR) skip Dependabot PRs and remove brittle system Chromium install.
+
 
 ## Unreleased
 - TBD

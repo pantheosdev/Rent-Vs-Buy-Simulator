@@ -8,17 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 
       - name: Install dependencies
         run: |
@@ -30,12 +25,10 @@ jobs:
 
       - name: Run visual regression smoke
         run: |
-          CHROME_PATH=$(which chromium || which chromium-browser)
-          echo "Using Chromium at: $CHROME_PATH"
-          RBV_CHROMIUM_EXECUTABLE="$CHROME_PATH" python tools/visual_regression/vr_playwright.py --smoke
+          python tools/visual_regression/vr_playwright.py --smoke
 
       - name: Upload snapshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: visual-regression-snapshots
           path: tools/visual_regression/output
