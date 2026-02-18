@@ -1,0 +1,10 @@
+# Enforce consistent line endings across OSes
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary

@@ -82,5 +82,33 @@ See `docs/RELEASE_CHECKLIST.md` for the full checklist (preflight, baselines, ta
 - `tools/visual_regression/`: Playwright snapshot harness
 - `scripts/preflight.py`: repo sanity + QA checks before pushing
 
+
+## Demo & screenshots (recommended for public launch)
+Add media under `docs/media/` and update this section.
+
+- `docs/media/demo.gif` (10–15s: toggle volatility → compute → show MC band)
+- `docs/media/main.png` (main inputs)
+- `docs/media/mc.png` (Monte Carlo net worth chart + band)
+- `docs/media/sidebar.png` (sidebar settings)
+
+```text
+docs/
+  media/
+    demo.gif
+    main.png
+    mc.png
+    sidebar.png
+```
+
+Once added, you can embed them like:
+
+```md
+![Demo](docs/media/demo.gif)
+
+![Main](docs/media/main.png)
+![Monte Carlo](docs/media/mc.png)
+![Sidebar](docs/media/sidebar.png)
+```
+
 ## License
 MIT — see `LICENSE`.

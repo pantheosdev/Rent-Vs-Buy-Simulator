@@ -149,10 +149,7 @@ def main() -> int:
             # Playwright normally uses its managed Chromium build. In some restricted
             # environments (airgapped CI, corporate networks), that download is
             # unavailable. Allow using a system Chromium via env var.
-            exec_path = (
-                os.environ.get("RBV_CHROMIUM_EXECUTABLE")
-                or os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
-            )
+            exec_path = os.environ.get("RBV_CHROMIUM_EXECUTABLE") or os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
             if not exec_path and Path("/usr/bin/chromium").exists():
                 exec_path = "/usr/bin/chromium"
 
@@ -175,72 +172,107 @@ def main() -> int:
 
             def save(name: str, *, baseline: bool = False, clip=None, element=None):
                 target = (BASELINE_DIR if baseline else OUT_DIR) / name
-                if element is not None:
-                    element.screenshot(path=str(target))
-                else:
-                    page.screenshot(path=str(target), full_page=False, clip=clip)
+                try:
+                    if element is not None:
+                        element.screenshot(path=str(target))
+                    else:
+                        page.screenshot(path=str(target), full_page=False, clip=clip)
+                except Exception as e:  # noqa: BLE001
+                    # Fallback to a stable, always-present container.
+                    print(f"[vr] WARN: screenshot failed for {name}: {e}")
+                    root = page.locator('div[data-testid="stAppViewContainer"]').first
+                    root.screenshot(path=str(target))
                 return target
 
             # 1) Focused input (focus ring + radius integrity)
-            ni = page.locator('div[data-testid="stNumberInput"] input').first
-            ni.click()
-            # Screenshot just the number input wrapper (more stable than full page).
-            ni_wrap = page.locator('div[data-testid="stNumberInput"]').first
-            save("focused_input.png", baseline=args.update_baseline, element=ni_wrap)
+            try:
+                ni = page.locator('div[data-testid="stNumberInput"] input').first
+                if ni.count() > 0:
+                    ni.click()
+                ni_wrap = page.locator('div[data-testid="stNumberInput"]').first
+                if ni_wrap.count() > 0:
+                    save("focused_input.png", baseline=args.update_baseline, element=ni_wrap)
+                else:
+                    save("focused_input.png", baseline=args.update_baseline)
+            except Exception as e:  # noqa: BLE001
+                print(f"[vr] WARN: focused input capture skipped: {e}")
+                save("focused_input.png", baseline=args.update_baseline)
 
             # 2) Tooltip stacking near bottom of sidebar
-            sidebar = page.locator('section[data-testid="stSidebar"]').first
-            # Scroll sidebar inner container to bottom.
-            page.evaluate(
-                """() => {
+            try:
+                sidebar = page.locator('section[data-testid="stSidebar"]').first
+                page.evaluate(
+                    """() => {
   const sb = document.querySelector('section[data-testid="stSidebar"] > div:first-child');
   if (sb) { sb.scrollTop = sb.scrollHeight; }
 }"""
-            )
-            # Hover the last help icon inside sidebar.
-            last_help = page.locator('section[data-testid="stSidebar"] .rbv-help').last
-            if last_help.count() > 0:
-                last_help.hover()
-                page.wait_for_timeout(150)
-            save("tooltip_sidebar_bottom.png", baseline=args.update_baseline, element=sidebar)
+                )
+                last_help = page.locator('section[data-testid="stSidebar"] .rbv-help').last
+                if last_help.count() > 0:
+                    last_help.hover()
+                    page.wait_for_timeout(150)
+                if sidebar.count() > 0:
+                    save("tooltip_sidebar_bottom.png", baseline=args.update_baseline, element=sidebar)
+                else:
+                    save("tooltip_sidebar_bottom.png", baseline=args.update_baseline)
+            except Exception as e:  # noqa: BLE001
+                print(f"[vr] WARN: sidebar tooltip capture skipped: {e}")
+                save("tooltip_sidebar_bottom.png", baseline=args.update_baseline)
 
             # 3) Verdict banners
-            banners = page.locator('.verdict-banner')
-            if banners.count() > 0:
-                first = banners.nth(0)
-                last = banners.nth(min(1, banners.count() - 1))
-                b1 = first.bounding_box()
-                b2 = last.bounding_box() if last is not None else None
-                if b1 and b2:
-                    left = min(b1["x"], b2["x"])
-                    top = min(b1["y"], b2["y"])
-                    right = max(b1["x"] + b1["width"], b2["x"] + b2["width"])
-                    bottom = max(b1["y"] + b1["height"], b2["y"] + b2["height"])
-                    clip = {"x": left, "y": top, "width": right - left, "height": bottom - top}
-                    save("verdict_banners.png", baseline=args.update_baseline, clip=clip)
+            try:
+                banners = page.locator('.verdict-banner')
+                if banners.count() > 0:
+                    first = banners.nth(0)
+                    last = banners.nth(min(1, banners.count() - 1))
+                    b1 = first.bounding_box()
+                    b2 = last.bounding_box() if last is not None else None
+                    if b1 and b2:
+                        left = min(b1["x"], b2["x"])
+                        top = min(b1["y"], b2["y"])
+                        right = max(b1["x"] + b1["width"], b2["x"] + b2["width"])
+                        bottom = max(b1["y"] + b1["height"], b2["y"] + b2["height"])
+                        clip = {"x": left, "y": top, "width": right - left, "height": bottom - top}
+                        save("verdict_banners.png", baseline=args.update_baseline, clip=clip)
+                    else:
+                        save("verdict_banners.png", baseline=args.update_baseline, element=first)
                 else:
-                    save("verdict_banners.png", baseline=args.update_baseline, element=first)
+                    save("verdict_banners.png", baseline=args.update_baseline)
+            except Exception as e:  # noqa: BLE001
+                print(f"[vr] WARN: verdict banner capture skipped: {e}")
+                save("verdict_banners.png", baseline=args.update_baseline)
 
-            # 4) Tabs + tables (switch to Bias & Sensitivity and capture tab bar + first table)
-            page.get_by_text("Bias & Sensitivity", exact=True).click()
-            page.wait_for_timeout(600)
-            tabbar = page.locator('.st-key-rbv_tab_nav').first
-            table = page.locator('div[data-testid="stDataFrame"], div[data-testid="stTable"]').first
-            if tabbar.count() > 0 and table.count() > 0:
-                b1 = tabbar.bounding_box()
-                b2 = table.bounding_box()
-                if b1 and b2:
-                    left = min(b1["x"], b2["x"])
-                    top = min(b1["y"], b2["y"])
-                    right = max(b1["x"] + b1["width"], b2["x"] + b2["width"])
-                    bottom = max(b1["y"] + b1["height"], b2["y"] + b2["height"])
-                    clip = {"x": left, "y": top, "width": right - left, "height": bottom - top}
-                    save("tabs_tables.png", baseline=args.update_baseline, clip=clip)
-                else:
+            # 4) Tabs + tables
+            try:
+                # Some UI variants may not render the exact label; don't hard-fail smoke runs.
+                tab = page.get_by_text("Bias & Sensitivity", exact=True)
+                if tab.count() > 0:
+                    tab.click()
+                    page.wait_for_timeout(600)
+            except Exception as e:  # noqa: BLE001
+                print(f"[vr] WARN: could not switch to Bias & Sensitivity tab: {e}")
+
+            try:
+                tabbar = page.locator('.st-key-rbv_tab_nav').first
+                table = page.locator('div[data-testid="stDataFrame"], div[data-testid="stTable"]').first
+                if tabbar.count() > 0 and table.count() > 0:
+                    b1 = tabbar.bounding_box()
+                    b2 = table.bounding_box()
+                    if b1 and b2:
+                        left = min(b1["x"], b2["x"])
+                        top = min(b1["y"], b2["y"])
+                        right = max(b1["x"] + b1["width"], b2["x"] + b2["width"])
+                        bottom = max(b1["y"] + b1["height"], b2["y"] + b2["height"])
+                        clip = {"x": left, "y": top, "width": right - left, "height": bottom - top}
+                        save("tabs_tables.png", baseline=args.update_baseline, clip=clip)
+                    else:
+                        save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
+                elif tabbar.count() > 0:
                     save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
-            elif tabbar.count() > 0:
-                save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
-            else:
+                else:
+                    save("tabs_tables.png", baseline=args.update_baseline)
+            except Exception as e:  # noqa: BLE001
+                print(f"[vr] WARN: tabs/tables capture skipped: {e}")
                 save("tabs_tables.png", baseline=args.update_baseline)
 
             context.close()

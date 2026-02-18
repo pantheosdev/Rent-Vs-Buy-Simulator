@@ -4,6 +4,16 @@
 ## Unreleased
 - TBD
 
+## v2.88
+- Premium dark fintech action-button styling (muted glassy gradients, light text, focus rings)
+- Add .gitattributes to stabilize line endings across OS
+- README scaffolding for screenshots/GIF (docs/media/)
+
+## v2.87
+- Fix (CI): Resolved Ruff lint failure (undefined `_mc_cap`) by adding a horizon-aware MC sims cap used for warnings only.
+- CI/VR: Hardened Playwright visual regression script so smoke runs don't fail on minor UI variations (fallback screenshots + non-fatal missing elements).
+- CI: Updated Ruff config to the non-deprecated `[tool.ruff.lint]` format.
+
 ## v2.86
 - QA: Added **Truth Tables** suite (`rbv/qa/qa_truth_tables.py`) with explicit numeric invariants for mortgage math, CMHC/PST recompute, liquidation CG logic, rent-control cadence, and MC determinism.
 - QA runner: `run_all_qa.py` now includes the `truth_tables` suite.

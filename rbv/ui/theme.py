@@ -3321,13 +3321,34 @@ hr, div[data-testid="stDivider"]{
 # - Primary buttons (compute/download/enable) should be visually obvious (green).
 # - Secondary buttons are reserved for destructive actions (stop/disable) (red).
 _RBV_ACTION_BUTTONS_CSS = r"""
-/* ================= RBV ACTION BUTTON EMPHASIS (v2.85) ================= */
+/* ================= RBV ACTION BUTTON EMPHASIS (v2.88) =================
+   Goal: premium fintech look on dark theme:
+   - Tinted glassy gradients (not flat neon)
+   - Light text (white/soft gray) consistent with rest of UI
+   - Clear primary vs destructive affordance
+====================================================================== */
 :root{
-  --rbv-action: #34C26B;
-  --rbv-action-2: #2DAA5D;
-  --rbv-danger: #E05252;
-  --rbv-danger-2: #C94343;
-  --rbv-btn-text-dark: #07110B;
+  /* Muted, premium accents (avoid neon) */
+  --rbv-action: rgba(52,194,107,0.32);
+  --rbv-action-2: rgba(52,194,107,0.14);
+  --rbv-action-border: rgba(52,194,107,0.45);
+
+  --rbv-danger: rgba(224,82,82,0.30);
+  --rbv-danger-2: rgba(224,82,82,0.12);
+  --rbv-danger-border: rgba(224,82,82,0.46);
+
+  --rbv-btn-base: rgba(18,22,30,0.92);
+  --rbv-btn-text: rgba(243,245,248,0.92);   /* soft white */
+  --rbv-btn-text-2: rgba(243,245,248,0.86);
+}
+
+/* Shared button polish */
+div[data-testid="stButton"] button,
+div[data-testid="stDownloadButton"] button,
+button[data-testid^="baseButton-"]{
+  border-radius: 14px !important;
+  letter-spacing: 0.01em !important;
+  transition: transform 120ms ease, box-shadow 140ms ease, filter 140ms ease, border-color 140ms ease !important;
 }
 
 /* Primary (green) */
@@ -3335,18 +3356,34 @@ button[kind="primary"],
 button[data-testid="baseButton-primary"],
 div[data-testid="stButton"] button[kind="primary"],
 div[data-testid="stDownloadButton"] button[kind="primary"]{
-  background: linear-gradient(180deg, var(--rbv-action) 0%, var(--rbv-action-2) 100%) !important;
-  border: 1px solid rgba(52,194,107,0.65) !important;
-  color: var(--rbv-btn-text-dark) !important;
-  font-weight: 800 !important;
-  box-shadow: 0 14px 30px rgba(52,194,107,0.18), 0 0 0 1px rgba(52,194,107,0.10) inset !important;
+  background:
+    linear-gradient(180deg, var(--rbv-action) 0%, var(--rbv-action-2) 100%),
+    var(--rbv-btn-base) !important;
+  border: 1px solid var(--rbv-action-border) !important;
+  color: var(--rbv-btn-text) !important;
+  font-weight: 780 !important;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.40),
+    0 10px 26px rgba(52,194,107,0.14),
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 1px 0 rgba(255,255,255,0.05) inset !important;
 }
+button[kind="primary"] * ,
+button[data-testid="baseButton-primary"] *{
+  color: var(--rbv-btn-text) !important;
+}
+
 button[kind="primary"]:hover,
 button[data-testid="baseButton-primary"]:hover,
 div[data-testid="stButton"] button[kind="primary"]:hover,
 div[data-testid="stDownloadButton"] button[kind="primary"]:hover{
-  filter: brightness(1.03) saturate(1.05) !important;
-  box-shadow: 0 16px 34px rgba(52,194,107,0.24), 0 0 0 1px rgba(52,194,107,0.14) inset !important;
+  border-color: rgba(52,194,107,0.62) !important;
+  filter: saturate(1.06) brightness(1.02) !important;
+  box-shadow:
+    0 14px 32px rgba(0,0,0,0.44),
+    0 12px 30px rgba(52,194,107,0.20),
+    0 0 0 1px rgba(255,255,255,0.05) inset,
+    0 1px 0 rgba(255,255,255,0.07) inset !important;
   transform: translateY(-1px) !important;
 }
 button[kind="primary"]:active,
@@ -3354,35 +3391,54 @@ button[data-testid="baseButton-primary"]:active{
   transform: translateY(0px) !important;
 }
 
-/* Secondary (danger red) — use ONLY for destructive actions */
+/* Destructive (red) — use ONLY for destructive actions */
 button[kind="secondary"],
 button[data-testid="baseButton-secondary"],
 div[data-testid="stButton"] button[kind="secondary"]{
-  background: linear-gradient(180deg, var(--rbv-danger) 0%, var(--rbv-danger-2) 100%) !important;
-  border: 1px solid rgba(224,82,82,0.70) !important;
-  color: #0E0606 !important;
-  font-weight: 850 !important;
-  box-shadow: 0 14px 30px rgba(224,82,82,0.16), 0 0 0 1px rgba(224,82,82,0.10) inset !important;
-}
-button[kind="secondary"]:hover,
-button[data-testid="baseButton-secondary"]:hover,
-div[data-testid="stButton"] button[kind="secondary"]:hover{
-  filter: brightness(1.03) saturate(1.05) !important;
-  box-shadow: 0 16px 34px rgba(224,82,82,0.22), 0 0 0 1px rgba(224,82,82,0.14) inset !important;
-  transform: translateY(-1px) !important;
-}
-
-/* Ensure button label text stays legible (Streamlit wraps text inside nested spans/divs) */
-button[kind="primary"] * ,
-button[data-testid="baseButton-primary"] *{
-  color: var(--rbv-btn-text-dark) !important;
+  background:
+    linear-gradient(180deg, var(--rbv-danger) 0%, var(--rbv-danger-2) 100%),
+    var(--rbv-btn-base) !important;
+  border: 1px solid var(--rbv-danger-border) !important;
+  color: var(--rbv-btn-text) !important;
+  font-weight: 790 !important;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.40),
+    0 10px 26px rgba(224,82,82,0.12),
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 1px 0 rgba(255,255,255,0.05) inset !important;
 }
 button[kind="secondary"] * ,
 button[data-testid="baseButton-secondary"] *{
-  color: #0E0606 !important;
+  color: var(--rbv-btn-text) !important;
+}
+
+button[kind="secondary"]:hover,
+button[data-testid="baseButton-secondary"]:hover,
+div[data-testid="stButton"] button[kind="secondary"]:hover{
+  border-color: rgba(224,82,82,0.66) !important;
+  filter: saturate(1.06) brightness(1.02) !important;
+  box-shadow:
+    0 14px 32px rgba(0,0,0,0.44),
+    0 12px 30px rgba(224,82,82,0.18),
+    0 0 0 1px rgba(255,255,255,0.05) inset,
+    0 1px 0 rgba(255,255,255,0.07) inset !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Keyboard focus (accessibility): strong but on-brand */
+button[kind="primary"]:focus-visible,
+button[data-testid="baseButton-primary"]:focus-visible{
+  outline: 2px solid rgba(52,194,107,0.70) !important;
+  outline-offset: 2px !important;
+}
+button[kind="secondary"]:focus-visible,
+button[data-testid="baseButton-secondary"]:focus-visible{
+  outline: 2px solid rgba(224,82,82,0.72) !important;
+  outline-offset: 2px !important;
 }
 /* ================= END ACTION BUTTON EMPHASIS ================= */
 """
+
 
 
 def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:

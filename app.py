@@ -1355,6 +1355,30 @@ with st.sidebar:
             sim_mode = "Fast"
             st.session_state["sim_mode"] = "Fast"
         fast_mode = (sim_mode == "Fast")
+
+        # Horizon-aware guidance for advanced overrides.
+        # Larger horizons multiply the monthly simulation workload and can trigger slow, non-vectorized fallbacks.
+        try:
+            years = int(st.session_state.get("years", 25) or 25)
+        except Exception:
+            years = 25
+
+        def _mc_cap_for_horizon(yrs: int) -> int:
+            """Soft cap for Main MC sims used only for a UI warning.
+
+            This does NOT clamp user input. It's a guardrail to reduce accidental long runs.
+            """
+            if yrs <= 10:
+                return 200_000
+            if yrs <= 20:
+                return 150_000
+            if yrs <= 30:
+                return 100_000
+            if yrs <= 40:
+                return 80_000
+            return 60_000
+
+        _mc_cap = _mc_cap_for_horizon(years)
     
         # Mode presets (public-facing simplification: no manual sim/grid tweaking required)
         # Main Monte Carlo sims (single-scenario analysis)

@@ -1,5 +1,7 @@
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
 # Keep lint extremely lightweight to avoid noisy public CI.
 select = ["E9", "F63", "F7", "F82"]
 
