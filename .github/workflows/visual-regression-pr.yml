@@ -41,14 +41,14 @@ jobs:
 
       - name: Upload snapshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: vr-snapshots
           path: tools/visual_regression/output
 
       - name: Upload diffs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: vr-diffs
           path: tools/visual_regression/diffs

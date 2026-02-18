@@ -35,7 +35,7 @@ jobs:
           RBV_CHROMIUM_EXECUTABLE="$CHROME_PATH" python tools/visual_regression/vr_playwright.py --smoke
 
       - name: Upload snapshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: visual-regression-snapshots
           path: tools/visual_regression/output
