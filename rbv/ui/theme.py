@@ -364,6 +364,40 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
     .title-banner{ font-size: 1.25rem; padding: 14px 12px; border-radius: 16px; }
 }
 
+
+/* --- DISCLAIMER BANNER (above the fold) --- */
+.rbv-disclaimer{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  padding: 12px 14px;
+  margin: 0 0 14px 0;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 16px 36px rgba(0,0,0,0.50);
+}
+.rbv-disclaimer .rbv-disclaimer-badge{
+  flex: 0 0 auto;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(230,184,0,0.12);
+  border: 1px solid rgba(230,184,0,0.35);
+  color: rgba(255,244,204,0.95);
+}
+.rbv-disclaimer .rbv-disclaimer-text{
+  color: rgba(241,241,243,0.88);
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.rbv-disclaimer .rbv-disclaimer-text b{
+  color: rgba(247,250,255,0.96);
+  font-weight: 800;
+}
+
 /* TOP HEADER / TOOLBAR (keep hamburger visible, remove white strip) */
     header[data-testid="stHeader"] { background: #000000 !important; }
     header[data-testid="stHeader"] * { color: #E2E8F0 !important; }

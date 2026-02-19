@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from .mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
+from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv
 
 
 def _f(x, default=0.0):
@@ -277,7 +278,7 @@ def _run_monte_carlo_vectorized(
         else:
             bg = math.exp(float(buyer_mo))
             rg = math.exp(float(renter_mo))
-            hg = math.exp(float(apprec_annual_dec) / 12.0)
+            hg = math.exp(_annual_effective_dec_to_monthly_log_mu(float(apprec_annual_dec)))
             b_growth = bg
             r_growth = rg
             home_growth = hg
@@ -1581,30 +1582,58 @@ def run_simulation_core(
         loan_use = max(float(price_use) - float(down_use), 0.0)
         ltv_use = (loan_use / float(price_use)) if float(price_use) > 0 else 0.0
 
-        # CMHC not available for purchases >= $1,000,000; otherwise use tier logic
+        # Mortgage loan insurance (CMHC / other insurer proxies).
+        # We key eligibility rules off an as-of date so results remain auditable over time.
+        _asof_raw = _overrides.get("asof_date", cfg.get("asof_date", None))
+        asof_date = None
+        if _asof_raw:
+            try:
+                if hasattr(_asof_raw, "year"):
+                    asof_date = _asof_raw
+                else:
+                    import datetime as _dt
+                    asof_date = _dt.date.fromisoformat(str(_asof_raw)[:10])
+            except Exception:
+                asof_date = None
+        if asof_date is None:
+            import datetime as _dt
+            asof_date = _dt.date.today()
+
+        price_cap = insured_mortgage_price_cap(asof_date)
+        min_down = min_down_payment_canada(float(price_use), asof_date)
+
         cmhc_r_use = 0.0
-        if float(price_use) < 1_000_000 and ltv_use > 0.8:
-            cmhc_r_use = 0.04 if ltv_use > 0.9 else (0.031 if ltv_use > 0.85 else 0.028)
+        prem_use = 0.0
+        pst_use = 0.0
 
-        prem_use = loan_use * float(cmhc_r_use)
+        cmhc_attempt = (float(price_use) > 0.0) and (ltv_use > 0.8)
+        cmhc_eligible = cmhc_attempt and (float(price_use) < float(price_cap)) and (float(down_use) + 1e-9 >= float(min_down))
 
-        # PST/QST on CMHC premium is province-dependent
-        _pst_rate_use = 0.0
-        _prov_use = str(_overrides.get("province", cfg.get("province", "")) or "").strip().lower()
-        if _prov_use == "ontario":
-            _pst_rate_use = 0.08
-        elif _prov_use == "saskatchewan":
-            _pst_rate_use = 0.06
-        elif _prov_use == "quebec":
-            _pst_rate_use = 0.09975
-        pst_use = prem_use * float(_pst_rate_use)
+        if cmhc_eligible:
+            cmhc_r_use = cmhc_premium_rate_from_ltv(float(ltv_use))
+            prem_use = loan_use * float(cmhc_r_use)
 
+            # PST/QST on the insurance premium is province-dependent (QC/ON/SK).
+            _pst_rate_use = 0.0
+            _prov_use = str(_overrides.get("province", cfg.get("province", "")) or "").strip().lower()
+            if _prov_use == "ontario":
+                _pst_rate_use = 0.08
+            elif _prov_use == "saskatchewan":
+                _pst_rate_use = 0.06
+            elif _prov_use == "quebec":
+                _pst_rate_use = 0.09975
+            pst_use = prem_use * float(_pst_rate_use)
+
+        # Base closing costs excluding PST/QST on the insurance premium.
+        # (The UI usually pre-adds pst into `close`; when price/down are overridden we must recompute.)
         try:
             _close_base = float(close) - float(pst)
         except Exception:
             _close_base = float(close)
 
         close_use = float(_close_base) + float(pst_use)
+
+        # Mortgage principal includes the premium when applicable.
         mort_use = float(loan_use) + float(prem_use)
 
     # Mortgage nominal annual rate (possibly overridden)
@@ -1622,12 +1651,14 @@ def run_simulation_core(
     else:
         pmt_use = 0.0
 
-    # Rent inflation override (accept percent or decimal)
+    # Rent inflation override
+    # Contract:
+    #   - cfg['rent_inf'] is annual effective *decimal* (e.g., 0.03 == 3%)
+    #   - rent_inf_override_pct is in percent points (e.g., 3.0 == 3%)
     rent_inf_use = float(rent_inf_base)
-    if abs(rent_inf_use) > 1.0:
-        rent_inf_use = rent_inf_use / 100.0
     if rent_inf_override_pct is not None:
         rent_inf_use = float(rent_inf_override_pct) / 100.0
+    # Guard against log-domain issues (used downstream in some growth models).
     if rent_inf_use <= -1.0:
         rent_inf_use = -0.99
 
@@ -1797,7 +1828,7 @@ def run_simulation_core(
                     rate_shock_enabled_eff, rate_shock_start_year_eff, rate_shock_duration_years_eff, rate_shock_pp_eff,
                     crisis_enabled, crisis_year, crisis_stock_dd, crisis_house_dd, crisis_duration_months,
                     budget_enabled, monthly_income, monthly_nonhousing, income_growth_pct, budget_allow_withdraw,
-                    condo_inf / 12.0, assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
+                    _annual_effective_dec_to_monthly_eff(float(condo_inf)), assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
                     mort_rate_nominal_pct_use, canadian_compounding,
                     prop_tax_growth_model, prop_tax_hybrid_addon_pct,
                     investment_tax_mode,
@@ -1988,7 +2019,7 @@ def run_simulation_core(
             rate_shock_enabled_eff, rate_shock_start_year_eff, rate_shock_duration_years_eff, rate_shock_pp_eff,
             crisis_enabled, crisis_year, crisis_stock_dd, crisis_house_dd, crisis_duration_months,
             budget_enabled, monthly_income, monthly_nonhousing, income_growth_pct, budget_allow_withdraw,
-            condo_inf / 12.0, assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
+            _annual_effective_dec_to_monthly_eff(float(condo_inf)), assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
             mort_rate_nominal_pct_use, canadian_compounding,
             prop_tax_growth_model, prop_tax_hybrid_addon_pct,
             investment_tax_mode,
@@ -2025,7 +2056,7 @@ def simulate_single(
     years,
     buyer_mo,
     renter_mo,
-    apprec_mo_dec,
+    apprec_annual_dec,
     mr,
     nm,
     pmt,
@@ -2142,11 +2173,11 @@ def simulate_single(
             r_growth = np.exp(renter_mo - 0.5 * ret_std_mo ** 2 + ret_std_mo * stock_shock)
 
             monthly_sigma = apprec_std_mo
-            home_growth = np.exp(_annual_effective_dec_to_monthly_log_mu(apprec_mo_dec) - 0.5 * monthly_sigma ** 2 + monthly_sigma * house_shock)
+            home_growth = np.exp(_annual_effective_dec_to_monthly_log_mu(apprec_annual_dec) - 0.5 * monthly_sigma ** 2 + monthly_sigma * house_shock)
         else:
             b_growth = np.exp(buyer_mo)
             r_growth = np.exp(renter_mo)
-            home_growth = np.exp(_annual_effective_dec_to_monthly_log_mu(apprec_mo_dec))
+            home_growth = np.exp(_annual_effective_dec_to_monthly_log_mu(apprec_annual_dec))
 
         # Mortgage rate resets (renewals)
         rate_changed = False

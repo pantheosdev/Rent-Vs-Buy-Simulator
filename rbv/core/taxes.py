@@ -5,6 +5,10 @@ import datetime
 
 
 
+
+
+# Policy freshness marker (used by CI reminder workflows)
+TAX_RULES_LAST_REVIEWED = datetime.date(2026, 2, 19)
 PROVINCES = [
     "Ontario", "British Columbia", "Alberta", "Quebec", "Manitoba", "Saskatchewan",
     "Nova Scotia", "New Brunswick", "Newfoundland and Labrador", "Prince Edward Island",
@@ -109,21 +113,16 @@ def calc_ptt_bc(p: float) -> float:
     p = round(float(p), 2)
     tax = 0.0
     # 1% on first 200k
-    tax += min(p, 200000) * 0.01
+    tax += min(p, 200_000.0) * 0.01
     # 2% on 200k-2M
-    if p > 200000:
-        tax += min(p, 2000000) - 200000
-        tax *= 1.0  # keep readable; actual rate applied below
-    # re-compute cleanly to avoid confusion:
-    tax = min(p, 200000) * 0.01
-    if p > 200000:
-        tax += (min(p, 2000000) - 200000) * 0.02
+    if p > 200_000.0:
+        tax += (min(p, 2_000_000.0) - 200_000.0) * 0.02
     # 3% on 2M-3M
-    if p > 2000000:
-        tax += (min(p, 3000000) - 2000000) * 0.03
+    if p > 2_000_000.0:
+        tax += (min(p, 3_000_000.0) - 2_000_000.0) * 0.03
     # 5% on 3M+
-    if p > 3000000:
-        tax += (p - 3000000) * 0.05
+    if p > 3_000_000.0:
+        tax += (p - 3_000_000.0) * 0.05
     return tax
 
 def _calc_bracket_tax(amount: float, brackets: list[tuple[float, float]]) -> float:
@@ -177,19 +176,47 @@ def calc_land_transfer_tax_manitoba(price: float) -> float:
     ]
     return _calc_bracket_tax(p, brackets)
 
-def calc_transfer_duty_quebec_standard(price: float) -> float:
-    """Quebec 'Welcome tax' style duties (standard schedule used by many municipalities).
-    Note: Municipalities may apply additional rates in higher brackets; use override if needed.
-    Thresholds change periodically; these reflect commonly used thresholds in recent guidance.
+def calc_transfer_duty_quebec_baseline(price: float, asof_date: 'datetime.date | None' = None) -> float:
+    """Quebec 'welcome tax' baseline schedule (Droits sur les mutations immobilières).
+
+    Quebec municipalities can adopt higher rates in upper brackets. This function implements the *baseline*
+    schedule (0.5% / 1% / 1.5%) with annually indexed thresholds.
     """
-    p = float(price)
+    p = round(float(price), 2)
+    d = asof_date if isinstance(asof_date, datetime.date) else datetime.date.today()
+    y = int(getattr(d, "year", datetime.date.today().year))
+
+    # Indexed thresholds (CAD). Keep a small table to avoid silent drift.
+    if y <= 2024:
+        b1, b2 = 58_900.0, 294_600.0
+    elif y == 2025:
+        b1, b2 = 61_500.0, 307_800.0
+    else:
+        # 2026+ (use latest known indexation; update annually).
+        b1, b2 = 62_900.0, 315_000.0
+
     brackets = [
-        (62900.0, 0.005),
-        (315000.0, 0.01),
-        (552300.0, 0.015),
-        (1104700.0, 0.02),
-        (2136500.0, 0.025),
-        (3113000.0, 0.035),
+        (b1, 0.005),
+        (b2, 0.01),
+        (float("inf"), 0.015),
+    ]
+    return _calc_bracket_tax(p, brackets)
+
+
+def calc_transfer_duty_quebec_big_city(price: float, asof_date: 'datetime.date | None' = None) -> float:
+    """Example of a higher-bracket Quebec municipality schedule (e.g., Montréal-like tiers).
+
+    Not used by default; kept for future municipality selectors.
+    """
+    p = round(float(price), 2)
+
+    brackets = [
+        (62_900.0, 0.005),
+        (315_000.0, 0.01),
+        (552_300.0, 0.015),
+        (1_104_700.0, 0.02),
+        (2_136_500.0, 0.025),
+        (3_113_000.0, 0.035),
         (float("inf"), 0.04),
     ]
     return _calc_bracket_tax(p, brackets)
@@ -290,7 +317,7 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
         prov = calc_land_transfer_tax_manitoba(price)
 
     elif province == "Quebec":
-        prov = calc_transfer_duty_quebec_standard(price)
+        prov = calc_transfer_duty_quebec_baseline(price, asof_date=asof_date)
         note = "Quebec duties can vary by municipality (some apply higher rates in top brackets). Use override for precision."
 
     elif province == "New Brunswick":

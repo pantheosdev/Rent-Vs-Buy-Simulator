@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 import datetime
 import io
 import zipfile
-
 import functools
 
 # --- Global patch: strip Streamlit widget help tooltips (prevents sidebar "?" icons entirely)
@@ -34,6 +33,7 @@ from rbv.core.taxes import (
     calc_deed_transfer_tax_nova_scotia_default, calc_land_title_fee_alberta, calc_land_title_fee_saskatchewan, calc_land_transfer_tax_manitoba, calc_ltt_ontario, calc_ltt_toronto_municipal, calc_property_transfer_tax_new_brunswick, calc_ptt_bc, calc_real_property_transfer_tax_pei, calc_registration_fee_newfoundland, calc_transfer_duty_quebec_standard, calc_transfer_tax,
 )
 from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
+from rbv.core.policy_canada import min_down_payment_canada, insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
 
@@ -389,10 +389,10 @@ RBV_SIDEBAR_TOOLTIPS = {
     "Mortgage Rate Mode": "Choose how the mortgage rate behaves (fixed vs resets/renewals).",
     "Mortgage Rate (Fixed %)": "Nominal annual mortgage rate used for the payment calculation.",
     "Canadian mortgage compounding (semi-annual)": "If enabled, converts the nominal rate using Canadian semi-annual compounding before monthly payments.",
-    "Amortization Period (Years)": "Total amortization length used to compute the monthly mortgage payment.",
+    "Amortization Period (Years)": "Total amortization length used to compute the monthly mortgage payment. Note: 30-year amortization has eligibility restrictions in Canada (policy-dependent).",
     "Reset Frequency (Years)": "How often the mortgage rate resets/renews (approximation).",
     "Rate at Reset (%)": "Mortgage rate applied after a reset/renewal occurs.",
-    "Rate Change Per Reset (pp)": "Rate change applied at each reset (% per year).",
+    "Rate Change Per Reset (pp)": "Staircase applied at renewals: Renewal 1 = reset rate; Renewal 2 = reset rate + step; Renewal 3 = reset rate + 2×step; etc.",
     "Stress test: +2% rate shock at Year 5": "Adds a temporary rate shock (e.g., +2%) starting at year 5 for the configured duration.",
     "Add crisis shock event": "Adds a one-time drawdown event for home and/or portfolio at a specified year.",
     "Crisis year": "Year (from start) when the crisis drawdown is applied.",
@@ -758,7 +758,7 @@ def _rbv_basic_validation_errors() -> list:
 
 def _rbv_scenario_allowed_keys() -> list:
     base = list(defaults.keys()) if isinstance(defaults, dict) else []
-    extra = ["public_mode", "mc_randomize", "public_seed_mode", "sim_mode", "num_sims", "hm_grid_size", "hm_mc_sims", "bias_mc_sims", "mc_seed"]
+    extra = ["public_mode", "mc_randomize", "public_seed_mode", "sim_mode", "num_sims", "hm_grid_size", "hm_mc_sims", "bias_mc_sims", "mc_seed", "invest_surplus_input", "budget_enabled", "crisis_enabled", "budget_allow_withdraw", "rate_mode", "rate_reset_years", "rate_reset_to", "rate_reset_step_pp"]
     # Keep this conservative: only keys we explicitly support for public import/export.
     return list(dict.fromkeys(base + extra))
 
@@ -797,6 +797,69 @@ def _rbv_apply_scenario_state(state: dict) -> None:
         except Exception:
             # best-effort; skip malformed entries
             pass
+
+
+# --- Shareable scenario URL (compact, bookmarkable) ---
+# Encodes the allowed scenario state into a URL-safe token stored in query param `s`.
+import base64
+import zlib
+
+def _rbv_state_to_share_token(state: dict) -> str:
+    raw = json.dumps(state or {}, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    comp = zlib.compress(raw, level=9)
+    return base64.urlsafe_b64encode(comp).decode("ascii").rstrip("=")
+
+def _rbv_share_token_to_state(token: str) -> dict:
+    t = (token or "").strip()
+    if not t:
+        return {}
+    pad = "=" * ((4 - (len(t) % 4)) % 4)
+    comp = base64.urlsafe_b64decode((t + pad).encode("ascii"))
+    raw = zlib.decompress(comp)
+    obj = json.loads(raw.decode("utf-8"))
+    return obj if isinstance(obj, dict) else {}
+
+def _rbv_get_query_params() -> dict:
+    try:
+        # Streamlit >= 1.31
+        return dict(st.query_params)
+    except Exception:
+        try:
+            return st.experimental_get_query_params()
+        except Exception:
+            return {}
+
+def _rbv_set_query_params(**kwargs) -> None:
+    try:
+        st.query_params.clear()
+        for k, v in kwargs.items():
+            if v is None:
+                continue
+            st.query_params[k] = str(v)
+    except Exception:
+        try:
+            st.experimental_set_query_params(**{k: v for k, v in kwargs.items() if v is not None})
+        except Exception:
+            pass
+
+def _rbv_maybe_load_scenario_from_url() -> None:
+    qp = _rbv_get_query_params() or {}
+    token = qp.get("s", None)
+    if isinstance(token, (list, tuple)):
+        token = token[0] if token else None
+    if not token:
+        return
+    if st.session_state.get("_rbv_loaded_share_token") == str(token):
+        return
+
+    try:
+        state = _rbv_share_token_to_state(str(token))
+        if state:
+            _rbv_apply_scenario_state(state)
+            st.session_state["_rbv_loaded_share_token"] = str(token)
+            st.session_state.setdefault("_rbv_diag", []).append({"kind": "info", "message": "Loaded scenario from share link."})
+    except Exception as e:
+        st.session_state.setdefault("_rbv_diag", []).append({"kind": "warn", "message": f"Failed to load scenario from URL: {e}"})
 
 def _rbv_build_results_bundle_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, win_pct=None) -> bytes:
     buf = io.BytesIO()
@@ -987,6 +1050,10 @@ rate_shock_duration_years = 5
 rate_shock_pp = 2.0
 
 
+
+# Load scenario from share-link (URL param) before rendering widgets
+_rbv_maybe_load_scenario_from_url()
+
 with st.sidebar:
     # Stop long-running computations (Heatmap / Bias / Monte Carlo). Clicking triggers a rerun which interrupts at the next UI update.
     try:
@@ -1084,6 +1151,33 @@ with st.sidebar:
                 )
         except Exception:
             pass
+
+        # Shareable link (URL param). Click to update your browser URL, then copy it from the address bar.
+        try:
+            if st.button("Generate share link", use_container_width=True, key="rbv_share_link_btn"):
+                _state = _rbv_capture_scenario_state()
+                _tok = _rbv_state_to_share_token(_state)
+                st.session_state["_rbv_share_token"] = _tok
+                _rbv_set_query_params(s=_tok)
+                st.rerun()
+        except Exception:
+            pass
+
+        try:
+            _tok_now = st.session_state.get("_rbv_share_token")
+            if not _tok_now:
+                _qp = _rbv_get_query_params() or {}
+                _tok_now = _qp.get("s", None)
+                if isinstance(_tok_now, (list, tuple)):
+                    _tok_now = _tok_now[0] if _tok_now else None
+            if _tok_now:
+                st.text_input("Share token (URL param)", value=f"s={_tok_now}", disabled=True)
+                st.caption("Tip: the URL in your browser has been updated. Copy it to bookmark/share this scenario.")
+        except Exception:
+            pass
+
+
+
 
         _up = st.file_uploader("Load scenario (.json)", type=["json"], key="rbv_scenario_upload")
         if _up is not None:
@@ -1236,7 +1330,11 @@ with st.sidebar:
 
 
     with st.expander("🧠 Behavioral & Advanced", expanded=False):
-        invest_surplus_input = st.checkbox("Invest Monthly Surplus?", value=True)
+        invest_surplus_input = st.checkbox(
+            "Invest Monthly Surplus?",
+            value=bool(st.session_state.get("invest_surplus_input", True)),
+            key="invest_surplus_input",
+        )
         if "renter_uses_closing_input" not in st.session_state:
             st.session_state["renter_uses_closing_input"] = True
         renter_uses_closing_input = st.checkbox(
@@ -1250,7 +1348,8 @@ with st.sidebar:
         st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
         crisis_enabled = st.checkbox(
             "Add crisis shock event",
-            value=False,
+            value=bool(st.session_state.get("crisis_enabled", False)),
+            key="crisis_enabled",
         )
         _years_cap = int(st.session_state.get("years", 25))
         if crisis_enabled:
@@ -1267,8 +1366,11 @@ with st.sidebar:
         st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
         budget_enabled = st.checkbox(
             "Enable income/budget constraints (experimental)",
-            value=False,
+            value=bool(st.session_state.get("budget_enabled", False)),
+            key="budget_enabled",
         )
+        if budget_enabled and bool(invest_surplus_input):
+            st.caption("Budget mode is ON — the model uses income/budget cashflows, so monthly-surplus investing is ignored.")
         if budget_enabled:
             monthly_income = st.number_input("After-tax household income ($/mo)", value=12000, min_value=0, step=100)
             monthly_nonhousing = st.number_input(
@@ -1280,7 +1382,8 @@ with st.sidebar:
             income_growth_pct = st.number_input("Income growth (%/yr)", value=3.0, step=0.1, format="%.2f")
             budget_allow_withdraw = st.checkbox(
                 "Allow portfolio drawdown to fund deficits",
-                value=True,
+                value=bool(st.session_state.get("budget_allow_withdraw", True)),
+                key="budget_allow_withdraw",
             )
         else:
             monthly_income = 0.0
@@ -1292,7 +1395,8 @@ with st.sidebar:
         rate_mode = st.selectbox(
             "Mortgage Rate Mode",
             options=["Fixed", "Reset every N years"],
-            index=0,
+            index=(0 if st.session_state.get("rate_mode", "Fixed") == "Fixed" else 1),
+            key="rate_mode",
 )
         rate_reset_years = None
         rate_reset_to = None
@@ -1300,21 +1404,24 @@ with st.sidebar:
         if rate_mode == "Reset every N years":
             rate_reset_years = st.number_input(
                 "Reset Frequency (Years)",
-                value=5,
+                value=int(st.session_state.get("rate_reset_years", 5) or 5),
+                key="rate_reset_years",
                 step=1,
                 min_value=1,
                 max_value=10,
 )
             rate_reset_to = st.number_input(
                 "Rate at Reset (%)",
-                value=float(rate),
+                value=float(st.session_state.get("rate_reset_to", float(rate)) or float(rate)),
+                key="rate_reset_to",
                 step=0.1,
                 format="%.2f",
                 min_value=0.0,
 )
             rate_reset_step_pp = st.number_input(
                 "Rate Change Per Reset (pp)",
-                value=0.0,
+                value=float(st.session_state.get("rate_reset_step_pp", 0.0) or 0.0),
+                key="rate_reset_step_pp",
                 step=0.1,
                 format="%.2f",
 )
@@ -1707,6 +1814,16 @@ except Exception:
 # ----------------------
 # Main page header & primary inputs (v2_41)
 st.markdown('<div class="title-banner">Rent vs Buy Analysis</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="rbv-disclaimer">'
+    '<div class="rbv-disclaimer-badge">Educational</div>'
+    '<div class="rbv-disclaimer-text"><b>Not financial advice.</b> This simulator is for scenario planning only. '
+    'It uses simplified tax/policy assumptions and cannot capture underwriting, exemptions, or your personal situation. '
+    'Verify numbers with official sources and consult a licensed professional before making decisions.</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
 st.markdown('<div style=\"height:16px;\"></div>', unsafe_allow_html=True)
 
 # Buying & Renting inputs live on the main page (sidebar is for global settings / advanced controls)
@@ -1761,7 +1878,7 @@ with brow1[2]:
 with brow1[3]:
     amort = rbv_number_input(
         "Amortization (years)",
-        tooltip="Total amortization period used to compute the fixed monthly mortgage payment.",
+        tooltip="Total amortization period used to compute the fixed monthly mortgage payment. Note: 30-year amortizations can have eligibility restrictions in Canada (e.g., certain first-time buyer / new-build cases).",
         min_value=1,
         value=int(vals.get("amort", 25)),
         step=1,
@@ -1959,6 +2076,14 @@ if isinstance(_mf_raw_ui, str):
         nums = re.findall(r"[-+]?\d*\.?\d+", s)
         st.session_state["moving_freq"] = int(float(nums[0])) if nums else 5
 
+elif isinstance(_mf_raw_ui, (int, float)):
+    try:
+        if float(_mf_raw_ui) <= 0:
+            st.session_state["moving_freq"] = 9999
+    except Exception:
+        pass
+
+
 st.markdown('<div class="rbv-input-subhead">Rent & Investing</div>', unsafe_allow_html=True)
 
 rrow1 = st.columns(4)
@@ -2092,24 +2217,21 @@ loan = max(price - down, 0)
 ltv = loan / price if price > 0 else 0
 insured = ltv > 0.8
 
-# Minimum down payment (Canada): 5% on first $500k + 10% on the remainder up to $1.5M; 20% at/above $1.5M.
+# Minimum down payment (Canada) — policy helper (rules change over time; see rbv.core.policy_canada).
 if price <= 0:
     min_down_amt = 0.0
-elif price < 500_000:
-    min_down_amt = 0.05 * price
-elif price < 1_500_000:
-    min_down_amt = 0.05 * 500_000 + 0.10 * (price - 500_000)
 else:
-    min_down_amt = 0.20 * price
+    min_down_amt = float(min_down_payment_canada(float(price), datetime.date.today()))
 
 min_down_pct = (min_down_amt / price) if price > 0 else 0.0
 if down + 1e-6 < min_down_amt:
     st.error(f"Minimum down payment is about ${min_down_amt:,.0f} ({min_down_pct*100:.1f}%) for this price.")
     st.stop()
 
-# Default insurance eligibility (as of insured purchase price below $1.5M).
-if insured and price >= 1_500_000:
-    st.error("Default mortgage insurance is not available at/above $1.5M purchase price. Minimum 20% down required.")
+# Default insurance eligibility (price cap varies over time; current policy uses a $1.5M cap).
+_insured_cap = float(insured_mortgage_price_cap(datetime.date.today()))
+if insured and price >= _insured_cap:
+    st.error(f"Default mortgage insurance is not available at/above ${_insured_cap:,.0f} purchase price. Minimum 20% down required.")
     st.stop()
 if insured and ltv > 0.95:
     st.error("Maximum LTV for insured mortgages is 95%. Increase down payment to at least 5%.")
@@ -2142,7 +2264,7 @@ total_ltt = float(tt["total"])
 # Optional note (shown later in UI if non-empty)
 transfer_tax_note = tt.get("note","")
 
-cmhc_r = 0.04 if ltv > 0.9 else (0.031 if ltv > 0.85 else (0.028 if ltv > 0.8 else 0))
+cmhc_r = float(cmhc_premium_rate_from_ltv(float(ltv))) if insured else 0.0
 prem = loan * cmhc_r
 # PST/QST on CMHC premium is province-dependent (applies in QC/ON/SK).
 _pst_rate = 0.0
@@ -2349,6 +2471,7 @@ def _build_cfg():
 
     return {
         "years": years,
+        "asof_date": _tax_asof.isoformat() if hasattr(_tax_asof, "isoformat") else str(_tax_asof),
         "price": price,
         "rent": rent,
         "down": down,
@@ -2656,7 +2779,7 @@ def _rbv_core_sim_cache_key(cfg_obj: dict) -> str:
             "buyer_ret": float(st.session_state.get("buyer_ret", 0.0)),
             "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
             "apprec": float(st.session_state.get("apprec", 0.0)),
-            "invest_diff": bool(invest_surplus_input),
+            "invest_diff": bool(invest_surplus_input) and (not bool(budget_enabled)),
             "rent_closing": bool(renter_uses_closing_input),
             "mkt_corr": float(market_corr_input),
             "mc_seed": int(mc_seed) if mc_seed is not None else None,
@@ -2877,7 +3000,7 @@ def _rbv_verdict_breakeven_msg(cfg_run: dict, winner: str) -> str | None:
         "buyer_ret": buyer_ret_base,
         "renter_ret": renter_ret_base,
         "apprec": apprec_base,
-        "invest_diff": bool(globals().get("invest_surplus_input", False)),
+        "invest_diff": bool(st.session_state.get("invest_surplus_input", False)) and (not bool(st.session_state.get("budget_enabled", False))),
         "renter_uses_closing": bool(globals().get("renter_uses_closing_input", True)),
         "corr": float(globals().get("market_corr_input", 0.0)),
         "mc_mode": bool(mc_mode),
@@ -3027,7 +3150,7 @@ def _rbv_cashout_breakeven_pack(cfg_run: dict, winner: str, fast_mode: bool) -> 
         "buyer_ret": buyer_ret_base,
         "renter_ret": renter_ret_base,
         "apprec": apprec_base,
-        "invest_diff": bool(globals().get("invest_surplus_input", False)),
+        "invest_diff": bool(st.session_state.get("invest_surplus_input", False)) and (not bool(st.session_state.get("budget_enabled", False))),
         "renter_uses_closing": bool(globals().get("renter_uses_closing_input", True)),
         "corr": float(globals().get("market_corr_input", 0.0)),
         "mc_mode": bool(mc_mode),
@@ -3731,6 +3854,7 @@ if tab == _TAB_NET:
     )
     fig.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), use_container_width=True)
+    st.caption("Note: Buyer net worth permanently subtracts one-time closing costs (sunk costs), so it can start negative in Month 1.")
     
     view = st.radio("", ["Yearly", "Monthly"], horizontal=True, label_visibility="collapsed")
 

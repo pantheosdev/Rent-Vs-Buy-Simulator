@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.90 (2026-02-19)
+
+- UX: Added above-the-fold disclaimer banner (educational use only; not financial advice).
+- UX: Clarified mortgage renewal staircase behavior and amortization eligibility caveat via tooltips.
+- UX: Added explicit note that buyer net worth includes one-time closing costs (can start negative).
+- UX: Budget mode now explicitly warns that “Invest Monthly Surplus” is ignored; config passes effective `invest_diff=False` when budget is enabled.
+- Policy hygiene: Added policy freshness markers + scheduled GitHub Action (`policy-freshness.yml`) to prompt annual review.
+- Meta: Aligned `VERSION.txt` and `rbv.__version__` to the release version.
+
 ## v2.89 (2026-02-18)
 
 - CI: update GitHub Actions to v6 majors (checkout/setup-python/upload-artifact).
