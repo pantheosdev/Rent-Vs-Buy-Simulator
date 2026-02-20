@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.92.4
+- UX: Add a small **🔒/🔓 Expert mode status** line under the Expert mode toggle so users understand why advanced cash-out sensitivities are hidden.
+
+## v2.92.3
+- UX: Add **Expert mode** gate for advanced cash-out sensitivity toggles (hypothetical CG inclusion + registered shelter approximation).
+- Reproducibility: Scenario import/export now supports `expert_mode` and auto-enables it when importing advanced toggles.
+- Release readiness: Add GitHub Actions workflows for **QA** (ruff + QA) and **Release** (build zip on tag).
+- Preflight: Add **Ruff** lint + format checks as a required gate.
+- Visual regression tooling: Playwright harness now fails fast with a clear message if Streamlit is missing, and prints Streamlit startup failures.
+
+## v2.92.2
+- UI defaults now seed from scenario presets via `rbv.ui.defaults` (single source of truth).
+- Added QA truth-table gate to prevent preset/default drift.
+- Fixed version string consistency (`VERSION.txt` and `rbv.__version__`).
+
+## v2.92.1
+- Hotfix: Align first-load mortgage rate default with Baseline preset (4.75%).
+
+## v2.92.0 (2026-02-20)
+
+- Scenario: Add optional one-time **Special Assessment** shock (buyer-only, unrecoverable) with UI inputs and a monthly output column.
+- Output clarity: Add renter-series toggle (Recurring vs Total incl. moving) and a new **Monthly Unrecoverable Cost Over Time** chart.
+- Tax modeling: Add opt-in cash-out sensitivity knobs for **CG inclusion policy** (current vs hypothetical tiered) and a conservative **registered shelter** approximation.
+- QA: Extend Truth Tables to cover special assessment timing, tiered inclusion math, and shelter behavior.
+
 ## v2.90.4 (2026-02-20)
 
 - UX: Fix clipped custom tooltips by allowing KPI cards to overflow and restoring tooltip scrolling.

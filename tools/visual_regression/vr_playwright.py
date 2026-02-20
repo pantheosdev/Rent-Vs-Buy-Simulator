@@ -44,6 +44,31 @@ def _healthcheck(url: str, timeout_s: float = 40.0) -> None:
     raise RuntimeError(f"Streamlit healthcheck failed: {url} ({last_err})")
 
 
+def _healthcheck_with_proc(url: str, proc: subprocess.Popen, timeout_s: float = 40.0) -> None:
+    """Healthcheck that also fails fast if the Streamlit process exits."""
+    start = time.time()
+    last_err: Exception | None = None
+    while time.time() - start < timeout_s:
+        try:
+            if proc.poll() is not None:
+                # Streamlit exited early; capture tail for debugging.
+                out = ""
+                try:
+                    if proc.stdout is not None:
+                        out = proc.stdout.read() or ""
+                except Exception:
+                    out = ""
+                tail = "\n".join((out.splitlines()[-80:]))
+                raise RuntimeError(f"Streamlit exited early (code {proc.returncode}).\n{tail}")
+            with urllib.request.urlopen(url, timeout=2) as r:
+                if 200 <= r.status < 300:
+                    return
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+        time.sleep(0.25)
+    raise RuntimeError(f"Streamlit healthcheck failed: {url} ({last_err})")
+
+
 @contextlib.contextmanager
 def _run_streamlit(port: int = 8501):
     env = os.environ.copy()
@@ -63,6 +88,7 @@ def _run_streamlit(port: int = 8501):
         "--browser.gatherUsageStats",
         "false",
     ]
+    print(f"[vr] starting Streamlit on http://127.0.0.1:{port}")
     p = subprocess.Popen(
         cmd,
         cwd=str(ROOT),
@@ -72,7 +98,7 @@ def _run_streamlit(port: int = 8501):
         text=True,
     )
     try:
-        _healthcheck(f"http://127.0.0.1:{port}/_stcore/health")
+        _healthcheck_with_proc(f"http://127.0.0.1:{port}/_stcore/health", p)
         yield
     finally:
         with contextlib.suppress(Exception):
@@ -139,6 +165,14 @@ def main() -> int:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as e:
         print("Playwright not installed. Install dev deps:\n  pip install -r requirements-dev.txt\n  python -m playwright install")
+        print(f"Error: {e}")
+        return 2
+
+    # Ensure Streamlit is installed; otherwise _run_streamlit will hang on healthcheck.
+    try:
+        import streamlit  # noqa: F401
+    except Exception as e:
+        print("Streamlit not installed. Install runtime deps:\n  pip install -r requirements.txt")
         print(f"Error: {e}")
         return 2
 

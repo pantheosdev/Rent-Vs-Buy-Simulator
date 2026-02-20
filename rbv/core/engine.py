@@ -65,6 +65,85 @@ def _estimate_mc_mem_bytes(num_sims: int, months: int, arrays: int = 8, dtype_by
     except Exception:
         return 0
 
+def _taxable_gain_after_reg_shelter(gain, basis, years, enabled, initial_room, annual_room):
+    """Conservative registered-shelter approximation.
+
+    If enabled, treat up to (initial_room + annual_room * years) of *basis* as sheltered, and shelter gains pro-rata.
+    This is NOT a full TFSA/RRSP tax engine; it is a sensitivity knob that reduces taxable capital gains.
+
+    Works with scalars or numpy arrays.
+    """
+    if not bool(enabled):
+        return gain
+    try:
+        y = int(max(0, int(years)))
+    except Exception:
+        y = 0
+    try:
+        cap = max(0.0, float(initial_room)) + max(0.0, float(annual_room)) * float(y)
+    except Exception:
+        cap = 0.0
+    if cap <= 0.0:
+        return gain
+
+    g = np.asarray(gain, dtype=np.float64)
+    b = np.asarray(basis, dtype=np.float64)
+
+    sheltered_basis = np.minimum(b, cap)
+    frac = np.where(b > 0.0, sheltered_basis / b, 0.0)
+    taxable = g * (1.0 - frac)
+
+    try:
+        if np.isscalar(gain) and np.isscalar(basis):
+            return float(taxable)
+    except Exception:
+        pass
+    return taxable
+
+
+def _cg_tax_due(taxable_gain, eff_cg_rate, policy, threshold):
+    """Compute capital gains tax due under an optional inclusion-policy toggle.
+
+    - eff_cg_rate is the *effective* tax rate on gains under the baseline inclusion (decimal; e.g., 0.225).
+    - policy:
+        - "current" (default): flat eff_cg_rate on all gains.
+        - "proposed_2_3_over_250k": applies a 4/3 multiplier to the effective rate above threshold,
+          reflecting 50% -> 66.67% inclusion (i.e., 0.5*m -> (2/3)*m).
+    Works with scalars or numpy arrays.
+    """
+    try:
+        eff = max(0.0, float(eff_cg_rate))
+    except Exception:
+        eff = 0.0
+    if eff <= 0.0:
+        try:
+            if np.isscalar(taxable_gain):
+                return 0.0
+            return np.zeros_like(np.asarray(taxable_gain, dtype=np.float64))
+        except Exception:
+            return 0.0
+
+    g = np.maximum(0.0, np.asarray(taxable_gain, dtype=np.float64))
+    pol = str(policy or "current").strip().lower()
+    if pol in ("tiered_50_66", "tiered", "proposed_2_3_over_250k", "proposed", "hypothetical"):
+        try:
+            t = max(0.0, float(threshold))
+        except Exception:
+            t = 0.0
+        below = np.minimum(g, t)
+        above = np.maximum(0.0, g - t)
+        tax = eff * below + (eff * (4.0 / 3.0)) * above
+    else:
+        tax = eff * g
+
+    try:
+        if np.isscalar(taxable_gain):
+            return float(tax)
+    except Exception:
+        pass
+    return tax
+
+
 
 def _run_monte_carlo_vectorized(
     *,
@@ -128,6 +207,13 @@ def _run_monte_carlo_vectorized(
     prop_tax_growth_model: str,
     prop_tax_hybrid_addon_pct: float,
     investment_tax_mode: str,
+    special_assessment_amount: float = 0.0,
+    special_assessment_month: int = 0,
+    cg_inclusion_policy: str = "current",
+    cg_inclusion_threshold: float = 250000.0,
+    reg_shelter_enabled: bool = False,
+    reg_initial_room: float = 0.0,
+    reg_annual_room: float = 0.0,
     mc_seed=None,
     progress_cb=None,
     summary_only: bool = False,
@@ -214,7 +300,7 @@ def _run_monte_carlo_vectorized(
     prop_tax_paths = maint_paths = repair_paths = buy_pmt_paths = deficit_paths = None
 
     # Deterministic monthly series (used only when emitting the full time-series df)
-    interest_vec = condo_vec = hins_vec = util_vec = None
+    interest_vec = condo_vec = hins_vec = util_vec = sa_vec = None
     rent_vec = rins_vec = rutil_vec = moving_vec = rent_pmt_vec = renter_unrec_vec = None
 
     if not bool(summary_only):
@@ -231,6 +317,7 @@ def _run_monte_carlo_vectorized(
         condo_vec = np.empty(months, dtype=np.float64)
         hins_vec = np.empty(months, dtype=np.float64)
         util_vec = np.empty(months, dtype=np.float64)
+        sa_vec = np.empty(months, dtype=np.float64)
         rent_vec = np.empty(months, dtype=np.float64)
         rins_vec = np.empty(months, dtype=np.float64)
         rutil_vec = np.empty(months, dtype=np.float64)
@@ -331,6 +418,13 @@ def _run_monte_carlo_vectorized(
         m_maint = c_home * float(maint_rate) / 12.0
         m_repair = c_home * float(repair_rate) / 12.0
 
+        # One-time special assessment shock (buyer-only, unrecoverable)
+        try:
+            _sa_m = int(special_assessment_month)
+        except Exception:
+            _sa_m = 0
+        m_special = float(special_assessment_amount) if (_sa_m > 0 and m == _sa_m) else 0.0
+
         inte = float(c_mort) * float(mr) if float(c_mort) > 0 else 0.0
         princ = (float(pmt) - inte) if float(c_mort) > 0 else 0.0
         if princ > float(c_mort):
@@ -342,8 +436,8 @@ def _run_monte_carlo_vectorized(
         o_util_paid = float(c_o_util)
 
         b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
-        b_out = b_pmt0 + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid
-        b_op = float(inte) + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid
+        b_out = b_pmt0 + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special
+        b_op = float(inte) + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special
 
         # Renter outflows (deterministic)
         rent_paid = float(c_rent)
@@ -495,6 +589,7 @@ def _run_monte_carlo_vectorized(
             condo_vec[idx] = float(condo_paid)
             hins_vec[idx] = float(h_ins_paid)
             util_vec[idx] = float(o_util_paid)
+            sa_vec[idx] = float(m_special)
             rent_vec[idx] = float(rent_paid)
             rins_vec[idx] = float(r_ins_paid)
             rutil_vec[idx] = float(r_util_paid)
@@ -579,8 +674,15 @@ def _run_monte_carlo_vectorized(
 
                 b_gain = np.maximum(0.0, b_nw - b_basis)
                 r_gain = np.maximum(0.0, r_nw - r_basis)
-                b_port_after_tax = b_nw - eff_cg * b_gain
-                r_port_after_tax = r_nw - eff_cg * r_gain
+
+                b_taxable_gain = _taxable_gain_after_reg_shelter(b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+                r_taxable_gain = _taxable_gain_after_reg_shelter(r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+
+                b_tax = _cg_tax_due(b_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
+                r_tax = _cg_tax_due(r_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
+
+                b_port_after_tax = b_nw - b_tax
+                r_port_after_tax = r_nw - r_tax
 
                 b_liq_vals = (
                     (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64))
@@ -698,6 +800,7 @@ def _run_monte_carlo_vectorized(
         "Property Tax": prop_tax_med,
         "Maintenance": maint_med,
         "Repairs": repair_med,
+        "Special Assessment": sa_vec,
         "Condo Fees": condo_vec,
         "Home Insurance": hins_vec,
         "Utilities": util_vec,
@@ -759,6 +862,13 @@ def _run_monte_carlo_vectorized(
                 mort_rate_nominal_pct, canadian_compounding,
                 prop_tax_growth_model, prop_tax_hybrid_addon_pct,
                 investment_tax_mode,
+                special_assessment_amount,
+                special_assessment_month,
+                cg_inclusion_policy,
+                cg_inclusion_threshold,
+                reg_shelter_enabled,
+                reg_initial_room,
+                reg_annual_room,
             )
             b_ok = np.allclose(
                 df["Buyer Net Worth"].to_numpy(dtype=np.float64),
@@ -804,8 +914,15 @@ def _run_monte_carlo_vectorized(
             # After-tax portfolios (principal residence assumed tax-free; portfolio CG taxed)
             b_gain = np.maximum(0.0, b_nw - b_basis)
             r_gain = np.maximum(0.0, r_nw - r_basis)
-            b_port_after_tax = b_nw - eff_cg * b_gain
-            r_port_after_tax = r_nw - eff_cg * r_gain
+
+            b_taxable_gain = _taxable_gain_after_reg_shelter(b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+            r_taxable_gain = _taxable_gain_after_reg_shelter(r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+
+            b_tax = _cg_tax_due(b_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
+            r_tax = _cg_tax_due(r_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
+
+            b_port_after_tax = b_nw - b_tax
+            r_port_after_tax = r_nw - r_tax
 
             b_liq_vals = (
                 (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64))
@@ -1778,6 +1895,17 @@ def run_simulation_core(
     cg_tax_end = _f(cfg.get("cg_tax_end", 0.0), 0.0)
     home_sale_legal_fee = _f(cfg.get("home_sale_legal_fee", 0.0), 0.0)
 
+    # --- Optional modeling layers (all opt-in / explicit) ---
+    special_assessment_amount = _f(cfg.get("special_assessment_amount", 0.0), 0.0)
+    special_assessment_month = _i(cfg.get("special_assessment_month", 0), 0)
+
+    cg_inclusion_policy = str(cfg.get("cg_inclusion_policy", "current") or "current")
+    cg_inclusion_threshold = _f(cfg.get("cg_inclusion_threshold", 250000.0), 250000.0)
+
+    reg_shelter_enabled = bool(cfg.get("reg_shelter_enabled", False))
+    reg_initial_room = _f(cfg.get("reg_initial_room", 0.0), 0.0)
+    reg_annual_room = _f(cfg.get("reg_annual_room", 0.0), 0.0)
+
     prop_tax_growth_model = str(cfg.get("prop_tax_growth_model", "Hybrid (recommended for Toronto)"))
     prop_tax_hybrid_addon_pct = _f(cfg.get("prop_tax_hybrid_addon_pct", 0.5), 0.5)
     investment_tax_mode = str(cfg.get("investment_tax_mode", "Pre-tax (no investment taxes)"))
@@ -1854,6 +1982,13 @@ def run_simulation_core(
                 prop_tax_growth_model=prop_tax_growth_model,
                 prop_tax_hybrid_addon_pct=prop_tax_hybrid_addon_pct,
                 investment_tax_mode=investment_tax_mode,
+                special_assessment_amount=special_assessment_amount,
+                special_assessment_month=special_assessment_month,
+                cg_inclusion_policy=cg_inclusion_policy,
+                cg_inclusion_threshold=cg_inclusion_threshold,
+                reg_shelter_enabled=reg_shelter_enabled,
+                reg_initial_room=reg_initial_room,
+                reg_annual_room=reg_annual_room,
                 mc_seed=mc_seed,
                 progress_cb=progress_cb,
                 summary_only=bool(mc_summary_only),
@@ -1896,6 +2031,13 @@ def run_simulation_core(
                     mort_rate_nominal_pct_use, canadian_compounding,
                     prop_tax_growth_model, prop_tax_hybrid_addon_pct,
                     investment_tax_mode,
+                    special_assessment_amount,
+                    special_assessment_month,
+                    cg_inclusion_policy,
+                    cg_inclusion_threshold,
+                    reg_shelter_enabled,
+                    reg_initial_room,
+                    reg_annual_room,
                 )
 
                 if bool(show_liquidation_view):
@@ -2089,6 +2231,13 @@ def run_simulation_core(
             mort_rate_nominal_pct_use, canadian_compounding,
             prop_tax_growth_model, prop_tax_hybrid_addon_pct,
             investment_tax_mode,
+            special_assessment_amount,
+            special_assessment_month,
+            cg_inclusion_policy,
+            cg_inclusion_threshold,
+            reg_shelter_enabled,
+            reg_initial_room,
+            reg_annual_room,
         )
 
     # PV series (discounted net worth delta)
@@ -2188,6 +2337,13 @@ def simulate_single(
     prop_tax_growth_model="Hybrid (recommended for Toronto)",
     prop_tax_hybrid_addon_pct=0.5,
     investment_tax_mode=None,
+    special_assessment_amount=0.0,
+    special_assessment_month=0,
+	    cg_inclusion_policy="current",
+    cg_inclusion_threshold=250000.0,
+    reg_shelter_enabled=False,
+    reg_initial_room=0.0,
+    reg_annual_room=0.0,
 ):
     res = []
 
@@ -2306,13 +2462,20 @@ def simulate_single(
         m_maint = c_home * maint_rate / 12.0
         m_repair = c_home * repair_rate / 12.0
 
+        # One-time special assessment shock (buyer-only, unrecoverable)
+        try:
+            _sa_m = int(special_assessment_month)
+        except Exception:
+            _sa_m = 0
+        m_special = float(special_assessment_amount) if (_sa_m > 0 and m == _sa_m) else 0.0
+
         inte = c_mort * mr if c_mort > 0 else 0.0
         princ = pmt - inte if c_mort > 0 else 0.0
         if princ > c_mort:
             princ = c_mort
 
-        b_out = (pmt if c_mort > 0 else 0.0) + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util
-        b_op = inte + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util
+        b_out = (pmt if c_mort > 0 else 0.0) + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special
+        b_op = inte + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special
 
         rent_paid = c_rent
         condo_paid = c_condo
@@ -2449,8 +2612,15 @@ def simulate_single(
 
             b_gain = max(0.0, b_nw - b_basis)
             r_gain = max(0.0, r_nw - r_basis)
-            b_port_after_tax = b_nw - eff_cg * b_gain
-            r_port_after_tax = r_nw - eff_cg * r_gain
+
+            b_taxable_gain = _taxable_gain_after_reg_shelter(b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+            r_taxable_gain = _taxable_gain_after_reg_shelter(r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+
+            b_tax = _cg_tax_due(b_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
+            r_tax = _cg_tax_due(r_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
+
+            b_port_after_tax = b_nw - b_tax
+            r_port_after_tax = r_nw - r_tax
 
             # Buyer liquidation: home (assume principal residence) + after-tax portfolio - exit costs/fees
             b_liq = (c_home - c_mort) + b_port_after_tax - float(close) - exit_cost - exit_legal_fee
@@ -2475,6 +2645,7 @@ def simulate_single(
             "Property Tax": m_tax,
             "Maintenance": m_maint,
             "Repairs": m_repair,
+            "Special Assessment": m_special,
             "Condo Fees": condo_paid,
             "Home Insurance": h_ins_paid,
             "Utilities": o_util_paid,

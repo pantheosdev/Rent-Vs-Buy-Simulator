@@ -20,6 +20,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import shutil
 import re
 import subprocess
 import sys
@@ -152,6 +153,7 @@ def _check_required_files() -> None:
         "SECURITY.md",
         "CHANGELOG.md",
         ".github/workflows/qa.yml",
+        ".github/workflows/release.yml",
         "docs/RELEASE_CHECKLIST.md",
         "scripts/preflight.py",
     ]
@@ -176,6 +178,15 @@ def main() -> int:
     _check_no_large_files(max_mb=args.max_mb)
     _check_text_for_patterns("absolute local paths", ABS_PATH_PATTERNS)
     _check_text_for_patterns("secret-like tokens", SECRET_PATTERNS)
+
+    # Ruff lint/format (public CI stability)
+    if shutil.which("ruff") is None:
+        print("FAIL: ruff not installed. Install dev deps:\n  pip install -r requirements-dev.txt")
+        raise SystemExit(1)
+    print("RBV preflight: running ruff")
+    # Apply formatting locally so you don't end up with a CI-only formatter mismatch.
+    _run(["ruff", "format", "."])
+    _run(["ruff", "check", "."])
 
     if not args.skip_qa:
         print("RBV preflight: running QA suite")

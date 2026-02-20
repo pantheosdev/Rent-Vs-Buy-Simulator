@@ -36,6 +36,7 @@ from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate
 from rbv.core.policy_canada import min_down_payment_canada, insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
+from rbv.ui.defaults import PRESETS, build_session_defaults
 
 
 # --- UI helpers (Sprint 2/3: sidebar + tables + charts polish) ---
@@ -495,7 +496,7 @@ ASSUMPTIONS_MD = """
 st.set_page_config(page_title="Rent Vs Buy Analysis", layout="wide", page_icon="🏡")
 
 # App version (for debug snapshots)
-st.session_state['_rbv_version'] = 'v2.90.5'
+st.session_state['_rbv_version'] = 'v2.91.2'
 
 inject_global_css(st)
 _rbv_install_plotly_template()
@@ -672,56 +673,15 @@ except Exception:
 
 
 # --- 2. PRESETS & SESSION STATE ---
-PRESETS = {
-    "Baseline": {
-        'rate': 5.25, 'apprec': 3.5, 'general_inf': 2.5,
-        'rent_inf': 2.5, 'buyer_ret': 7.0, 'renter_ret': 7.0
-    },
-    "High Inflation": {
-        'rate': 7.5, 'apprec': 5.0, 'general_inf': 4.5, 
-        'rent_inf': 5.0, 'buyer_ret': 8.0, 'renter_ret': 8.0
-    },
-    "Stagnation": {
-        'rate': 3.5, 'apprec': 1.0, 'general_inf': 1.5, 
-        'rent_inf': 1.5, 'buyer_ret': 4.0, 'renter_ret': 4.0
-    }
-}
+# Economic scenario presets + default seeding live in rbv.ui.defaults (single source of truth)
 
 # Initialize Session State
-defaults = {
-    'years': 25, 'scenario_select': 'Baseline',
-    'price': 800000.0, 'down': 160000.0, 'rent': 3000.0,
-    'rate': 5.25, 'apprec': 3.5, 'general_inf': 2.5,
-    'rent_inf': 2.5, 'buyer_ret': 7.0, 'renter_ret': 7.0,
-
-    # Pro realism defaults (additive; do not affect presets)
-    'condo_inf': None,                 # Condo fees often outpace CPI; default = CPI(2.5)+1.5
-    'condo_inf_mode': "CPI + spread",
-    'condo_inf_spread': 1.5,
-    'condo_inf_custom': 4.0,
-    'canadian_compounding': True,
-    'assume_sale_end': True,          # Apply selling costs at the horizon (matches existing behavior)
-    'investment_tax_mode': "Pre-tax (no investment taxes)",
-    'cg_tax_end': 22.5,               # Effective CG tax rate on gains at liquidation (used only if selected)
-    'show_liquidation_view': True,   # Show after-tax liquidation values at horizon 
-    'home_sale_legal_fee': 2000.0,    # Flat fee applied only if assume_sale_end and liquidation view enabled
-
-    # Keyed inputs added in v167 hotfix (improves cache correctness + avoids globals() reads)
-    'use_volatility': False,
-    'ret_std_pct': 15.0,
-    'apprec_std_pct': 5.0,
-    'ret_std_pct_ui': 15.0,
-    'apprec_std_pct_ui': 5.0,
-    'market_corr_input': 0.8,
-    'sell_cost_pct': 5.0,
-    'p_tax_rate_pct': 1.00,
-    'maint_rate_pct': 1.0,
-    'repair_rate_pct': 0.5,
-}
+defaults = build_session_defaults("Baseline")
 
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
+
 
 
 # --- Phase 4/Release: Scenario save/load + exports + friendly validation ---
@@ -788,11 +748,11 @@ def _rbv_apply_scenario_state(state: dict) -> None:
         if k not in allowed:
             continue
         try:
-            if k in ("years", "num_sims", "hm_grid_size", "hm_mc_sims", "bias_mc_sims"):
+            if k in ("years", "num_sims", "hm_grid_size", "hm_mc_sims", "bias_mc_sims", "special_assessment_year", "special_assessment_month_in_year"):
                 st.session_state[k] = int(v)
-            elif k in ("canadian_compounding", "assume_sale_end", "show_liquidation_view", "use_volatility", "public_mode", "mc_randomize"):
+            elif k in ("canadian_compounding", "assume_sale_end", "show_liquidation_view", "use_volatility", "public_mode", "mc_randomize", "reg_shelter_enabled", "expert_mode"):
                 st.session_state[k] = bool(v)
-            elif k in ("scenario_select", "investment_tax_mode", "condo_inf_mode", "mc_seed", "sim_mode", "public_seed_mode"):
+            elif k in ("scenario_select", "investment_tax_mode", "condo_inf_mode", "mc_seed", "sim_mode", "public_seed_mode", "cg_inclusion_policy"):
                 st.session_state[k] = "" if v is None else str(v)
             else:
                 # numeric defaults
@@ -800,6 +760,17 @@ def _rbv_apply_scenario_state(state: dict) -> None:
         except Exception:
             # best-effort; skip malformed entries
             pass
+
+    # Back-compat: if an imported scenario uses advanced toggles but lacks expert_mode, enable expert mode.
+    try:
+        if "expert_mode" not in state:
+            _pol = str(st.session_state.get("cg_inclusion_policy", "") or "")
+            if _pol.startswith("Hypothetical") or bool(st.session_state.get("reg_shelter_enabled", False)):
+                st.session_state["expert_mode"] = True
+    except Exception:
+        pass
+
+
 
 
 # --- Shareable scenario URL (compact, bookmarkable) ---
@@ -1329,6 +1300,102 @@ with st.sidebar:
                 key="home_sale_legal_fee",
             )
 
+        # --- Advanced (opt-in) cash-out layers ---
+        # These should never silently change baseline results: they are sensitivity knobs only.
+        expert_mode = bool(st.session_state.get("expert_mode", False))
+
+        if show_liquidation_view:
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+            sidebar_label(
+                "Expert mode",
+                "Shows advanced sensitivity toggles (hypothetical policy + registered shelter approximation). Off by default.",
+            )
+
+            def _rbv_on_expert_mode_change():
+                if not bool(st.session_state.get("expert_mode", False)):
+                    # When expert mode is disabled, force advanced toggles back to safe defaults.
+                    st.session_state["cg_inclusion_policy"] = "Current (50% inclusion)"
+                    st.session_state.setdefault("cg_inclusion_threshold", 250000.0)
+                    st.session_state["reg_shelter_enabled"] = False
+
+            st.checkbox(
+                "Expert mode (show sensitivity toggles)",
+                key="expert_mode",
+                on_change=_rbv_on_expert_mode_change,
+            )
+
+            # Micro-UX: make it obvious that advanced sensitivity controls exist but are intentionally hidden.
+            if bool(st.session_state.get("expert_mode", False)):
+                st.caption("🔓 Expert mode enabled — advanced sensitivities unlocked below.")
+            else:
+                st.caption("🔒 Advanced sensitivities hidden — enable Expert mode to unlock policy + registered-shelter toggles.")
+
+            expert_mode = bool(st.session_state.get("expert_mode", False))
+
+            if not expert_mode:
+                # Enforce safe defaults even if a prior session had advanced values.
+                st.session_state["cg_inclusion_policy"] = "Current (50% inclusion)"
+                st.session_state.setdefault("cg_inclusion_threshold", 250000.0)
+                st.session_state["reg_shelter_enabled"] = False
+                sidebar_hint("Expert mode is off: cash-out uses your 'Effective Capital Gains Tax at End (%)' under current 50% inclusion; no registered-shelter approximation is applied.")
+
+        if show_liquidation_view and expert_mode:
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+            sidebar_label(
+                "Capital gains inclusion policy (expert)",
+                "Optional sensitivity toggle applied only to portfolio gains in the cash-out view. Does not model a full tax engine.",
+            )
+
+            cg_inclusion_policy = st.selectbox(
+                "Capital gains inclusion policy",
+                options=[
+                    "Current (50% inclusion)",
+                    "Hypothetical tiered (2/3 inclusion over threshold)",
+                ],
+                key="cg_inclusion_policy",
+                label_visibility="collapsed",
+            )
+
+            if str(cg_inclusion_policy).startswith("Hypothetical"):
+                st.number_input(
+                    "Tier threshold ($ gains in liquidation year)",
+                    min_value=0.0,
+                    step=10_000.0,
+                    format="%.0f",
+                    key="cg_inclusion_threshold",
+                )
+                sidebar_hint("Sensitivity only: above the threshold, the effective CG tax rate is scaled by 4/3 (50% → 66.67% inclusion).")
+            else:
+                # Keep threshold defined for config stability (unused in 'Current' mode)
+                st.session_state.setdefault("cg_inclusion_threshold", 250000.0)
+
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+            sidebar_label(
+                "Registered-account shelter (TFSA/RRSP) — conservative approximation",
+                "Optional sensitivity knob that reduces taxable portfolio gains in the cash-out view, using a pro-rata shelter based on available room.",
+            )
+            reg_shelter_enabled = st.checkbox(
+                "Enable registered shelter approximation",
+                value=bool(st.session_state.get("reg_shelter_enabled", False)),
+                key="reg_shelter_enabled",
+            )
+
+            if reg_shelter_enabled:
+                st.number_input(
+                    "Registered room available now ($)",
+                    min_value=0.0,
+                    step=5_000.0,
+                    format="%.0f",
+                    key="reg_initial_room",
+                )
+                st.number_input(
+                    "New room per year ($/yr)",
+                    min_value=0.0,
+                    step=1_000.0,
+                    format="%.0f",
+                    key="reg_annual_room",
+                )
+                sidebar_hint("Conservative: shelters gains pro‑rata based on sheltered basis; does not model RRSP refunds or withdrawal taxation.")
 
 
 
@@ -1504,12 +1571,12 @@ with st.sidebar:
         # Main Monte Carlo sims (single-scenario analysis)
         FAST_DEFAULT_NUM_SIMS = 50_000
         # Quality defaults tuned for Streamlit Cloud reliability while keeping statistical meaning.
-        # (User request: main MC=90k, grid=45, heatmap sims=25k; bias sims unchanged.)
+        # (User request: keep Quality statistically meaningful while lowering server memory: main MC=90k, grid≈41, heatmap sims=20k; bias sims unchanged.)
         QUALITY_DEFAULT_NUM_SIMS = 90_000
     
         # Heatmap MC sims (shared across the whole grid via batched execution)
         FAST_HM_MC_SIMS_DEFAULT = 15_000
-        QUALITY_HM_MC_SIMS_DEFAULT = 25_000
+        QUALITY_HM_MC_SIMS_DEFAULT = 20_000
     
         # Bias solver MC sims (used inside bisection / flip-point search)
         FAST_BIAS_MC_SIMS_DEFAULT = 15_000
@@ -1517,12 +1584,12 @@ with st.sidebar:
     
         # Heatmap grid defaults
         FAST_HM_GRID_DEFAULT = 31
-        QUALITY_HM_GRID_DEFAULT = 45
+        QUALITY_HM_GRID_DEFAULT = 41
     
         # Deterministic heatmaps can render at a higher grid without significant cost (exact batched eval).
         # In Public Mode we automatically bump grid resolution for deterministic heatmap metrics for smoother visuals.
         FAST_HM_GRID_DET_MIN_PUBLIC = 61
-        QUALITY_HM_GRID_DET_MIN_PUBLIC = 81
+        QUALITY_HM_GRID_DET_MIN_PUBLIC = 41
     
         st.session_state.setdefault("num_sims", FAST_DEFAULT_NUM_SIMS if fast_mode else QUALITY_DEFAULT_NUM_SIMS)
         st.session_state.setdefault("hm_grid_size", FAST_HM_GRID_DEFAULT if fast_mode else QUALITY_HM_GRID_DEFAULT)
@@ -1890,7 +1957,7 @@ with brow1[2]:
             "use your actual quoted rate."
         ),
         min_value=0.0,
-        value=float(vals.get("rate", 5.25)),
+        value=float(vals.get("rate", 4.75)),
         step=0.05,
         key="rate",
     )
@@ -1998,6 +2065,45 @@ with brow3[3]:
 
 
 st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
+
+st.markdown('<div class="rbv-input-subhead">One-time Shocks (optional)</div>', unsafe_allow_html=True)
+
+_sa_years_max = int(st.session_state.get("years", 25) or 25)
+_sa_row = st.columns(4)
+with _sa_row[0]:
+    rbv_number_input(
+        "Special assessment ($)",
+        tooltip=(
+            "Optional one-time condo/strata special assessment paid by the buyer. "
+            "Modeled as an unrecoverable cash outflow at the selected month. Set to 0 to disable."
+        ),
+        min_value=0.0,
+        value=float(vals.get("special_assessment_amount", 0.0)),
+        step=500.0,
+        key="special_assessment_amount",
+    )
+with _sa_row[1]:
+    rbv_number_input(
+        "Assessment year (0 = off)",
+        tooltip="Year of the one-time assessment. Use 0 to disable.",
+        min_value=0,
+        max_value=_sa_years_max,
+        value=int(vals.get("special_assessment_year", 0)),
+        step=1,
+        key="special_assessment_year",
+    )
+with _sa_row[2]:
+    rbv_selectbox(
+        "Month in year",
+        options=list(range(1, 13)),
+        index=max(0, min(11, int(vals.get("special_assessment_month_in_year", 1)) - 1)),
+        key="special_assessment_month_in_year",
+        tooltip="Month within the selected year when the assessment is paid.",
+    )
+with _sa_row[3]:
+    st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
+
+st.caption("Tip: This shock is buyer-only and unrecoverable; it reduces buyer net worth by cash outflow and opportunity cost. It is off by default.")
 
 st.markdown('<div class="rbv-input-subhead">Utilities, Inflation & Eligibility</div>', unsafe_allow_html=True)
 
@@ -2144,7 +2250,7 @@ with rrow1[3]:
         "Moving cost per move ($)",
         tooltip="One-time moving cost paid each time the renter moves.",
         min_value=0.0,
-        value=float(vals.get("moving_cost", 1500.0)),
+        value=float(vals.get("moving_cost", 1200.0)),
         step=50.0,
         key="moving_cost",
     )
@@ -2502,6 +2608,47 @@ def _build_cfg():
     cg_tax_end = float(st.session_state.get("cg_tax_end", _g("cg_tax_end", 0.0)) or 0.0)
     home_sale_legal_fee = float(st.session_state.get("home_sale_legal_fee", _g("home_sale_legal_fee", 0.0)) or 0.0)
 
+    # ---- One-time buyer shock (special assessment)
+    try:
+        sa_amount = float(st.session_state.get("special_assessment_amount", 0.0) or 0.0)
+    except Exception:
+        sa_amount = 0.0
+    try:
+        sa_year = int(st.session_state.get("special_assessment_year", 0) or 0)
+    except Exception:
+        sa_year = 0
+    try:
+        sa_month_in_year = int(st.session_state.get("special_assessment_month_in_year", 1) or 1)
+    except Exception:
+        sa_month_in_year = 1
+    sa_month_in_year = max(1, min(12, sa_month_in_year))
+    sa_month = 0
+    if (sa_amount > 0.0) and (sa_year > 0):
+        sa_month = (sa_year - 1) * 12 + sa_month_in_year
+        # Ignore if outside horizon
+        if sa_month > int(years) * 12:
+            sa_month = 0
+            sa_amount = 0.0
+
+    # ---- Capital gains inclusion policy toggle (cash-out view)
+    _pol_ui = str(st.session_state.get("cg_inclusion_policy", "Current (50% inclusion)") or "Current (50% inclusion)")
+    cg_inclusion_policy = "proposed_2_3_over_250k" if _pol_ui.startswith("Hypothetical") else "current"
+    try:
+        cg_inclusion_threshold = float(st.session_state.get("cg_inclusion_threshold", 250000.0) or 250000.0)
+    except Exception:
+        cg_inclusion_threshold = 250000.0
+
+    # ---- Registered-account shelter approximation
+    reg_shelter_enabled = bool(st.session_state.get("reg_shelter_enabled", False))
+    try:
+        reg_initial_room = float(st.session_state.get("reg_initial_room", 0.0) or 0.0)
+    except Exception:
+        reg_initial_room = 0.0
+    try:
+        reg_annual_room = float(st.session_state.get("reg_annual_room", 0.0) or 0.0)
+    except Exception:
+        reg_annual_room = 0.0
+
     return {
         "years": years,
         "asof_date": _tax_asof.isoformat() if hasattr(_tax_asof, "isoformat") else str(_tax_asof),
@@ -2554,6 +2701,16 @@ def _build_cfg():
         "show_liquidation_view": bool(show_liquidation_view),
         "cg_tax_end": float(cg_tax_end),
         "home_sale_legal_fee": float(home_sale_legal_fee),
+
+        "special_assessment_amount": float(sa_amount),
+        "special_assessment_month": int(sa_month),
+
+        "cg_inclusion_policy": str(cg_inclusion_policy),
+        "cg_inclusion_threshold": float(cg_inclusion_threshold),
+
+        "reg_shelter_enabled": bool(reg_shelter_enabled),
+        "reg_initial_room": float(reg_initial_room),
+        "reg_annual_room": float(reg_annual_room),
 
         "canadian_compounding": bool(st.session_state.get("canadian_compounding", True)),
         "prop_tax_growth_model": str(st.session_state.get("prop_tax_growth_model", "Hybrid (recommended for Toronto)")),
@@ -3613,7 +3770,7 @@ try:
     if isinstance(_last_cfg, dict) and _last_cfg:
         # Build a compact, human-checkable snapshot (units are explicit).
         _snap = {
-            "version": str(st.session_state.get("_rbv_version", "")) or "v2.90.5",
+            "version": str(st.session_state.get("_rbv_version", "")) or "v2.91.2",
             "inputs": {
                 "years": _last_cfg.get("years"),
                 "price": _last_cfg.get("price"),
@@ -4287,9 +4444,13 @@ if tab == _TAB_NET:
                 "rate_mode", "rate_reset_years", "rate_reset_to", "rate_reset_step_pp",
                 "rate_shock_enabled", "rate_shock_start_year", "rate_shock_duration_years", "rate_shock_pp",
                 "canadian_compounding", "assume_sale_end", "cg_tax_end", "tax_r", "home_sale_legal_fee",
+                "expert_mode",
                 "province", "first_time", "toronto", "transfer_tax_override",
                 "insured", "ltv",
                 "condo_inf_mode", "condo_inf_spread", "condo_inf_custom",
+                "special_assessment_amount", "special_assessment_year", "special_assessment_month_in_year",
+                "cg_inclusion_policy", "cg_inclusion_threshold",
+                "reg_shelter_enabled", "reg_initial_room", "reg_annual_room",
             ]
             g = globals()
             d = {k: g.get(k) for k in sig_keys if k in g}
@@ -4740,6 +4901,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     buyer_maint_condo = _safe_sum("Maintenance") + _safe_sum("Repairs") + _safe_sum("Condo Fees")
     buyer_insurance = _safe_sum("Home Insurance")
     buyer_utilities = _safe_sum("Utilities")
+    buyer_special = _safe_sum("Special Assessment")
     buyer_moving = 0.0  # Moving is modeled for renters (frequency-based), not buyers
 
     renter_rent = _safe_sum("Rent")
@@ -4750,7 +4912,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     # Closing + selling costs are included in Buyer Unrecoverable but not in the monthly columns above
     try:
         buyer_close_sell = max(0.0, float(df.iloc[-1]["Buyer Unrecoverable"]) - (
-            buyer_interest + buyer_tax + buyer_maint_condo + buyer_insurance + buyer_utilities + buyer_moving
+            buyer_interest + buyer_tax + buyer_maint_condo + buyer_insurance + buyer_utilities + buyer_special + buyer_moving
         ))
     except Exception:
         buyer_close_sell = 0.0
@@ -4761,6 +4923,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         "Maintenance & condo",
         "Insurance",
         "Utilities",
+        "Special assessment",
         "Transaction costs",
         "Moving",
     ]
@@ -4771,6 +4934,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         buyer_maint_condo,
         buyer_insurance,
         buyer_utilities,
+        buyer_special,
         buyer_close_sell,
         buyer_moving,
     ]
@@ -4780,6 +4944,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         0.0,
         renter_insurance,
         renter_utilities,
+        0.0,
         0.0,
         renter_moving,
     ]
@@ -4819,6 +4984,62 @@ in your portfolio instead of locking it into home equity. This capital opportuni
 
     st.caption("Categories are aligned across Buyer/Renter; zeros indicate costs that don’t apply to that side.")
 
+    # --- Monthly unrecoverable series (buyer vs renter) ---
+    st.markdown("##### Monthly Unrecoverable Cost Over Time")
+    st.caption("Toggle renter series between smooth recurring costs and spiky totals that include moving months.")
+
+    rent_series_mode = st.radio(
+        "",
+        ["Recurring only (smooth)", "Total incl. moving (spiky)"],
+        horizontal=True,
+        key="rent_series_mode",
+        label_visibility="collapsed",
+    )
+
+    try:
+        if "Month" in df.columns:
+            x_m = (df["Month"].astype(float) - 1.0) / 12.0 + 1.0
+        elif "Year" in df.columns:
+            x_m = df["Year"].astype(float)
+        else:
+            x_m = list(range(1, len(df) + 1))
+    except Exception:
+        x_m = list(range(1, len(df) + 1))
+
+    b_mo_unrec = (
+        (df["Interest"] if "Interest" in df.columns else 0.0)
+        + (df["Property Tax"] if "Property Tax" in df.columns else 0.0)
+        + (df["Maintenance"] if "Maintenance" in df.columns else 0.0)
+        + (df["Repairs"] if "Repairs" in df.columns else 0.0)
+        + (df["Condo Fees"] if "Condo Fees" in df.columns else 0.0)
+        + (df["Home Insurance"] if "Home Insurance" in df.columns else 0.0)
+        + (df["Utilities"] if "Utilities" in df.columns else 0.0)
+        + (df["Special Assessment"] if "Special Assessment" in df.columns else 0.0)
+    )
+
+    if str(rent_series_mode).startswith("Total"):
+        r_mo_unrec = df["Rent Payment"] if "Rent Payment" in df.columns else 0.0
+    else:
+        r_mo_unrec = df["Rent Cost (Recurring)"] if "Rent Cost (Recurring)" in df.columns else (df["Rent"] if "Rent" in df.columns else 0.0)
+
+    fig_mo_uc = go.Figure()
+    fig_mo_uc.add_trace(go.Scatter(x=x_m, y=b_mo_unrec, name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
+    fig_mo_uc.add_trace(go.Scatter(x=x_m, y=r_mo_unrec, name="Renter", mode='lines', line=dict(color=RENT_COLOR, width=2)))
+
+    fig_mo_uc.update_layout(
+        template=pio.templates.default,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=330,
+        margin=dict(l=0, r=0, t=10, b=0),
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
+        font=dict(family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
+        hovermode="x unified",
+    )
+    fig_mo_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
+    fig_mo_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
+    st.plotly_chart(_rbv_apply_plotly_theme(fig_mo_uc), use_container_width=True)
+
 
     with st.expander("Cumulative costs over time", expanded=False):
         fig_uc = go.Figure()
@@ -4856,8 +5077,17 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     )
     df_avg = df[df['Month'] > 0]
     b_table = pd.DataFrame({
-        "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Insurance", "Utilities"],
-        "Amount": [df_avg['Interest'].mean(), df_avg['Property Tax'].mean(), df_avg['Maintenance'].mean(), df_avg['Repairs'].mean(), df_avg['Condo Fees'].mean(), df_avg['Home Insurance'].mean(), df_avg['Utilities'].mean()]
+        "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Special Assessment", "Insurance", "Utilities"],
+        "Amount": [
+            df_avg['Interest'].mean(),
+            df_avg['Property Tax'].mean(),
+            df_avg['Maintenance'].mean(),
+            df_avg['Repairs'].mean(),
+            df_avg['Condo Fees'].mean(),
+            (df_avg['Special Assessment'].mean() if 'Special Assessment' in df_avg.columns else 0.0),
+            df_avg['Home Insurance'].mean(),
+            df_avg['Utilities'].mean(),
+        ]
     }).set_index("Category")
     b_table = b_table[b_table['Amount'] > 0]
     b_table.loc['TOTAL'] = b_table['Amount'].sum()
@@ -4905,6 +5135,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         "Property Tax": "Property Tax",
         "Maintenance": "Maintenance",
         "Repairs": "Repairs",
+        "Special Assessment": "Special Assessment",
         "Condo Fees": "Condo Fees",
         "Insurance": "Home Insurance",
         "Utilities": "Utilities",

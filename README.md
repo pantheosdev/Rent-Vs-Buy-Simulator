@@ -12,6 +12,10 @@ A Streamlit-based **Rent vs Buy** financial simulator with a premium dark fintec
 - Scenario save/load with stable `st.session_state` keys
 - Custom dark tooltip system (avoids Streamlit native help popovers)
 - Playwright snapshot harness for UI regression safety
+- **Expert mode** hides advanced sensitivity toggles (hypothetical policy + registered shelter approximation)
+
+## Expert mode (advanced toggles)
+The **Taxes & Cash-out** panel includes an **Expert mode** switch. When off (default), the app hides advanced sensitivity knobs like hypothetical capital-gains inclusion changes and the registered-shelter approximation, ensuring baseline behavior stays conservative.
 
 ## Quick start
 ### 1) Install
