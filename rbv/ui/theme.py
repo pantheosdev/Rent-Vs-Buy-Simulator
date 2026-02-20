@@ -145,10 +145,10 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
   line-height: 1.35;
   width: 260px;
   max-height: 45vh;
-  overflow-y: auto;
+  /* Allow full message visibility + scrolling on long tooltips */
+  overflow: auto;
   max-width: min(280px, 86vw);
   box-shadow: 0 16px 40px rgba(0,0,0,0.65);
-  overflow: hidden;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1255,7 +1255,8 @@ div[data-testid="stNumberInput"] input{
   border-radius: 14px;
   padding: 12px 14px;
   position: relative;
-  overflow: hidden; /* clip to rounded corners */
+  /* Tooltips must be able to escape the card bounds */
+  overflow: visible;
   min-height: 78px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }

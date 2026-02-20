@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.90.4 (2026-02-20)
+
+- UX: Fix clipped custom tooltips by allowing KPI cards to overflow and restoring tooltip scrolling.
+- UX: Clarify buyer vs renter monthly figures by renaming KPI to **Avg Monthly Outflow** and explicitly separating **Irrecoverable Costs** from principal paydown.
+- UX: Rename/clarify the cost breakdown section as **Irrecoverable Costs (cost of living)** and add a principal-paydown bridge line.
+- Perf: Quality-mode defaults tuned for Streamlit Cloud (Main MC 90k, grid 45×45, heatmap sims 25k; bias sims unchanged).
+
 ## v2.90.3
 
 - Fix: PV discount rate unit conversion in config builder; prevent PV underflow to $0.
@@ -18,8 +25,6 @@
 
 - CI: update GitHub Actions to v6 majors (checkout/setup-python/upload-artifact).
 - CI: make Visual Regression (PR) skip Dependabot PRs and remove brittle system Chromium install.
-
-
 ## Unreleased
 - TBD
 

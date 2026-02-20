@@ -494,6 +494,9 @@ ASSUMPTIONS_MD = """
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Rent Vs Buy Analysis", layout="wide", page_icon="🏡")
 
+# App version (for debug snapshots)
+st.session_state['_rbv_version'] = 'v2.90.5'
+
 inject_global_css(st)
 _rbv_install_plotly_template()
 
@@ -1490,11 +1493,13 @@ with st.sidebar:
         # Mode presets (public-facing simplification: no manual sim/grid tweaking required)
         # Main Monte Carlo sims (single-scenario analysis)
         FAST_DEFAULT_NUM_SIMS = 50_000
-        QUALITY_DEFAULT_NUM_SIMS = 100_000
+        # Quality defaults tuned for Streamlit Cloud reliability while keeping statistical meaning.
+        # (User request: main MC=90k, grid=45, heatmap sims=25k; bias sims unchanged.)
+        QUALITY_DEFAULT_NUM_SIMS = 90_000
     
         # Heatmap MC sims (shared across the whole grid via batched execution)
         FAST_HM_MC_SIMS_DEFAULT = 15_000
-        QUALITY_HM_MC_SIMS_DEFAULT = 30_000
+        QUALITY_HM_MC_SIMS_DEFAULT = 25_000
     
         # Bias solver MC sims (used inside bisection / flip-point search)
         FAST_BIAS_MC_SIMS_DEFAULT = 15_000
@@ -1502,7 +1507,7 @@ with st.sidebar:
     
         # Heatmap grid defaults
         FAST_HM_GRID_DEFAULT = 31
-        QUALITY_HM_GRID_DEFAULT = 51
+        QUALITY_HM_GRID_DEFAULT = 45
     
         # Deterministic heatmaps can render at a higher grid without significant cost (exact batched eval).
         # In Public Mode we automatically bump grid resolution for deterministic heatmap metrics for smoother visuals.
@@ -2543,6 +2548,26 @@ def run_simulation(buyer_ret_pct, renter_ret_pct, apprec_pct, invest_diff, rent_
     """Thin Streamlit wrapper. Builds per-run config and forwards to rbv.core.engine.run_simulation_core."""
     cfg = _build_cfg()
 
+    # Persist the *effective* engine inputs for debugging / reproducibility.
+    # This prevents silent UI-to-engine drift (units, stale globals, conditional UI branches).
+    try:
+        st.session_state["_rbv_last_cfg"] = dict(cfg)
+        st.session_state["_rbv_last_params"] = {
+            "buyer_ret_pct": float(buyer_ret_pct),
+            "renter_ret_pct": float(renter_ret_pct),
+            "apprec_pct": float(apprec_pct),
+            "invest_diff": bool(invest_diff),
+            "rent_closing": bool(rent_closing),
+            "mkt_corr": float(mkt_corr),
+            "force_deterministic": bool(force_deterministic),
+            "mc_seed": None if mc_seed is None else int(mc_seed),
+            "rate_override_pct": None if rate_override_pct is None else float(rate_override_pct),
+            "rent_inf_override_pct": None if rent_inf_override_pct is None else float(rent_inf_override_pct),
+            "budget_enabled": bool(budget_enabled),
+        }
+    except Exception:
+        pass
+
     return run_simulation_core(
         cfg,
         buyer_ret_pct, renter_ret_pct, apprec_pct, invest_diff, rent_closing, mkt_corr,
@@ -3448,8 +3473,8 @@ with col_buy:
         _kpi("Cash to Close", f"${close_cash:,.0f}", "var(--buy)",
              "Upfront cash required to buy: down payment + closing costs (transfer tax, legal, inspection, PST on CMHC premium where applicable).")
     with b2:
-        _kpi("Avg Monthly Costs", f"${avg_buy_monthly:,.0f}", "var(--buy)",
-             "Average monthly outflow for the buyer over the full horizon (mortgage + recurring ownership costs).")
+        _kpi("Avg Monthly Outflow", f"${avg_buy_monthly:,.0f}", "var(--buy)",
+             "Average monthly cash outflow for the buyer over the horizon (mortgage payment incl. principal + recurring ownership costs). Principal paydown builds equity; see the Irrecoverable Costs tab for pure non-equity costs.")
     b3, b4 = st.columns(2, gap="small")
     with b3:
         _kpi("Total NW (Horizon)", f"${buyer_nw_end:,.0f}", "var(--buy)",
@@ -3462,8 +3487,8 @@ with col_rent:
     st.markdown('<div class="kpi-section-title rent-title">RENTING DETAILS</div>', unsafe_allow_html=True)
     r1, r2 = st.columns(2, gap="small")
     with r1:
-        _kpi("Avg Monthly Costs", f"${avg_rent_monthly:,.0f}", "var(--rent)",
-             "Average monthly outflow for the renter over the full horizon (rent + renter costs, if any).")
+        _kpi("Avg Monthly Outflow", f"${avg_rent_monthly:,.0f}", "var(--rent)",
+             "Average monthly cash outflow for the renter over the horizon (rent + renter costs, if any).")
     with r2:
         label = "Renter Saves" if renter_saves > 0 else "Buyer Saves"
         saves = abs(renter_saves)
@@ -3553,6 +3578,84 @@ try:
 except Exception:
     # Never block the app if the badge fails
     pass
+
+
+
+# -----------------------------
+# Debug / reproducibility pane
+# -----------------------------
+try:
+    import hashlib, json as _json
+
+    _last_cfg = st.session_state.get("_rbv_last_cfg")
+    _last_params = st.session_state.get("_rbv_last_params") or {}
+    if isinstance(_last_cfg, dict) and _last_cfg:
+        # Build a compact, human-checkable snapshot (units are explicit).
+        _snap = {
+            "version": str(st.session_state.get("_rbv_version", "")) or "v2.90.5",
+            "inputs": {
+                "years": _last_cfg.get("years"),
+                "price": _last_cfg.get("price"),
+                "down": _last_cfg.get("down"),
+                "mort": _last_cfg.get("mort"),
+                "cash_to_close": _last_cfg.get("close"),
+                "mort_rate_nominal_pct": _last_cfg.get("rate"),
+                "amort_years": _last_cfg.get("amort_years"),
+                "term_years": _last_cfg.get("mortgage_term_years"),
+                "rent_monthly": _last_cfg.get("rent"),
+                "rent_inf_annual_frac": _last_cfg.get("rent_inf"),
+                "discount_rate_annual_frac": _last_cfg.get("discount_rate"),
+                "general_inf_annual_frac": _last_cfg.get("general_inf"),
+                "sell_cost_frac": _last_cfg.get("sell_cost"),
+                "prop_tax_rate_frac": _last_cfg.get("p_tax_rate"),
+                "maint_rate_frac": _last_cfg.get("maint_rate"),
+                "repair_rate_frac": _last_cfg.get("repair_rate"),
+                "condo_monthly": _last_cfg.get("condo"),
+                "home_ins_monthly": _last_cfg.get("h_ins"),
+                "utilities_monthly": _last_cfg.get("util"),
+                "land_transfer_region": _last_cfg.get("land_transfer_region"),
+                "first_time_buyer": _last_cfg.get("first_time_buyer"),
+                "investment_tax_mode": _last_cfg.get("investment_tax_mode"),
+                "tax_r_pct": _last_cfg.get("tax_r"),
+            },
+            "run_params": dict(_last_params),
+        }
+        _fp = hashlib.sha256(_json.dumps(_snap, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+        _snap["fingerprint"] = _fp
+
+        # Surface suspicious-unit warnings (does not block).
+        _warn = []
+        try:
+            if (_snap["inputs"].get("rent_inf_annual_frac") or 0) > 0.5:
+                _warn.append("rent_inf looks like percent-points (expected fraction).")
+        except Exception:
+            pass
+        try:
+            if (_snap["inputs"].get("discount_rate_annual_frac") or 0) > 0.5:
+                _warn.append("discount_rate looks like percent-points (expected fraction).")
+        except Exception:
+            pass
+        try:
+            if (_snap["run_params"].get("buyer_ret_pct") or 0) > 100:
+                _warn.append("buyer_ret_pct looks too large (expected annual % like 5–12).")
+        except Exception:
+            pass
+
+        with st.expander("🧾 Effective inputs used by the engine (debug)", expanded=False):
+            st.caption(f"Fingerprint: `{_fp}` — use this to confirm you're running the *exact same* scenario/config across versions.")
+            if _warn:
+                st.warning("Potential unit issues detected:\n" + "\n".join([f"- {w}" for w in _warn]))
+            st.json(_snap)
+            st.download_button(
+                "Download run snapshot (JSON)",
+                data=_json.dumps(_snap, indent=2),
+                file_name=f"rbv_run_snapshot_{_fp}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+except Exception:
+    pass
+
 
 
 def render_fin_table(dframe: pd.DataFrame, index_name: str | None = None, table_key: str = "table") -> str:
@@ -4724,7 +4827,11 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         fig_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
         st.plotly_chart(_rbv_apply_plotly_theme(fig_uc), use_container_width=True)
     
-    st.markdown("##### Average Monthly Operational Costs")
+    st.markdown("##### Average Monthly Irrecoverable Costs (cost of living)")
+    st.caption(
+        "These are the monthly costs you pay to live in the property that do **not** build equity (interest, taxes, upkeep, insurance, utilities). "
+        "Principal repayment is excluded here because it increases home equity."
+    )
     df_avg = df[df['Month'] > 0]
     b_table = pd.DataFrame({
         "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Insurance", "Utilities"],
@@ -4747,6 +4854,21 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     with c_tbl2:
         st.markdown('<div class="header-rent section-header">RENTER AVG</div>', unsafe_allow_html=True)
         st.markdown(render_fin_table(r_table, index_name="Category", table_key="renter_avg"), unsafe_allow_html=True)
+
+    # Bridge the "Outflow" KPI vs irrecoverable costs: principal paydown is the main difference.
+    try:
+        avg_b_out = float(_df_mean(df_avg, ["Buy Payment"], 0.0))
+        avg_b_irrec = float(b_table.loc['TOTAL', 'Amount'])
+        avg_principal = max(0.0, avg_b_out - avg_b_irrec)
+        if avg_principal > 0:
+            st.markdown(
+                f"<div style='text-align:center; font-size:13px; opacity:0.82; margin-top:6px;'>"
+                f"Avg buyer <b>principal paydown</b> (equity build): <span style='color:{BUY_COLOR}; font-weight:700;'>${avg_principal:,.0f}/mo</span>. "
+                f"Outflow = irrecoverable costs + principal.</div>",
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
     
     monthly_diff = b_table.loc['TOTAL', 'Amount'] - r_table.loc['TOTAL', 'Amount']
     note_color = BUY_COLOR if monthly_diff > 0 else RENT_COLOR
