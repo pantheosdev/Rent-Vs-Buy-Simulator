@@ -990,7 +990,17 @@ def run_heatmap_mc_batch(
                 # Expected deltas use mean columns when present
                 b_mean = float(df.iloc[-1]["Buyer NW Mean"] if "Buyer NW Mean" in df.columns else df.iloc[-1]["Buyer Net Worth"])
                 r_mean = float(df.iloc[-1]["Renter NW Mean"] if "Renter NW Mean" in df.columns else df.iloc[-1]["Renter Net Worth"])
-                disc_mo = _annual_effective_dec_to_monthly_eff(_f(cfg.get("discount_rate", 0.0), 0.0))
+                disc_annual = _f(cfg.get("discount_rate", 0.0), 0.0)
+                # Defensive normalization: UI widgets often express % as percent-points (e.g., 3.0 for 3%),
+                # but the engine expects a decimal fraction (0.03). If a caller accidentally passes
+                # percent-points, normalize here to avoid PV underflow to ~0.
+                if disc_annual > 1.0:
+                    disc_annual = disc_annual / 100.0
+                    try:
+                        df.attrs["discount_rate_autonormalized"] = True
+                    except Exception:
+                        pass
+                disc_mo = _annual_effective_dec_to_monthly_eff(disc_annual)
                 months = int(max(1, int(cfg.get("years", 1))) * 12)
                 d = b_mean - r_mean
                 dZ[i, j] = d
@@ -1175,8 +1185,27 @@ def run_heatmap_mc_batch(
             stock_shocks = None
             house_shocks = None
 
-    disc_mo = _annual_effective_dec_to_monthly_eff(_f(cfg.get("discount_rate", 0.0), 0.0))
+    disc_annual = _f(cfg.get("discount_rate", 0.0), 0.0)
 
+    # Defensive normalization: UI widgets often express % as percent-points (e.g., 3.0 for 3%),
+
+    # but the engine expects a decimal fraction (0.03). If a caller accidentally passes
+
+    # percent-points, normalize here to avoid PV underflow to ~0.
+
+    if disc_annual > 1.0:
+
+        disc_annual = disc_annual / 100.0
+
+        try:
+
+            df.attrs["discount_rate_autonormalized"] = True
+
+        except Exception:
+
+            pass
+
+    disc_mo = _annual_effective_dec_to_monthly_eff(disc_annual)
     # Outputs (flat, then reshaped)
     win_flat = np.full(n_cells, np.nan, dtype=np.float64)
     d_flat = np.full(n_cells, np.nan, dtype=np.float64)
@@ -2026,7 +2055,17 @@ def run_simulation_core(
         )
 
     # PV series (discounted net worth delta)
-    disc_mo = _annual_effective_dec_to_monthly_eff(_f(cfg.get("discount_rate", 0.0), 0.0))
+    disc_annual = _f(cfg.get("discount_rate", 0.0), 0.0)
+    # Defensive normalization: UI widgets often express % as percent-points (e.g., 3.0 for 3%),
+    # but the engine expects a decimal fraction (0.03). If a caller accidentally passes
+    # percent-points, normalize here to avoid PV underflow to ~0.
+    if disc_annual > 1.0:
+        disc_annual = disc_annual / 100.0
+        try:
+            df.attrs["discount_rate_autonormalized"] = True
+        except Exception:
+            pass
+    disc_mo = _annual_effective_dec_to_monthly_eff(disc_annual)
     if disc_mo > 0:
         pv_b = df["Buyer Net Worth"] / ((1 + disc_mo) ** df["Month"])
         pv_r = df["Renter Net Worth"] / ((1 + disc_mo) ** df["Month"])

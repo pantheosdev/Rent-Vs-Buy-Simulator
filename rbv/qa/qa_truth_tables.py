@@ -376,3 +376,17 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+def _tt_discount_rate_unit_guard():
+    """Guard: discount_rate passed as percent-points should not zero-out PV outputs."""
+    cfg = _base_cfg()
+    cfg["discount_rate"] = 3.0  # percent points (UI-style); engine should normalize to 0.03
+    df, _, _, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    # PV should be finite and non-trivial; also engine should mark normalization.
+    assert bool(getattr(df, "attrs", {}).get("discount_rate_autonormalized", False)) is True
+    bpv = float(df.iloc[-1].get("Buyer PV NW", 0.0))
+    rpv = float(df.iloc[-1].get("Renter PV NW", 0.0))
+    assert math.isfinite(bpv) and math.isfinite(rpv)
+    assert (bpv > 1_000.0) and (rpv > 1_000.0)
+
+
+

@@ -2380,10 +2380,9 @@ def _build_cfg():
     pst = float(_g("pst", 0.0) or 0.0)
     nm = int(_g("nm", years * 12) or (years * 12))
 
-    # PV discount rate is stored in session_state as percent; local is fraction
-    discount_rate = _g("discount_rate", None)
-    if discount_rate is None:
-        discount_rate = _frac_from_pp("discount_rate", 3.0)
+    # PV discount rate widget is expressed in percent points (e.g., 3.0 for 3%).
+    # Always convert to fraction for the engine config.
+    discount_rate = _frac_from_pp("discount_rate", 3.0)
 
     # Investment drag tax is a percent (engine uses tax_r/100 internally)
     tax_r = _g("tax_r", None)
@@ -2940,6 +2939,9 @@ try:
         _rbv_diag_add("FAIL", "Non-finite values in outputs", ", ".join(bad))
     else:
         _rbv_diag_add("OK", "No NaN/Inf in key outputs")
+        # Guardrail: surface when the engine had to normalize discount_rate units (prevents PV showing as $0)
+        if bool(getattr(df, "attrs", {}).get("discount_rate_autonormalized", False)):
+            _rbv_diag_add("WARN", "Discount rate auto-normalized", "PV discount rate looked like percent-points; normalized to fraction.")
 
 except Exception as _e:
     _rbv_diag_add("WARN", "Diagnostics runtime issue", str(_e))

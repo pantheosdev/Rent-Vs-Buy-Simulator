@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.90.3
+
+- Fix: PV discount rate unit conversion in config builder; prevent PV underflow to $0.
+- Harden: engine normalizes discount_rate when passed as percent-points.
+
 ## v2.90 (2026-02-19)
 
 - UX: Added above-the-fold disclaimer banner (educational use only; not financial advice).
