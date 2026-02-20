@@ -2306,8 +2306,17 @@ def _build_cfg():
         return _pp(key, default_pp) / 100.0
 
     def _g(name: str, default=None):
-        """Read from module globals if present; else from session_state; else default."""
-        if name in globals():
+        """Read from session_state; fall back to globals only for *derived* values.
+
+        IMPORTANT: Do **not** source user inputs from globals. This file defines many
+        module-level variables as Streamlit renders widgets; those locals can have
+        different units (e.g., percent points vs decimal fractions). Pulling raw inputs
+        from globals can silently apply the wrong units.
+
+        We only fall back to globals for a small set of derived values that may be
+        computed upstream (mort/close/pst/nm).
+        """
+        if name in ("mort", "close", "pst", "nm") and name in globals():
             return globals().get(name)
         return st.session_state.get(name, default)
 
@@ -2320,10 +2329,9 @@ def _build_cfg():
     # Mortgage rate is stored/used in nominal percent (e.g., 4.5 for 4.5%)
     rate = float(st.session_state.get("rate", _g("rate", 4.0)))
 
-    # Rent inflation is stored in session_state as percent; local 'rent_inf' (when defined) is fraction
-    rent_inf = _g("rent_inf", None)
-    if rent_inf is None:
-        rent_inf = _frac_from_pp("rent_inf", 2.5)
+    # Rent inflation is stored in session_state as percent points. Always convert here.
+    # (Do not read from globals: widget locals overwrite module globals with different units.)
+    rent_inf = _frac_from_pp("rent_inf", 2.5)
 
     # Selling + annual rates stored in session_state as percent; locals are fractions
     sell_cost = _g("sell_cost", None)
