@@ -179,18 +179,18 @@ def main() -> int:
     _check_text_for_patterns("absolute local paths", ABS_PATH_PATTERNS)
     _check_text_for_patterns("secret-like tokens", SECRET_PATTERNS)
 
-    if not args.skip_qa:
-        print("RBV preflight: running QA suite")
-        _run([sys.executable, "run_all_qa.py"])
-
-
-    # Ruff lint/format gate (public CI stability)
+    # Ruff lint/format (public CI stability)
     if shutil.which("ruff") is None:
         print("FAIL: ruff not installed. Install dev deps:\n  pip install -r requirements-dev.txt")
         raise SystemExit(1)
     print("RBV preflight: running ruff")
+    # Apply formatting locally so you don't end up with a CI-only formatter mismatch.
+    _run(["ruff", "format", "."])
     _run(["ruff", "check", "."])
-    _run(["ruff", "format", "--check", "."])
+
+    if not args.skip_qa:
+        print("RBV preflight: running QA suite")
+        _run([sys.executable, "run_all_qa.py"])
 
     if args.run_vr_smoke:
         print("RBV preflight: running visual regression smoke")
