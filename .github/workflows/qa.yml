@@ -2,27 +2,63 @@ name: QA
 
 on:
   push:
+    branches: [ main ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   qa:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Repo sanity (preflight without QA)
-        run: python scripts/preflight.py --skip-qa
+      - name: Ruff (lint)
+        run: |
+          ruff check .
 
-      - name: Run QA
-        run: python run_all_qa.py
+      - name: Ruff (format check)
+        run: |
+          ruff format --check .
+
+      - name: QA suite
+        run: |
+          python run_all_qa.py
+
+  vr_smoke:
+    # Run a lightweight visual smoke only when explicitly requested.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install Playwright browser
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: Visual regression smoke
+        run: |
+          python tools/visual_regression/vr_playwright.py --smoke

@@ -130,6 +130,15 @@ def _base_cfg() -> dict:
         "rent_control_cap": None,
         "rent_control_frequency_years": 1,
         "condo_inf": 0.0,
+
+        # Optional modeling layers (must be opt-in)
+        "special_assessment_amount": 0.0,
+        "special_assessment_month": 0,
+        "cg_inclusion_policy": "current",
+        "cg_inclusion_threshold": 250000.0,
+        "reg_shelter_enabled": False,
+        "reg_initial_room": 0.0,
+        "reg_annual_room": 0.0,
     }
 
 
@@ -289,6 +298,114 @@ def _tt_annual_drag_disables_extra_liquidation_cg() -> None:
     _assert_close("TT-L2 renter_liq", float(last["Renter Liquidation NW"]), 100_000.0, atol=1e-9)
 
 
+def _tt_special_assessment_applied_once() -> None:
+    cfg = _base_cfg()
+    cfg.update({
+        "years": 2,
+        "price": 100_000.0,
+        "down": 100_000.0,
+        "mort": 0.0,
+        "rate": 0.0,
+        "rent": 0.0,
+        "show_liquidation_view": False,
+        "assume_sale_end": False,
+        "special_assessment_amount": 10_000.0,
+        "special_assessment_month": 7,
+    })
+
+    df, _, _, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    if df is None or len(df) < 24:
+        _die("TT-SA1: engine returned empty/short df")
+    if "Special Assessment" not in df.columns:
+        _die("TT-SA1: missing 'Special Assessment' column")
+
+    sa_sum = float(df["Special Assessment"].sum())
+    _assert_close("TT-SA1 assessment sum", sa_sum, 10_000.0, atol=1e-9)
+    sa_m7 = float(df.iloc[6]["Special Assessment"])  # month 7
+    _assert_close("TT-SA1 assessment month 7", sa_m7, 10_000.0, atol=1e-9)
+    b_unrec_end = float(df.iloc[-1]["Buyer Unrecoverable"])
+    _assert_close("TT-SA1 buyer unrec end", b_unrec_end, 10_000.0, atol=1e-9)
+
+
+def _tt_cg_inclusion_tier_and_shelter() -> None:
+    # Construct a deterministic case with large portfolio gains so the tier triggers.
+    cfg = _base_cfg()
+    cfg.update({
+        "years": 1,
+        "price": 100_000.0,
+        "down": 100_000.0,
+        "mort": 0.0,
+        "rate": 0.0,
+        "rent": 100_000.0,  # forces buyer to invest 100k/mo when invest_diff=True
+        "r_ins": 0.0,
+        "r_util": 0.0,
+        "moving_cost": 0.0,
+        "moving_freq": 1000.0,
+        "show_liquidation_view": True,
+        "assume_sale_end": False,
+        "investment_tax_mode": "Pre-tax (no investment taxes)",
+        "cg_tax_end": 25.0,
+        "cg_inclusion_threshold": 250_000.0,
+        "reg_shelter_enabled": False,
+    })
+
+    basis = 12.0 * 100_000.0
+    home_eq = 100_000.0
+    eff = 0.25
+
+    # Current policy: flat effective rate
+    cfg["cg_inclusion_policy"] = "current"
+    df1, _, _, _ = _run_det(cfg, buyer_ret_pct=200.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
+    last1 = df1.iloc[-1]
+    b_nw1 = float(last1["Buyer Net Worth"])
+    b_liq1 = float(last1["Buyer Liquidation NW"])
+    port1 = b_nw1 - home_eq
+    gain1 = max(0.0, port1 - basis)
+    tax1 = eff * gain1
+    _assert_close("TT-L3 current buyer_liq", b_liq1, b_nw1 - tax1, atol=1e-6)
+
+    # Tiered policy: above-threshold gains taxed at 4/3 of effective rate
+    cfg["cg_inclusion_policy"] = "proposed_2_3_over_250k"
+    df2, _, _, _ = _run_det(cfg, buyer_ret_pct=200.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
+    last2 = df2.iloc[-1]
+    b_nw2 = float(last2["Buyer Net Worth"])
+    b_liq2 = float(last2["Buyer Liquidation NW"])
+    port2 = b_nw2 - home_eq
+    gain2 = max(0.0, port2 - basis)
+    thr = 250_000.0
+    tax2 = eff * min(gain2, thr) + (eff * (4.0 / 3.0)) * max(0.0, gain2 - thr)
+    _assert_close("TT-L3 tiered buyer_liq", b_liq2, b_nw2 - tax2, atol=1e-6)
+
+    # Full shelter: cap basis at >= total basis => taxable gain should be 0
+    cfg["reg_shelter_enabled"] = True
+    cfg["reg_initial_room"] = basis
+    cfg["reg_annual_room"] = 0.0
+    df3, _, _, _ = _run_det(cfg, buyer_ret_pct=200.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
+    last3 = df3.iloc[-1]
+    b_nw3 = float(last3["Buyer Net Worth"])
+    b_liq3 = float(last3["Buyer Liquidation NW"])
+    _assert_close("TT-L3 sheltered buyer_liq", b_liq3, b_nw3, atol=1e-6)
+
+
+
+def _tt_ui_defaults_match_presets() -> None:
+    """UI first-load defaults must match the selected scenario preset (single source of truth).
+
+    This prevents drift where:
+      - the preset says one thing (e.g., rate=4.75)
+      - but initial session_state seeding uses a stale value (e.g., 5.25)
+    """
+    from rbv.ui.defaults import PRESETS, build_session_defaults
+
+    for scen, preset in PRESETS.items():
+        d = build_session_defaults(scen)
+        if str(d.get("scenario_select")) != str(scen):
+            _die(f"ui_defaults: scenario_select mismatch for {scen} (got={d.get('scenario_select')})")
+        for k, v in preset.items():
+            if k not in d:
+                _die(f"ui_defaults: missing key '{k}' for scenario {scen}")
+            _assert_close(f"ui_defaults[{scen}].{k}", float(d[k]), float(v), atol=1e-12, rtol=0.0)
+
 def _tt_rent_control_cadence_every3() -> None:
     cfg = _base_cfg()
     cfg.update({
@@ -364,6 +481,9 @@ def main(argv: list[str] | None = None) -> None:
     _tt_cmhc_pst_recompute()
     _tt_liquidation_cg_tax_end_only()
     _tt_annual_drag_disables_extra_liquidation_cg()
+    _tt_special_assessment_applied_once()
+    _tt_cg_inclusion_tier_and_shelter()
+    _tt_ui_defaults_match_presets()
 
     # Rent control cadence
     _tt_rent_control_cadence_every3()

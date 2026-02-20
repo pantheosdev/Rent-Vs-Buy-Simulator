@@ -20,6 +20,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import shutil
 import re
 import subprocess
 import sys
@@ -152,6 +153,7 @@ def _check_required_files() -> None:
         "SECURITY.md",
         "CHANGELOG.md",
         ".github/workflows/qa.yml",
+        ".github/workflows/release.yml",
         "docs/RELEASE_CHECKLIST.md",
         "scripts/preflight.py",
     ]
@@ -180,6 +182,15 @@ def main() -> int:
     if not args.skip_qa:
         print("RBV preflight: running QA suite")
         _run([sys.executable, "run_all_qa.py"])
+
+
+    # Ruff lint/format gate (public CI stability)
+    if shutil.which("ruff") is None:
+        print("FAIL: ruff not installed. Install dev deps:\n  pip install -r requirements-dev.txt")
+        raise SystemExit(1)
+    print("RBV preflight: running ruff")
+    _run(["ruff", "check", "."])
+    _run(["ruff", "format", "--check", "."])
 
     if args.run_vr_smoke:
         print("RBV preflight: running visual regression smoke")
