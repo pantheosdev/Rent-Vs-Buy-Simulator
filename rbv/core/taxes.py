@@ -203,6 +203,13 @@ def calc_transfer_duty_quebec_baseline(price: float, asof_date: 'datetime.date |
     return _calc_bracket_tax(p, brackets)
 
 
+
+
+# Backwards-compatible alias (older app.py imports)
+def calc_transfer_duty_quebec_standard(price: float, asof_date: "datetime.date | None" = None) -> float:
+    """Alias for the baseline Quebec transfer duty schedule (municipal surcharges excluded)."""
+    return calc_transfer_duty_quebec_baseline(price, asof_date=asof_date)
+
 def calc_transfer_duty_quebec_big_city(price: float, asof_date: 'datetime.date | None' = None) -> float:
     """Example of a higher-bracket Quebec municipality schedule (e.g., Montréal-like tiers).
 
