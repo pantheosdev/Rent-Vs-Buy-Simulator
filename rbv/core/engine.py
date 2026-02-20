@@ -351,7 +351,7 @@ def _run_monte_carlo_vectorized(
         r_util_paid = float(c_r_util)
         skip_last_move = bool(assume_sale_end) and (m == months)
         m_moving = float(moving_cost) if (m == next_move and not skip_last_move) else 0.0
-        r_out = float(c_rent) + float(c_r_ins) + float(c_r_util) + float(m_moving)
+        r_out = float(c_rent) + float(c_r_ins) + float(c_r_util) + float(m_moving)  # Total renter outflow (incl. moving)
         if m == next_move:
             next_move += float(moving_freq) * 12.0
 
@@ -707,6 +707,8 @@ def _run_monte_carlo_vectorized(
         "Moving": moving_vec,
         "Buy Payment": buy_pmt_med,
         "Rent Payment": rent_pmt_vec,
+        # Smooth recurring rent cost (excludes moving spikes). Useful for charts.
+        "Rent Cost (Recurring)": (rent_vec + rins_vec + rutil_vec),
         "Deficit": deficit_med,
     })
 
@@ -1034,6 +1036,22 @@ def run_heatmap_mc_batch(
 
     rate = _f(cfg.get("rate", 0.0), 0.0)
     sell_cost = _f(cfg.get("sell_cost", 0.0), 0.0)
+    # ── cfg unit guard: auto-convert percent-like values stored as decimal fractions ──
+    # general_inf, ret_std, apprec_std: engine expects decimal (0.025 = 2.5%).
+    # Protect against callers who pass percent values (e.g. general_inf=2.5 instead of 0.025).
+    _cfg_general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
+    if _cfg_general_inf > 1.0:
+        cfg = dict(cfg)  # defensive copy — never mutate caller's dict
+        cfg["general_inf"] = _cfg_general_inf / 100.0
+    _cfg_ret_std = _f(cfg.get("ret_std", 0.0), 0.0)
+    if _cfg_ret_std > 1.0:
+        cfg = dict(cfg)
+        cfg["ret_std"] = _cfg_ret_std / 100.0
+    _cfg_apprec_std = _f(cfg.get("apprec_std", 0.0), 0.0)
+    if _cfg_apprec_std > 1.0:
+        cfg = dict(cfg)
+        cfg["apprec_std"] = _cfg_apprec_std / 100.0
+
     p_tax_rate = _f(cfg.get("p_tax_rate", 0.0), 0.0)
     maint_rate = _f(cfg.get("maint_rate", 0.0), 0.0)
     repair_rate = _f(cfg.get("repair_rate", 0.0), 0.0)
@@ -1364,7 +1382,8 @@ def run_heatmap_mc_batch(
             # Renter outflows (per cell, broadcast over sims)
             skip_last_move = bool(assume_sale_end) and (m == months)
             m_moving = float(moving_cost) if (m == next_move and not skip_last_move) else 0.0
-            r_out = c_rent + float(c_r_ins) + float(c_r_util) + float(m_moving)
+            r_out = c_rent + float(c_r_ins) + float(c_r_util) + float(m_moving)  # Total (incl. moving)
+            r_out_recurring = c_rent + float(c_r_ins) + float(c_r_util)  # Recurring only (no moving spike)
             if m == next_move:
                 next_move += float(moving_freq) * 12.0
 
@@ -1571,6 +1590,22 @@ def run_simulation_core(
     rate = _f(cfg.get("rate", 0.0), 0.0)
     rent_inf = _f(cfg.get("rent_inf", 0.0), 0.0)
     sell_cost = _f(cfg.get("sell_cost", 0.0), 0.0)
+    # ── cfg unit guard: auto-convert percent-like values stored as decimal fractions ──
+    # general_inf, ret_std, apprec_std: engine expects decimal (0.025 = 2.5%).
+    # Protect against callers who pass percent values (e.g. general_inf=2.5 instead of 0.025).
+    _cfg_general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
+    if _cfg_general_inf > 1.0:
+        cfg = dict(cfg)  # defensive copy — never mutate caller's dict
+        cfg["general_inf"] = _cfg_general_inf / 100.0
+    _cfg_ret_std = _f(cfg.get("ret_std", 0.0), 0.0)
+    if _cfg_ret_std > 1.0:
+        cfg = dict(cfg)
+        cfg["ret_std"] = _cfg_ret_std / 100.0
+    _cfg_apprec_std = _f(cfg.get("apprec_std", 0.0), 0.0)
+    if _cfg_apprec_std > 1.0:
+        cfg = dict(cfg)
+        cfg["apprec_std"] = _cfg_apprec_std / 100.0
+
     p_tax_rate = _f(cfg.get("p_tax_rate", 0.0), 0.0)
     maint_rate = _f(cfg.get("maint_rate", 0.0), 0.0)
     repair_rate = _f(cfg.get("repair_rate", 0.0), 0.0)
@@ -1968,6 +2003,8 @@ def run_simulation_core(
                 "Moving": renter_moving_med,
                 "Buy Payment": buyer_pmt_med,
                 "Rent Payment": renter_pmt_med,
+                # Smooth recurring rent cost (excludes moving spikes). Useful for charts.
+                "Rent Cost (Recurring)": (renter_rent_med + renter_ins_med + renter_util_med),
                 "Deficit": deficit_med,
             })
 
@@ -2286,7 +2323,8 @@ def simulate_single(
 
         skip_last_move = bool(assume_sale_end) and (m == years * 12)
         m_moving = moving_cost if (m == next_move and not skip_last_move) else 0.0
-        r_out = c_rent + c_r_ins + c_r_util + m_moving
+        r_out = c_rent + c_r_ins + c_r_util + m_moving  # Total (incl. moving)
+        r_out_recurring = c_rent + c_r_ins + c_r_util  # Recurring only
         r_op = r_out
         if m == next_move:
             next_move += moving_freq * 12
@@ -2430,6 +2468,7 @@ def simulate_single(
             "Renter Unrecoverable": cum_r_op,
             "Buyer Home Equity": c_home - c_mort,
             "Rent Payment": r_out,
+            "Rent Cost (Recurring)": r_out_recurring,
             "Buy Payment": b_out,
             "Deficit": gap,
             "Interest": inte,

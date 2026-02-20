@@ -674,8 +674,8 @@ except Exception:
 # --- 2. PRESETS & SESSION STATE ---
 PRESETS = {
     "Baseline": {
-        'rate': 4.0, 'apprec': 3.5, 'general_inf': 2.5, 
-        'rent_inf': 2.5, 'buyer_ret': 7.5, 'renter_ret': 7.5
+        'rate': 5.25, 'apprec': 3.5, 'general_inf': 2.5,
+        'rent_inf': 2.5, 'buyer_ret': 7.0, 'renter_ret': 7.0
     },
     "High Inflation": {
         'rate': 7.5, 'apprec': 5.0, 'general_inf': 4.5, 
@@ -691,8 +691,8 @@ PRESETS = {
 defaults = {
     'years': 25, 'scenario_select': 'Baseline',
     'price': 800000.0, 'down': 160000.0, 'rent': 3000.0,
-    'rate': 4.0, 'apprec': 3.5, 'general_inf': 2.5,
-    'rent_inf': 2.5, 'buyer_ret': 7.5, 'renter_ret': 7.5,
+    'rate': 5.25, 'apprec': 3.5, 'general_inf': 2.5,
+    'rent_inf': 2.5, 'buyer_ret': 7.0, 'renter_ret': 7.0,
 
     # Pro realism defaults (additive; do not affect presets)
     'condo_inf': None,                 # Condo fees often outpace CPI; default = CPI(2.5)+1.5
@@ -1029,7 +1029,7 @@ o_util = 0.0
 rent = 3000.0
 rent_inf = st.session_state.get("rent_inf", 2.5) / 100
 renter_inv_ret = st.session_state.get("renter_ret", 7.5)
-moving_cost = 750.0
+moving_cost = 1500.0
 moving_freq = 5
 r_ins = 30.0
 r_util = 0.0
@@ -1360,6 +1360,16 @@ with st.sidebar:
             crisis_duration_months = st.select_slider("Shock duration (months)", options=[1, 3, 6, 12], value=1)
             crisis_stock_dd = st.slider("Stock drawdown (%)", 0, 90, 35) / 100
             crisis_house_dd = st.slider("Home price drawdown (%)", 0, 90, 20) / 100
+            # ⚠️ Compounding warning — each % applies PER MONTH over the duration
+            if crisis_duration_months > 1:
+                _total_stock = 1 - (1 - crisis_stock_dd) ** crisis_duration_months
+                _total_house = 1 - (1 - crisis_house_dd) ** crisis_duration_months
+                st.caption(
+                    f"⚠️ **Compounding note:** each drawdown % applies *every month* of the shock duration. "
+                    f"Over {crisis_duration_months} months: stock total drop ≈ **{_total_stock:.0%}**, "
+                    f"home total drop ≈ **{_total_house:.0%}**. "
+                    f"For a one-time correction (e.g. '20% total'), set duration to **1 month**."
+                )
         else:
             crisis_year = 5
             crisis_duration_months = 1
@@ -1874,7 +1884,11 @@ with brow1[1]:
 with brow1[2]:
     rate = rbv_number_input(
         "Mortgage rate (%)",
-        tooltip="Nominal annual mortgage rate used for the monthly payment schedule (before any reset/shock overrides).",
+        tooltip=(
+            "Nominal annual mortgage rate used for the payment schedule "
+            "(before any reset/shock overrides). Rates vary widely by term, lender, and insured/uninsured status — "
+            "use your actual quoted rate."
+        ),
         min_value=0.0,
         value=float(vals.get("rate", 5.25)),
         step=0.05,
@@ -1951,7 +1965,10 @@ with brow3[0]:
 with brow3[1]:
 	    p_tax_rate_pct = rbv_slider(
 	        "Property tax (% / year)",
-	        tooltip="Annual property tax rate as a percent of current home value (paid monthly in the model).",
+	        tooltip=(
+                    "Annual property tax rate as a % of assessed value. This varies a lot by municipality and year "
+                    "(often roughly ~0.25%–1.25%). Use your city’s published tax rate / calculator."
+                ),
 	        min_value=0.0,
 	        max_value=3.0,
 	        value=float(vals.get("p_tax_rate_pct", 1.0)),
@@ -2113,8 +2130,12 @@ with rrow1[1]:
 with rrow1[2]:
     renter_ret = rbv_number_input(
         "Renter invest. return (%)",
-        tooltip="Expected annual return on the renter's invested assets.",
-        value=float(vals.get("renter_ret", 6.0)),
+        tooltip=(
+                "Expected annual return on the renter's invested assets. "
+                "Typically set equal to the buyer's return — both parties can invest in the same markets. "
+                "A lower renter return assumes the renter is less financially disciplined."
+            ),
+        value=float(vals.get("renter_ret", 7.0)),
         step=0.1,
         key="renter_ret",
     )
@@ -2123,7 +2144,7 @@ with rrow1[3]:
         "Moving cost per move ($)",
         tooltip="One-time moving cost paid each time the renter moves.",
         min_value=0.0,
-        value=float(vals.get("moving_cost", 750.0)),
+        value=float(vals.get("moving_cost", 1500.0)),
         step=50.0,
         key="moving_cost",
     )
@@ -2362,7 +2383,7 @@ def _build_cfg():
     r_ins = float(st.session_state.get("r_ins", _g("r_ins", 30.0)) or 0.0)
     r_util = float(st.session_state.get("r_util", _g("r_util", 0.0)) or 0.0)
 
-    moving_cost = float(st.session_state.get("moving_cost", _g("moving_cost", 750.0)) or 0.0)
+    moving_cost = float(st.session_state.get("moving_cost", _g("moving_cost", 1500.0)) or 0.0)
     _mf_raw = st.session_state.get("moving_freq", _g("moving_freq", 5))
     # Accept numeric years, or legacy strings like "Never" / "Every 5 years"
     moving_freq = 5.0
@@ -3159,7 +3180,7 @@ def _rbv_cashout_breakeven_pack(cfg_run: dict, winner: str, fast_mode: bool) -> 
         return {}
 
     buyer_ret_base = float(st.session_state.get("buyer_ret", 7.0))
-    renter_ret_base = float(st.session_state.get("renter_ret", 6.0))
+    renter_ret_base = float(st.session_state.get("renter_ret", 7.0))
     apprec_base = float(st.session_state.get("apprec", 3.0))
 
     use_vol = bool(st.session_state.get("use_volatility", False))
@@ -4011,7 +4032,7 @@ if tab == _TAB_NET:
         if hm_axes == "Home appreciation × Renter investment return":
             hm_y_axis = "renter_ret"
             hm_y_title = "Renter investment return (%)"
-            _rr0 = float(st.session_state.get("renter_ret", 6.0) or 6.0)
+            _rr0 = float(st.session_state.get("renter_ret", 7.0) or 7.0)
             y_lo = max(-5.0, _rr0 - 4.0)
             y_hi = min(20.0, _rr0 + 4.0)
             hm_y_hover = "Renter return"
@@ -4678,10 +4699,11 @@ if tab == _TAB_NET:
 
 elif tab == _TAB_COSTS:
     st.markdown(
-        '<div class="note-box"><b>About these costs:</b> This tab summarizes <b>ongoing, non-principal housing costs</b> '
+        '<div class=\"note-box\"><b>About these costs:</b> This tab summarizes <b>ongoing non-principal housing costs</b> '
         '(interest, taxes, condo/maintenance, insurance, utilities, rent, etc.). '
         'Some of these costs help maintain the asset (e.g., maintenance) and are partly “offset” by appreciation in the net worth view. '
-        'Principal paydown is <b>not</b> shown as a cost because it becomes equity.</div>',
+        'Principal paydown is <b>not</b> shown as a cost because it becomes equity. '
+        '<br><b>Note:</b> Buyer total includes upfront closing costs + selling costs at horizon (realtor + legal). Renter total includes all moving costs.</div>',
         unsafe_allow_html=True,
     )
     diff_uc = df.iloc[-1]['Buyer Unrecoverable'] - df.iloc[-1]['Renter Unrecoverable']

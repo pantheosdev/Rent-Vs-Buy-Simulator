@@ -31,19 +31,27 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 
-# === Golden expected terminal metrics (v2_52 baseline) ===
+# === Golden expected terminal metrics (v2_91 baseline) ===
+# NOTE: If you intentionally change core math/assumptions, regenerate via:
+#   python -m rbv.qa.qa_golden --print-baseline
 _EXPECTED: Dict[str, Dict[str, float]] = {'deterministic_baseline': {'Buyer Net Worth': 524081.12166366115,
                             'Buyer Unrecoverable': 571222.6776092583,
                             'Renter Net Worth': 314744.2171663305,
                             'Renter Unrecoverable': 454164.3024731583,
                             'close_cash': 185000.0,
                             'mort_pmt': 3722.2719042368994},
- 'insured_price_999k_ltv95': {'Buyer Net Worth': 519574.1053050511,
-                              'Buyer Unrecoverable': 783151.1950649766,
+ 'insured_price_1100k_ltv90': {'Buyer Net Worth': 623707.5461864672,
+                               'Buyer Unrecoverable': 825416.4806196475,
+                               'Renter Net Worth': 216386.64930185225,
+                               'Renter Unrecoverable': 454164.3024731583,
+                               'close_cash': 137455.2,
+                               'mort_pmt': 5936.383921774313},
+ 'insured_price_999k_ltv95': {'Buyer Net Worth': 550656.6092416401,
+                              'Buyer Unrecoverable': 763547.4923318863,
                               'Renter Net Worth': 98357.46950691048,
                               'Renter Unrecoverable': 454164.3024731583,
-                              'close_cash': 78039.94696,
-                              'mort_pmt': 5746.251505908462},
+                              'close_cash': 74999.95000000001,
+                              'mort_pmt': 5525.24183260429},
  'ltv80_no_cmhc': {'Buyer Net Worth': 592716.2618716216,
                    'Buyer Unrecoverable': 634693.8777744222,
                    'Renter Net Worth': 354087.24431212153,
@@ -91,12 +99,12 @@ _EXPECTED: Dict[str, Dict[str, float]] = {'deterministic_baseline': {'Buyer Net 
                  '_qa_tax_total': 48950.0,
                  'close_cash': 399475.0,
                  'mort_pmt': 6106.852342888663},
- 'uninsured_price_1mplus_ltv95': {'Buyer Net Worth': 550657.7605560097,
-                                  'Buyer Unrecoverable': 763548.8925221189,
+ 'uninsured_price_1mplus_ltv95': {'Buyer Net Worth': 519575.1944543496,
+                                  'Buyer Unrecoverable': 783152.634462653,
                                   'Renter Net Worth': 98357.66622204613,
                                   'Renter Unrecoverable': 454164.3024731583,
-                                  'close_cash': 75000.05,
-                                  'mort_pmt': 5525.252883099005}}
+                                  'close_cash': 78040.05304,
+                                  'mort_pmt': 5746.262998422964}}
 
 
 def _finite(x) -> bool:
@@ -114,11 +122,17 @@ def _hex_to_rgb(h: str) -> Tuple[int, int, int]:
 
 
 def _cmhc_premium_rate(price: float, down: float) -> float:
+    """Mirror engine CMHC logic using policy_canada for the insured-mortgage price cap.
+
+    Updated 2025-01 to reflect the Dec 2024 cap increase from $1,000,000 to $1,500,000.
+    """
+    from rbv.core.policy_canada import insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
+    import datetime as _dt
     loan = max(float(price) - float(down), 0.0)
     ltv = (loan / float(price)) if float(price) > 0 else 0.0
-    # Engine rule: CMHC not available for purchases >= $1,000,000; otherwise tier logic
-    if float(price) < 1_000_000 and ltv > 0.8:
-        return 0.04 if ltv > 0.9 else (0.031 if ltv > 0.85 else 0.028)
+    price_cap = insured_mortgage_price_cap(_dt.date.today())
+    if float(price) < price_cap and ltv > 0.8:
+        return cmhc_premium_rate_from_ltv(ltv)
     return 0.0
 
 
@@ -345,12 +359,17 @@ def _build_cases() -> Dict[str, Tuple[Dict[str, Any], Dict[str, Any], str]]:
     cfg_rc3["rent_control_frequency_years"] = 3
     cases["rent_control_every3"] = (cfg_rc3, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
-    # 5-6) Insured vs uninsured boundary (>= $1,000,000 disables CMHC in engine)
+    # 5-6) Insured vs uninsured boundary (< $1,500,000 enables CMHC since Dec-2024)
     cfg_ins = _apply_price_down(base, price=999_999.0, down=0.05 * 999_999.0, base_close=25_000.0)
     cases["insured_price_999k_ltv95"] = (cfg_ins, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
     cfg_unins = _apply_price_down(base, price=1_000_001.0, down=0.05 * 1_000_001.0, base_close=25_000.0)
     cases["uninsured_price_1mplus_ltv95"] = (cfg_unins, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
+
+    # NEW: $1.1M insured scenario (should apply CMHC since Dec-2024 cap = $1.5M)
+    # NOTE: Use the same base config object for consistency (avoid NameError: cfg_base).
+    cfg_ins_1m1 = _apply_price_down(dict(base), price=1_100_000.0, down=110_000.0, base_close=25_000.0)
+    cases["insured_price_1100k_ltv90"] = (cfg_ins_1m1, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
     # 7) LTV 80% exact (no CMHC)
     cfg_ltv80 = _apply_price_down(base, price=900_000.0, down=0.20 * 900_000.0, base_close=25_000.0)
