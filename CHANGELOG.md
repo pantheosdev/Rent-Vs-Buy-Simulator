@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.92.7
+- UI: Added **Quick Signals** KPI row (Breakeven year, Price-to-rent, Surplus investing status, Mode).
+- UX guardrail: **Invest Monthly Surplus** is locked ON in standard mode; disabling requires Expert mode and shows a prominent warning.
+- Consistency: Helper paths (breakeven/bias/heatmap) now default `invest_surplus_input` to **True** to avoid first-load mismatches.
+
 ## v2.92.6
 - Closing costs: centralize **mortgage default insurance sales tax** rules and make Quebec rate date-aware (**9% through 2026**, 9.975% from 2027).
 - Cash-out: add **Principal residence** toggle; if disabled, apply a simplified **home capital gains tax** at horizon sale (net of selling costs).

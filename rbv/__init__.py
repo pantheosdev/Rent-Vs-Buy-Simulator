@@ -5,4 +5,4 @@ This repo is primarily a Streamlit app; the core logic is in the rbv/ package.
 
 from __future__ import annotations
 
-__version__ = 'v2.92.6'
+__version__ = 'v2.92.7'

@@ -1442,11 +1442,20 @@ with st.sidebar:
 
 
     with st.expander("🧠 Behavioral & Advanced", expanded=False):
+        # IMPORTANT UX / modeling guardrail:
+        # Turning off surplus investing can massively bias results and is easy to misinterpret.
+        # We therefore lock it ON unless Expert mode is enabled.
+        _expert_mode = bool(st.session_state.get("expert_mode", False))
+        if (not _expert_mode) and ("invest_surplus_input" in st.session_state) and (not bool(st.session_state.get("invest_surplus_input", True))):
+            st.session_state["invest_surplus_input"] = True
         invest_surplus_input = st.checkbox(
             "Invest Monthly Surplus?",
             value=bool(st.session_state.get("invest_surplus_input", True)),
             key="invest_surplus_input",
+            disabled=(not _expert_mode),
         )
+        if not _expert_mode:
+            st.caption("Standard mode: surplus investing is locked **ON** (economic realism + safer comparisons).")
         if "renter_uses_closing_input" not in st.session_state:
             st.session_state["renter_uses_closing_input"] = True
         renter_uses_closing_input = st.checkbox(
@@ -1491,6 +1500,13 @@ with st.sidebar:
             value=bool(st.session_state.get("budget_enabled", False)),
             key="budget_enabled",
         )
+        # If the user disables surplus investing (expert-only), make the modeling consequence explicit.
+        if _expert_mode and (not bool(invest_surplus_input)) and (not bool(budget_enabled)):
+            st.error(
+                "Surplus investing is **OFF** — the model treats any monthly advantage as **spent** (not invested). "
+                "This can strongly favor the more expensive option in long-horizon net-worth results.",
+                icon="⚠️",
+            )
         if budget_enabled and bool(invest_surplus_input):
             st.caption("Budget mode is ON — the model uses income/budget cashflows, so monthly-surplus investing is ignored.")
         if budget_enabled:
@@ -3269,7 +3285,7 @@ def _rbv_verdict_breakeven_msg(cfg_run: dict, winner: str) -> str | None:
         "buyer_ret": buyer_ret_base,
         "renter_ret": renter_ret_base,
         "apprec": apprec_base,
-        "invest_diff": bool(st.session_state.get("invest_surplus_input", False)) and (not bool(st.session_state.get("budget_enabled", False))),
+        "invest_diff": bool(st.session_state.get("invest_surplus_input", True)) and (not bool(st.session_state.get("budget_enabled", False))),
         "renter_uses_closing": bool(globals().get("renter_uses_closing_input", True)),
         "corr": float(globals().get("market_corr_input", 0.0)),
         "mc_mode": bool(mc_mode),
@@ -3419,7 +3435,7 @@ def _rbv_cashout_breakeven_pack(cfg_run: dict, winner: str, fast_mode: bool) -> 
         "buyer_ret": buyer_ret_base,
         "renter_ret": renter_ret_base,
         "apprec": apprec_base,
-        "invest_diff": bool(st.session_state.get("invest_surplus_input", False)) and (not bool(st.session_state.get("budget_enabled", False))),
+        "invest_diff": bool(st.session_state.get("invest_surplus_input", True)) and (not bool(st.session_state.get("budget_enabled", False))),
         "renter_uses_closing": bool(globals().get("renter_uses_closing_input", True)),
         "corr": float(globals().get("market_corr_input", 0.0)),
         "mc_mode": bool(mc_mode),
@@ -3698,6 +3714,78 @@ def _kpi(title: str, value: str, accent: str, help_text: str | None = None):
 
 # --- Premium KPI summary (with help icons) ---
 st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
+
+# --- Quick-signal KPIs (high-signal sanity metrics) ---
+try:
+    # Breakeven (first month where Buyer NW >= Renter NW)
+    be_year = None
+    try:
+        _b_series = pd.to_numeric(df.get("Buyer Net Worth"), errors="coerce") if "Buyer Net Worth" in df.columns else None
+        _r_series = pd.to_numeric(df.get("Renter Net Worth"), errors="coerce") if "Renter Net Worth" in df.columns else None
+        if (_b_series is not None) and (_r_series is not None):
+            _d = (_b_series - _r_series).to_numpy()
+            _idx = np.where(np.isfinite(_d) & (_d >= 0))[0]
+            if len(_idx) > 0:
+                _i0 = int(_idx[0])
+                if "Month" in df.columns:
+                    _m = float(df["Month"].iloc[_i0])
+                    be_year = _m / 12.0
+                else:
+                    be_year = _i0 / 12.0
+    except Exception:
+        be_year = None
+
+    # Price-to-rent ratio (headline heuristic)
+    ptr = None
+    try:
+        _price = float(st.session_state.get("price", 0.0) or 0.0)
+        _rent = float(st.session_state.get("rent", 0.0) or 0.0)
+        if _price > 0 and _rent > 0:
+            ptr = _price / (_rent * 12.0)
+    except Exception:
+        ptr = None
+
+    # Surplus investing status (the most important behavioral assumption)
+    try:
+        _budget = bool(st.session_state.get("budget_enabled", False))
+        _inv = bool(st.session_state.get("invest_surplus_input", True)) and (not _budget)
+    except Exception:
+        _inv = True
+
+    q1, q2, q3, q4 = st.columns(4, gap="small")
+    with q1:
+        _kpi(
+            "Breakeven (NW)",
+            (f"{be_year:.1f}y" if (be_year is not None) else "—"),
+            "rgba(255,255,255,0.28)",
+            "First year where buyer net worth meets/exceeds renter net worth under the current assumptions.",
+        )
+    with q2:
+        _kpi(
+            "Price-to-rent",
+            (f"{ptr:.1f}×" if (ptr is not None) else "—"),
+            "rgba(255,255,255,0.28)",
+            "Home price divided by annual rent (price ÷ (rent×12)). A rough valuation sanity check.",
+        )
+    with q3:
+        _kpi(
+            "Surplus investing",
+            ("ON" if _inv else "OFF"),
+            ("var(--buy)" if _inv else "rgba(255,90,90,0.85)"),
+            "If ON, any monthly cost advantage is invested. If OFF, the model treats it as spent.",
+        )
+    with q4:
+        _kpi(
+            "Mode",
+            ("Monte Carlo" if bool(st.session_state.get("use_volatility", False)) else "Deterministic"),
+            "rgba(255,255,255,0.28)",
+            "Monte Carlo shows distributions (win%, bands). Deterministic uses single-point assumptions.",
+        )
+
+    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+except Exception:
+    # Never block the app on KPI rendering
+    pass
 
 col_buy, col_rent = st.columns(2, gap="medium")
 
