@@ -203,6 +203,14 @@ def main() -> int:
             page = context.new_page()
             page.goto(url, wait_until="networkidle")
             page.wait_for_selector('div[data-testid="stAppViewContainer"]', timeout=60_000)
+# Wait for key UI elements to actually render. Streamlit can show the top shell before widgets mount.
+page.wait_for_selector('div[data-testid="stSidebar"]', timeout=60_000)
+page.wait_for_selector('div[data-testid="stNumberInput"]', timeout=60_000)
+try:
+    page.wait_for_selector('div[data-testid="stSpinner"]', state="detached", timeout=60_000)
+except Exception:
+    pass
+page.wait_for_timeout(750)
 
             def save(name: str, *, baseline: bool = False, clip=None, element=None):
                 target = (BASELINE_DIR if baseline else OUT_DIR) / name
@@ -220,6 +228,7 @@ def main() -> int:
 
             # 1) Focused input (focus ring + radius integrity)
             try:
+                page.wait_for_selector('div[data-testid="stNumberInput"] input', timeout=60_000)
                 ni = page.locator('div[data-testid="stNumberInput"] input').first
                 if ni.count() > 0:
                     ni.click()
@@ -227,7 +236,7 @@ def main() -> int:
                 if ni_wrap.count() > 0:
                     save("focused_input.png", baseline=args.update_baseline, element=ni_wrap)
                 else:
-                    save("focused_input.png", baseline=args.update_baseline)
+                    raise RuntimeError('focused input widget not found; refusing to capture full-page fallback')
             except Exception as e:  # noqa: BLE001
                 print(f"[vr] WARN: focused input capture skipped: {e}")
                 save("focused_input.png", baseline=args.update_baseline)
