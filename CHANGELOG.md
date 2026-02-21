@@ -1,5 +1,23 @@
 # Changelog
 
+
+## v2.92.10
+
+- Net Worth chart: add optional breakeven (Δ=0) vertical marker + subtle negative-region shading.
+- Heatmap: add base-case marker and improve colorbar labeling for clarity.
+- Tooltips (mobile): add horizontal auto-flip and overflow hardening to prevent clipping.
+- Sidebar: reduce overwhelm by collapsing Economic Scenario by default and clarifying Expert-mode lock wording.
+
+## v2.92.9
+
+- Engine: when surplus investing is OFF, monthly buy-vs-rent cost differences are tracked as cash (0% return) rather than discarded.
+- Engine: tighten parsing exception scopes (TypeError/ValueError) in core numeric coercions.
+- App: add cross-session caching for simulation runs to reduce repeated Monte Carlo compute under multi-user load.
+
+## v2.92.8
+- UI: Remove accent strip-lines from the 4 Quick Signals KPI cards (neutral informational style).
+- UI: One-time shocks row now uses 3 full-width inputs (no spacer gap).
+
 ## v2.92.7
 - UI: Added **Quick Signals** KPI row (Breakeven year, Price-to-rent, Surplus investing status, Mode).
 - UX guardrail: **Invest Monthly Surplus** is locked ON in standard mode; disabling requires Expert mode and shows a prominent warning.

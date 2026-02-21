@@ -169,6 +169,26 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
   bottom: 24px;
 }
 
+/* Tooltip horizontal flip (JS adds .rbv-tip-left when bubble would overflow the left viewport edge) */
+.rbv-help.rbv-tip-left .rbv-help-bubble{
+  left: 0px;
+  right: auto;
+  transform: translateX(6px);
+}
+
+/* Prevent clipping: allow custom tooltip bubbles to overflow layout containers */
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"],
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div,
+div[data-testid="stMainBlockContainer"],
+div[data-testid="stMainBlockContainer"] div[data-testid="stVerticalBlock"],
+div[data-testid="stMainBlockContainer"] div[data-testid="stVerticalBlock"] > div{
+  overflow: visible !important;
+}
+
+@media (max-width: 600px){
+  .rbv-help-bubble{ max-width: min(340px, 92vw) !important; }
+}
+
 /* Tooltip final override: keep bubbles readable (no ALL CAPS) */
 .rbv-help-bubble{ text-transform: none !important; letter-spacing: normal !important; font-size: 12px !important; font-weight: 500 !important; }
 
@@ -1266,6 +1286,9 @@ div[data-testid="stNumberInput"] input{
   left:0; top:0;
   height:4px; width:100%;
   background: var(--accent, rgba(255,255,255,0.25));
+}
+.kpi-card.kpi-neutral:before{
+  display:none;
 }
 .kpi-title{
   color: rgba(255,255,255,0.78);

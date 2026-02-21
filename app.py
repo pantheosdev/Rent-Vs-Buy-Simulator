@@ -37,6 +37,39 @@ from rbv.core.policy_canada import min_down_payment_canada, insured_mortgage_pri
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
 from rbv.ui.defaults import PRESETS, build_session_defaults
+# --- Cross-session caching for simulation runs ---
+# Streamlit reruns the script on every interaction; Monte Carlo runs can be expensive.
+# st.session_state caches are per-user; st.cache_data provides shared caching across sessions.
+@st.cache_data(show_spinner=False, max_entries=128)
+def _rbv_cached_run_simulation_core(
+    cfg_json: str,
+    buyer_ret_pct: float,
+    renter_ret_pct: float,
+    apprec_pct: float,
+    invest_diff: bool,
+    rent_closing: bool,
+    mkt_corr: float,
+    mc_seed: int | None,
+    force_use_volatility: bool,
+    num_sims_override: int | None,
+    extra_kwargs_items: tuple,
+):
+    cfg = json.loads(cfg_json)
+    extra = dict(extra_kwargs_items) if extra_kwargs_items else {}
+    return run_simulation_core(
+        cfg,
+        buyer_ret_pct,
+        renter_ret_pct,
+        apprec_pct,
+        invest_diff,
+        rent_closing,
+        mkt_corr,
+        mc_seed=mc_seed,
+        force_use_volatility=force_use_volatility,
+        num_sims_override=num_sims_override,
+        **extra,
+    )
+
 
 
 # --- UI helpers (Sprint 2/3: sidebar + tables + charts polish) ---
@@ -496,7 +529,12 @@ ASSUMPTIONS_MD = """
 st.set_page_config(page_title="Rent Vs Buy Analysis", layout="wide", page_icon="🏡")
 
 # App version (for debug snapshots)
-st.session_state['_rbv_version'] = 'v2.91.2'
+try:
+    _vpath = os.path.join(os.path.dirname(__file__), 'VERSION.txt')
+    with open(_vpath, 'r', encoding='utf-8') as _vf:
+        st.session_state['_rbv_version'] = (_vf.read() or '').strip() or 'v2.92.10'
+except Exception:
+    st.session_state['_rbv_version'] = 'v2.92.10'
 
 inject_global_css(st)
 _rbv_install_plotly_template()
@@ -546,12 +584,27 @@ try:
     if (!wrap) return;
     const pad = 10;
     const vh = (doc.defaultView && doc.defaultView.innerHeight) ? doc.defaultView.innerHeight : (window.innerHeight || 0);
+    const vw = (doc.defaultView && doc.defaultView.innerWidth) ? doc.defaultView.innerWidth : (window.innerWidth || 0);
     if (!vh) return;
 
-    // Measure DOWN placement.
+    // Reset placement classes and measure DOWN placement.
     wrap.classList.remove('rbv-tip-up');
-    const down = _rbv_measureBubble(wrap);
+    wrap.classList.remove('rbv-tip-left');
+
+    let down = _rbv_measureBubble(wrap);
     if (!down) return;
+
+    // Horizontal flip: if the bubble would overflow the LEFT edge, left-align it under the icon.
+    if (vw && (down.left < pad)){
+      wrap.classList.add('rbv-tip-left');
+      const down2 = _rbv_measureBubble(wrap);
+      // If left-align made it worse (rare), revert.
+      if (down2 && (down2.right > (vw - pad)) && (down.right <= (vw - pad))){
+        wrap.classList.remove('rbv-tip-left');
+      } else if (down2){
+        down = down2;
+      }
+    }
 
     const downOverflow = (down.bottom > (vh - pad));
     if (!downOverflow){
@@ -561,8 +614,15 @@ try:
 
     // Try UP placement.
     wrap.classList.add('rbv-tip-up');
-    const up = _rbv_measureBubble(wrap);
+    let up = _rbv_measureBubble(wrap);
     if (!up) return;
+
+    // Re-check horizontal constraints in UP mode.
+    if (vw && (up.left < pad)){
+      wrap.classList.add('rbv-tip-left');
+      const up2 = _rbv_measureBubble(wrap);
+      if (up2) up = up2;
+    }
 
     // If UP overflows the top badly and DOWN would have fit, revert.
     if ((up.top < pad) && (down.bottom <= (vh - pad))){
@@ -1192,7 +1252,7 @@ with st.sidebar:
         _msg = st.session_state.get("_rbv_loaded_scenario_msg", "")
         if isinstance(_msg, str) and _msg.strip():
             sidebar_hint(_msg)
-    with st.expander("Economic Scenario", expanded=True):
+    with st.expander("Economic Scenario", expanded=False):
         st.selectbox(
             "Economic Scenario",
             ["Baseline", "High Inflation", "Stagnation", "Custom"],
@@ -1370,7 +1430,7 @@ with st.sidebar:
             if bool(st.session_state.get("expert_mode", False)):
                 st.caption("🔓 Expert mode enabled — advanced sensitivities unlocked below.")
             else:
-                st.caption("🔒 Advanced sensitivities hidden — enable Expert mode to unlock policy + registered-shelter toggles.")
+                st.caption("🔒 Advanced settings are locked — enable Expert mode to unlock policy + registered-shelter toggles.")
 
             expert_mode = bool(st.session_state.get("expert_mode", False))
 
@@ -1503,7 +1563,7 @@ with st.sidebar:
         # If the user disables surplus investing (expert-only), make the modeling consequence explicit.
         if _expert_mode and (not bool(invest_surplus_input)) and (not bool(budget_enabled)):
             st.error(
-                "Surplus investing is **OFF** — the model treats any monthly advantage as **spent** (not invested). "
+                "Surplus investing is **OFF** — the model routes any monthly advantage into **cash (0% yield)** (not invested). "
                 "This can strongly favor the more expensive option in long-horizon net-worth results.",
                 icon="⚠️",
             )
@@ -2133,7 +2193,7 @@ st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
 st.markdown('<div class="rbv-input-subhead">One-time Shocks (optional)</div>', unsafe_allow_html=True)
 
 _sa_years_max = int(st.session_state.get("years", 25) or 25)
-_sa_row = st.columns(4)
+_sa_row = st.columns([2, 1, 1], gap="small")
 with _sa_row[0]:
     rbv_number_input(
         "Special assessment ($)",
@@ -2164,8 +2224,6 @@ with _sa_row[2]:
         key="special_assessment_month_in_year",
         tooltip="Month within the selected year when the assessment is paid.",
     )
-with _sa_row[3]:
-    st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 
 st.caption("Tip: This shock is buyer-only and unrecoverable; it reduces buyer net worth by cash outflow and opportunity cost. It is off by default.")
 
@@ -3101,20 +3159,20 @@ else:
             _rbv_global_progress_show(0, "Monte Carlo", eta_sec=_eta0)
         except Exception:
             pass
-
-        df, close_cash, m_pmt, win_pct = run_simulation_core(
-            _cfg_run,
-            st.session_state.buyer_ret,
-            st.session_state.renter_ret,
-            st.session_state.apprec,
-            invest_surplus_input,
-            renter_uses_closing_input,
-            market_corr_input,
-            mc_seed=mc_seed,
-            progress_cb=_mc_progress_cb,
-            force_use_volatility=True,
-            num_sims_override=int(num_sims),
-            **st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs)
+        _cfg_json = json.dumps(_cfg_run, sort_keys=True)
+        _extra_items = tuple(sorted(st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs).items()))
+        df, close_cash, m_pmt, win_pct = _rbv_cached_run_simulation_core(
+            _cfg_json,
+            float(st.session_state.buyer_ret),
+            float(st.session_state.renter_ret),
+            float(st.session_state.apprec),
+            bool(invest_surplus_input),
+            bool(renter_uses_closing_input),
+            float(market_corr_input),
+            None if mc_seed is None else int(mc_seed),
+            True,
+            int(num_sims),
+            _extra_items,
         )
 
         # Update MC speed estimate for next ETA seed
@@ -3133,16 +3191,20 @@ else:
         _rbv_global_progress_clear()
 
     else:
-        df, close_cash, m_pmt, win_pct = run_simulation_core(
-            _cfg_run,
-            st.session_state.buyer_ret,
-            st.session_state.renter_ret,
-            st.session_state.apprec,
-            invest_surplus_input,
-            renter_uses_closing_input,
-            market_corr_input,
-            mc_seed=mc_seed,
-            **st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs)
+        _cfg_json = json.dumps(_cfg_run, sort_keys=True)
+        _extra_items = tuple(sorted(st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs).items()))
+        df, close_cash, m_pmt, win_pct = _rbv_cached_run_simulation_core(
+            _cfg_json,
+            float(st.session_state.buyer_ret),
+            float(st.session_state.renter_ret),
+            float(st.session_state.apprec),
+            bool(invest_surplus_input),
+            bool(renter_uses_closing_input),
+            float(market_corr_input),
+            None if mc_seed is None else int(mc_seed),
+            False,
+            None,
+            _extra_items,
         )
 
     st.session_state["_core_sim_cache"][_core_key] = (df, close_cash, m_pmt, win_pct)
@@ -3700,11 +3762,12 @@ avg_rent_monthly = _df_mean(df, ["Rent Payment", "Renter Monthly Cost", "Renter 
 monthly_gap = avg_rent_monthly - avg_buy_monthly
 renter_saves = avg_buy_monthly - avg_rent_monthly  # >0 means renting is cheaper per month on average
 
-def _kpi(title: str, value: str, accent: str, help_text: str | None = None):
+def _kpi(title: str, value: str, accent: str, help_text: str | None = None, *, neutral: bool = False):
     """Render a compact KPI card with optional hover help icon (custom dark tooltip)."""
     help_html = rbv_help_html(help_text or "", small=True) if help_text else ""
+    cls = "kpi-card kpi-neutral" if neutral else "kpi-card"
     st.markdown(
-        f"""<div class="kpi-card" style="--accent:{accent};">
+        f"""<div class="{cls}" style="--accent:{accent};">
               <div class="kpi-title"><span>{html.escape(title)}</span>{help_html}</div>
               <div class="kpi-value">{html.escape(value)}</div>
             </div>""",
@@ -3759,6 +3822,7 @@ try:
             (f"{be_year:.1f}y" if (be_year is not None) else "—"),
             "rgba(255,255,255,0.28)",
             "First year where buyer net worth meets/exceeds renter net worth under the current assumptions.",
+            neutral=True,
         )
     with q2:
         _kpi(
@@ -3766,6 +3830,7 @@ try:
             (f"{ptr:.1f}×" if (ptr is not None) else "—"),
             "rgba(255,255,255,0.28)",
             "Home price divided by annual rent (price ÷ (rent×12)). A rough valuation sanity check.",
+            neutral=True,
         )
     with q3:
         _kpi(
@@ -3773,6 +3838,7 @@ try:
             ("ON" if _inv else "OFF"),
             ("var(--buy)" if _inv else "rgba(255,90,90,0.85)"),
             "If ON, any monthly cost advantage is invested. If OFF, the model treats it as spent.",
+            neutral=True,
         )
     with q4:
         _kpi(
@@ -3780,6 +3846,7 @@ try:
             ("Monte Carlo" if bool(st.session_state.get("use_volatility", False)) else "Deterministic"),
             "rgba(255,255,255,0.28)",
             "Monte Carlo shows distributions (win%, bands). Deterministic uses single-point assumptions.",
+            neutral=True,
         )
 
     st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
@@ -3915,7 +3982,7 @@ try:
     if isinstance(_last_cfg, dict) and _last_cfg:
         # Build a compact, human-checkable snapshot (units are explicit).
         _snap = {
-            "version": str(st.session_state.get("_rbv_version", "")) or "v2.91.2",
+            "version": str(st.session_state.get("_rbv_version", "")) or "v2.92.10",
             "inputs": {
                 "years": _last_cfg.get("years"),
                 "price": _last_cfg.get("price"),
@@ -4261,6 +4328,13 @@ if tab == _TAB_NET:
     _t1_longrun_status = st.empty()
     st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
 
+    # Lightweight chart overlays (audit polish)
+    _nw_opt_cols = st.columns([1, 1, 3])
+    with _nw_opt_cols[0]:
+        show_be_marker = st.toggle("Breakeven marker", value=True, key="nw_show_be_marker")
+    with _nw_opt_cols[1]:
+        shade_negative = st.toggle("Shade negative NW", value=True, key="nw_shade_negative")
+
     fig = go.Figure()
     x = df['Month'] / 12.0
     
@@ -4275,6 +4349,76 @@ if tab == _TAB_NET:
         fig.add_trace(go.Scatter(x=x, y=df['Renter NW High'], name="Renter High", mode='lines', line=dict(width=0), showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=df['Renter NW Low'], name="Renter Low", mode='lines', line=dict(width=0), fill='tonexty', fillcolor=_rbv_rgba(RENT_COLOR, 0.20), showlegend=False))
     
+    # Optional overlays: negative-region shading + breakeven marker (Δ crosses 0)
+    try:
+        if bool(locals().get("shade_negative", False)):
+            _cols = ["Buyer Net Worth", "Renter Net Worth"]
+            if bool(locals().get("use_volatility", False)):
+                _cols += ["Buyer NW Low", "Renter NW Low"]
+            _vals = []
+            for _c in _cols:
+                if _c in df.columns:
+                    try:
+                        _vals.append(pd.to_numeric(df[_c], errors="coerce").to_numpy())
+                    except Exception:
+                        pass
+            if _vals:
+                _ymin = float(np.nanmin(np.concatenate(_vals)))
+                if np.isfinite(_ymin) and _ymin < 0:
+                    _x0 = float(np.nanmin(pd.to_numeric(x, errors="coerce")))
+                    _x1 = float(np.nanmax(pd.to_numeric(x, errors="coerce")))
+                    fig.add_shape(
+                        type="rect", xref="x", yref="y",
+                        x0=_x0, x1=_x1, y0=_ymin, y1=0,
+                        fillcolor="rgba(255,255,255,0.04)",
+                        line_width=0,
+                        layer="below",
+                    )
+    except Exception:
+        pass
+
+    try:
+        if bool(locals().get("show_be_marker", False)):
+            _d = (pd.to_numeric(df.get("Buyer Net Worth"), errors="coerce") - pd.to_numeric(df.get("Renter Net Worth"), errors="coerce")).to_numpy()
+            _x = pd.to_numeric(x, errors="coerce").to_numpy() if hasattr(x, "to_numpy") else np.asarray(x, dtype=float)
+            _be = None
+            if _d.size and _x.size:
+                # Find first sign change (including crossing through 0) and linearly interpolate.
+                for i in range(1, min(len(_d), len(_x))):
+                    a = _d[i-1]; b = _d[i]
+                    if not (np.isfinite(a) and np.isfinite(b)):
+                        continue
+                    if (a == 0) and np.isfinite(_x[i-1]):
+                        _be = float(_x[i-1]); break
+                    if (a < 0 and b >= 0) or (a > 0 and b <= 0):
+                        denom = float(b - a)
+                        if denom == 0:
+                            _be = float(_x[i]); break
+                        t = float(-a) / denom
+                        t = 0.0 if t < 0 else (1.0 if t > 1 else t)
+                        _be = float(_x[i-1] + t * (_x[i] - _x[i-1]))
+                        break
+            if _be is not None and np.isfinite(_be):
+                fig.add_shape(
+                    type="line", xref="x", yref="paper",
+                    x0=_be, x1=_be, y0=0, y1=1,
+                    line=dict(color="rgba(255,255,255,0.55)", width=1, dash="dot"),
+                    layer="above",
+                )
+                fig.add_annotation(
+                    x=_be, y=1.02, yref="paper",
+                    text=f"Breakeven ~{_be:.1f}y",
+                    showarrow=False,
+                    font=dict(size=11, color="rgba(241,241,243,0.86)"),
+                    bgcolor="rgba(16,16,18,0.85)",
+                    bordercolor="rgba(255,255,255,0.20)",
+                    borderwidth=1,
+                    xanchor="left",
+                    align="left",
+                )
+    except Exception:
+        pass
+
     # THIN CURSOR (Spikes)
     fig.update_layout(
         template=pio.templates.default, 
@@ -4868,13 +5012,20 @@ if tab == _TAB_NET:
         low_c, mid_c, high_c = RENT_COLOR, SURFACE_CARD, BUY_COLOR
         # rent -> neutral -> buy
 
-        if "Win %" in hm_metric:
-            cb_title = "%"
+        # Colorbar labeling: be explicit about what Z represents.
+        if "Win %" in str(hm_metric):
+            cb_title = "Buying win probability (%)"
             cb_tickprefix = ""
             cb_tickformat = ".0f"
             hover_value_fmt = "%{z:.0f}%"
         else:
-            cb_title = hm_metric.replace(" (Deterministic)", "")
+            _m = str(hm_metric)
+            if "PV" in _m:
+                cb_title = "PV Δ Net Worth (Buyer − Renter)"
+            else:
+                cb_title = "Δ Net Worth (Buyer − Renter)"
+            if "Expected" in _m:
+                cb_title = "Expected " + cb_title
             cb_tickprefix = "$"
             cb_tickformat = ","
             hover_value_fmt = "$%{z:,.0f}"
@@ -4976,6 +5127,27 @@ if tab == _TAB_NET:
                 ))
             except Exception:
                 pass
+
+
+        # Base-case marker (current inputs) to orient the user on the grid
+        try:
+            _base_x = float(st.session_state.get("apprec", locals().get("apprec", 0.0)) or locals().get("apprec", 0.0))
+            if str(hm_y_axis) == "renter_ret":
+                _base_y = float(st.session_state.get("renter_ret", 7.0) or 7.0)
+                _base_y_lbl = "Renter return"
+            else:
+                _base_y = float(st.session_state.get("rent_inf", 3.0) or 3.0)
+                _base_y_lbl = "Rent inflation"
+            fig_hm.add_trace(go.Scatter(
+                x=[_base_x],
+                y=[_base_y],
+                mode="markers",
+                marker=dict(size=10, symbol="x", color="rgba(255,255,255,0.95)"),
+                hovertemplate=f"Base case<br>Apprec: {_base_x:.2f}%<br>{_base_y_lbl}: {_base_y:.2f}%<extra></extra>",
+                showlegend=False,
+            ))
+        except Exception:
+            pass
 
         fig_hm.update_layout(
             template=pio.templates.default,

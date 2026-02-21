@@ -10,14 +10,14 @@ from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, 
 def _f(x, default=0.0):
     try:
         return float(x)
-    except Exception:
+    except (TypeError, ValueError):
         return float(default)
 
 
 def _i(x, default=0):
     try:
         return int(x)
-    except Exception:
+    except (TypeError, ValueError):
         return int(default)
 
 
@@ -27,7 +27,7 @@ def _clamp_monthly_rate(mr: float) -> float:
     """Clamp an effective monthly rate to a mathematically safe range for amortization math."""
     try:
         x = float(mr)
-    except Exception:
+    except (TypeError, ValueError):
         x = 0.0
     # Prevent (1+mr) <= 0 from breaking pow() / division in payment math.
     return max(x, -0.999999)
@@ -75,7 +75,7 @@ def _annual_effective_dec_to_monthly_log_mu(r_annual: float) -> float:
     """
     try:
         r = float(r_annual)
-    except Exception:
+    except (TypeError, ValueError):
         r = 0.0
     # Guard log1p domain; cap at just above -100%.
     if r <= -0.999999:
@@ -93,7 +93,7 @@ def _annual_effective_dec_to_monthly_eff(r_annual: float) -> float:
     """Annual *effective* rate (decimal) -> monthly effective rate (decimal)."""
     try:
         r = float(r_annual)
-    except Exception:
+    except (TypeError, ValueError):
         r = 0.0
     if r <= -0.999999:
         r = -0.999999
@@ -285,6 +285,12 @@ def _run_monte_carlo_vectorized(
     init_r = float(down) + (float(close) if rent_closing else 0.0)
     r_nw = np.full(num_sims, init_r, dtype=np.float64)
     b_nw = np.zeros(num_sims, dtype=np.float64)
+
+
+    # If monthly surplus investing is OFF, we still track the monthly cost difference as cash (0% return)
+    # so comparisons remain economically meaningful.
+    r_cash = np.zeros(num_sims, dtype=np.float64)
+    b_cash = np.zeros(num_sims, dtype=np.float64)
 
     r_basis = np.full(num_sims, init_r, dtype=np.float64)
     b_basis = np.zeros(num_sims, dtype=np.float64)
@@ -570,9 +576,23 @@ def _run_monte_carlo_vectorized(
                 b_nw[~mask] += d2
                 b_basis[~mask] += d2
 
+        else:
+            # Surplus investing OFF → track the monthly difference as cash (0% return), not invested.
+            mask = diff > 0
+            if np.any(mask):
+                r_nw[mask] += diff[mask]
+                r_basis[mask] += diff[mask]
+                r_cash[mask] += diff[mask]
+            if np.any(~mask):
+                d2 = -diff[~mask]
+                b_nw[~mask] += d2
+                b_basis[~mask] += d2
+                b_cash[~mask] += d2
+
         # Apply growth
-        r_nw = r_nw * r_growth
-        b_nw = b_nw * b_growth
+        # Cash (r_cash/b_cash) earns 0% return, so we only apply market growth to the invested portion.
+        r_nw = (r_nw - r_cash) * r_growth + r_cash
+        b_nw = (b_nw - b_cash) * b_growth + b_cash
         c_home = c_home * home_growth
 
         # Crisis shock
