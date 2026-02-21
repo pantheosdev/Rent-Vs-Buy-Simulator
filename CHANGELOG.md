@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.92.6
+- Closing costs: centralize **mortgage default insurance sales tax** rules and make Quebec rate date-aware (**9% through 2026**, 9.975% from 2027).
+- Cash-out: add **Principal residence** toggle; if disabled, apply a simplified **home capital gains tax** at horizon sale (net of selling costs).
+- Validation: enforce **minimum down payment** rule in UI (tiered Canada rule by as-of date).
+- QA: add regression truth-table targets for independent reference numbers (mortgage PMTs, CMHC premiums, Ontario/Toronto LTT, min down).
+
+## v2.92.5
+- Guardrails: add engine-level **non-finite (NaN/Inf) detection** for Monte Carlo paths and terminal win% inputs (surfaced via `df.attrs`).
+- Mortgage: support **hypothetical negative rates** safely (no silent clamp); in UI, negative rates are blocked unless Expert mode is enabled.
+- Cash-out: add explicit **"Assume home sold at horizon"** toggle; when disabled, cash-out view treats home as held and excludes home equity + selling costs.
+- UX: suppress Monte Carlo win-probability text when MC is **degenerate (σ=0)** to avoid misleading "stochastic" labeling.
+- QA: update truth tables for cash-out semantics when `assume_sale_end=False`.
+
 ## v2.92.4
 - UX: Add a small **🔒/🔓 Expert mode status** line under the Expert mode toggle so users understand why advanced cash-out sensitivities are hidden.
 

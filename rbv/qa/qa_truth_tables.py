@@ -272,7 +272,7 @@ def _tt_liquidation_cg_tax_end_only() -> None:
 
     df, _, _, _ = _run_det(cfg, buyer_ret_pct=12.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
     last = df.iloc[-1]
-    _assert_close("TT-L1 buyer_liq", float(last["Buyer Liquidation NW"]), 112_574.87343126489, atol=1e-6)
+    _assert_close("TT-L1 buyer_liq", float(last["Buyer Liquidation NW"]), 12_574.87343126489, atol=1e-6)
     _assert_close("TT-L1 renter_liq", float(last["Renter Liquidation NW"]), 100_000.0, atol=1e-9)
 
 
@@ -294,7 +294,7 @@ def _tt_annual_drag_disables_extra_liquidation_cg() -> None:
 
     df, _, _, _ = _run_det(cfg, buyer_ret_pct=12.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
     last = df.iloc[-1]
-    _assert_close("TT-L2 buyer_liq", float(last["Buyer Liquidation NW"]), 112_758.95931785213, atol=1e-6)
+    _assert_close("TT-L2 buyer_liq", float(last["Buyer Liquidation NW"]), 12_758.95931785213, atol=1e-6)
     _assert_close("TT-L2 renter_liq", float(last["Renter Liquidation NW"]), 100_000.0, atol=1e-9)
 
 
@@ -362,7 +362,7 @@ def _tt_cg_inclusion_tier_and_shelter() -> None:
     port1 = b_nw1 - home_eq
     gain1 = max(0.0, port1 - basis)
     tax1 = eff * gain1
-    _assert_close("TT-L3 current buyer_liq", b_liq1, b_nw1 - tax1, atol=1e-6)
+    _assert_close("TT-L3 current buyer_liq", b_liq1, (b_nw1 - home_eq) - tax1, atol=1e-6)
 
     # Tiered policy: above-threshold gains taxed at 4/3 of effective rate
     cfg["cg_inclusion_policy"] = "proposed_2_3_over_250k"
@@ -374,7 +374,7 @@ def _tt_cg_inclusion_tier_and_shelter() -> None:
     gain2 = max(0.0, port2 - basis)
     thr = 250_000.0
     tax2 = eff * min(gain2, thr) + (eff * (4.0 / 3.0)) * max(0.0, gain2 - thr)
-    _assert_close("TT-L3 tiered buyer_liq", b_liq2, b_nw2 - tax2, atol=1e-6)
+    _assert_close("TT-L3 tiered buyer_liq", b_liq2, (b_nw2 - home_eq) - tax2, atol=1e-6)
 
     # Full shelter: cap basis at >= total basis => taxable gain should be 0
     cfg["reg_shelter_enabled"] = True
@@ -384,7 +384,7 @@ def _tt_cg_inclusion_tier_and_shelter() -> None:
     last3 = df3.iloc[-1]
     b_nw3 = float(last3["Buyer Net Worth"])
     b_liq3 = float(last3["Buyer Liquidation NW"])
-    _assert_close("TT-L3 sheltered buyer_liq", b_liq3, b_nw3, atol=1e-6)
+    _assert_close("TT-L3 sheltered buyer_liq", b_liq3, (b_nw3 - home_eq), atol=1e-6)
 
 
 
@@ -471,9 +471,55 @@ def _tt_mc_seed_reproducible() -> None:
         _assert_close(f"TT-MC1 last[{col}]", float(last1[col]), float(last2[col]), atol=0.0)
 
 
+
+def _tt_reference_numbers_regression() -> None:
+    """Regression targets from independent calculations (audit report)."""
+    from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate
+    from rbv.core.policy_canada import cmhc_premium_rate_from_ltv, min_down_payment_canada
+    from rbv.core.taxes import calc_transfer_tax
+    import datetime as _dt
+
+    asof = _dt.date(2026, 2, 20)
+
+    # Mortgage payments (Canadian semi-annual nominal compounding)
+    mr = _annual_nominal_pct_to_monthly_rate(5.0, canadian=True)
+    pmt_25 = _pmt(500_000.0, mr, 25 * 12)
+    pmt_30 = _pmt(500_000.0, mr, 30 * 12)
+    _assert_close("TT-REF mort pmt 25y", pmt_25, 2908.0249251850773, atol=0.02)
+    _assert_close("TT-REF mort pmt 30y", pmt_30, 2668.4533940437777, atol=0.02)
+
+    # CMHC premium amounts (premium is % of base loan amount)
+    price = 600_000.0
+    down_5 = 30_000.0
+    loan_5 = price - down_5
+    ltv_5 = loan_5 / price
+    prem_5 = loan_5 * cmhc_premium_rate_from_ltv(ltv_5)
+    _assert_close("TT-REF CMHC prem 5% down", prem_5, 22_800.0, atol=1.0)
+
+    down_10 = 60_000.0
+    loan_10 = price - down_10
+    ltv_10 = loan_10 / price
+    prem_10 = loan_10 * cmhc_premium_rate_from_ltv(ltv_10)
+    _assert_close("TT-REF CMHC prem 10% down", prem_10, 16_740.0, atol=1.0)
+
+    # Min down payment (tiered)
+    md = min_down_payment_canada(800_000.0, asof)
+    _assert_close("TT-REF min down 800k", md, 55_000.0, atol=1e-9)
+
+    # Ontario land transfer tax
+    tt_on = calc_transfer_tax("Ontario", 800_000.0, first_time_buyer=False, toronto_property=False, asof_date=asof)
+    _assert_close("TT-REF ON LTT 800k", float(tt_on["total"]), 12_475.0, atol=1.0)
+
+    tt_on_ftb = calc_transfer_tax("Ontario", 800_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)
+    _assert_close("TT-REF ON LTT 800k FTB", float(tt_on_ftb["total"]), 8_475.0, atol=1.0)
+
+    tt_to = calc_transfer_tax("Ontario", 800_000.0, first_time_buyer=False, toronto_property=True, asof_date=asof)
+    _assert_close("TT-REF Toronto total LTT 800k", float(tt_to["total"]), 24_950.0, atol=1.0)
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
+    _tt_reference_numbers_regression()
     _tt_amortization_interest_equity()
     _tt_zero_rate_sanity()
 

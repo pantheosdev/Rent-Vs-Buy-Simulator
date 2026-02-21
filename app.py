@@ -33,7 +33,7 @@ from rbv.core.taxes import (
     calc_deed_transfer_tax_nova_scotia_default, calc_land_title_fee_alberta, calc_land_title_fee_saskatchewan, calc_land_transfer_tax_manitoba, calc_ltt_ontario, calc_ltt_toronto_municipal, calc_property_transfer_tax_new_brunswick, calc_ptt_bc, calc_real_property_transfer_tax_pei, calc_registration_fee_newfoundland, calc_transfer_duty_quebec_standard, calc_transfer_tax,
 )
 from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
-from rbv.core.policy_canada import min_down_payment_canada, insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
+from rbv.core.policy_canada import min_down_payment_canada, insured_mortgage_price_cap, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
 from rbv.ui.defaults import PRESETS, build_session_defaults
@@ -711,6 +711,22 @@ def _rbv_basic_validation_errors() -> list:
         errs.append("Down payment must be 0 or greater.")
     if price > 0 and down > price:
         errs.append("Down payment cannot exceed purchase price.")
+    # Canada-specific minimum down-payment rule (tiered; depends on insured cap).
+    try:
+        import datetime as _dt
+        _asof = st.session_state.get("tax_rules_asof", _dt.date.today())
+        if isinstance(_asof, str):
+            _asof = _dt.date.fromisoformat(str(_asof)[:10])
+        elif isinstance(_asof, _dt.datetime):
+            _asof = _asof.date()
+        elif not isinstance(_asof, _dt.date):
+            _asof = _dt.date.today()
+        _min_down = float(min_down_payment_canada(price, _asof))
+        if price > 0 and (down + 1e-9) < _min_down:
+            _pct = 100.0 * _min_down / float(price)
+            errs.append(f"Down payment is below the minimum for this price. Minimum is ${_min_down:,.0f} ({_pct:.1f}%).")
+    except Exception:
+        pass
     if rent < 0:
         errs.append("Monthly rent must be 0 or greater.")
     if years < 1:
@@ -750,7 +766,7 @@ def _rbv_apply_scenario_state(state: dict) -> None:
         try:
             if k in ("years", "num_sims", "hm_grid_size", "hm_mc_sims", "bias_mc_sims", "special_assessment_year", "special_assessment_month_in_year"):
                 st.session_state[k] = int(v)
-            elif k in ("canadian_compounding", "assume_sale_end", "show_liquidation_view", "use_volatility", "public_mode", "mc_randomize", "reg_shelter_enabled", "expert_mode"):
+            elif k in ("canadian_compounding", "assume_sale_end", "is_principal_residence", "show_liquidation_view", "use_volatility", "public_mode", "mc_randomize", "reg_shelter_enabled", "expert_mode"):
                 st.session_state[k] = bool(v)
             elif k in ("scenario_select", "investment_tax_mode", "condo_inf_mode", "mc_seed", "sim_mode", "public_seed_mode", "cg_inclusion_policy"):
                 st.session_state[k] = "" if v is None else str(v)
@@ -1289,9 +1305,31 @@ with st.sidebar:
                 format="%.2f",
                 key="cg_tax_end",
             )
+        # Whether to assume the home is sold at the horizon (affects selling costs + cash-out composition).
+        # If disabled, the cash-out view excludes home equity (home treated as held).
+        st.session_state.setdefault("assume_sale_end", True)
+        assume_sale_end = bool(st.session_state.get("assume_sale_end", True))
 
-        home_sale_legal_fee = 0.0
         if show_liquidation_view:
+            assume_sale_end = st.checkbox(
+                "Assume home sold at horizon (apply selling costs)",
+                key="assume_sale_end",
+            )
+            if not bool(assume_sale_end):
+                st.caption("Home treated as held at horizon — cash-out view excludes home equity and selling costs.")
+
+        st.session_state.setdefault("is_principal_residence", True)
+        if show_liquidation_view and bool(assume_sale_end):
+            is_principal_residence = st.checkbox(
+                "Home is principal residence (no capital gains tax on sale)",
+                key="is_principal_residence",
+            )
+            if not bool(is_principal_residence):
+                st.warning("Non-principal residence: home sale may be subject to capital gains tax (simplified sensitivity).")
+        else:
+            is_principal_residence = bool(st.session_state.get("is_principal_residence", True))
+        home_sale_legal_fee = 0.0
+        if show_liquidation_view and bool(assume_sale_end):
             home_sale_legal_fee = st.number_input(
                 "Home Sale Legal/Closing Fee at Exit ($)",
                 min_value=0.0,
@@ -1299,6 +1337,10 @@ with st.sidebar:
                 format="%.0f",
                 key="home_sale_legal_fee",
             )
+        elif show_liquidation_view and (not bool(assume_sale_end)):
+            # Keep the key stable but force 0 for correctness when home is held.
+            st.session_state["home_sale_legal_fee"] = 0.0
+
 
         # --- Advanced (opt-in) cash-out layers ---
         # These should never silently change baseline results: they are sensitivity knobs only.
@@ -1805,6 +1847,12 @@ with st.sidebar:
                 ret_std = float(ret_std_pct_ui) / 100.0
                 apprec_std = float(apprec_std_pct_ui) / 100.0
     
+
+                # Guardrail warnings for extreme volatility inputs
+                if float(ret_std_pct_ui) > 20.0:
+                    st.warning("Investment volatility above 20% is an aggressive stress-test and can produce extreme outcomes. Consider 10–20% for broad-market assumptions.")
+                if float(apprec_std_pct_ui) > 10.0:
+                    st.warning("Home price volatility above 10% is very high for annualized assumptions. Consider 3–8% unless deliberately stress-testing.")
                 num_sims = int(st.session_state.get("num_sims", 50_000 if fast_mode else 100_000))
                 st.caption(f"Monte Carlo simulations (from Performance mode): **{num_sims:,}**")
                 # Monte Carlo seed & determinism
@@ -2374,8 +2422,22 @@ if years >= 40:
     st.warning("Long horizons (40+ years) can magnify uncertainty and inflation effects. Consider stress-testing with Monte Carlo and sensitivity.")
 if st.session_state.apprec <= -3.0:
     st.warning("You entered strongly negative home appreciation. This is a severe housing contraction scenario; results may show prolonged negative equity.")
+if bool(st.session_state.get("use_volatility", False)):
+    try:
+        _rs = float(st.session_state.get("ret_std_pct", 0.0) or 0.0)
+        _hs = float(st.session_state.get("apprec_std_pct", 0.0) or 0.0)
+        if _rs > 20.0:
+            st.warning("Investment volatility above 20% is an aggressive stress-test and can produce extreme outcomes.")
+        if _hs > 10.0:
+            st.warning("Home price volatility above 10% is a strong stress-test and can produce extreme price paths.")
+    except Exception:
+        pass
 if rate < 0:
-    st.warning("Negative mortgage rates are uncommon. The model will treat negative rates as 0% for payment calculations.")
+    expert_mode_local = bool(st.session_state.get("expert_mode", False))
+    if not expert_mode_local:
+        st.error("Mortgage rates cannot be negative in standard mode. Set the rate ≥ 0%, or enable Expert mode (Taxes & Cash-out) to model a hypothetical negative-rate scenario.")
+        st.stop()
+    st.warning("Negative mortgage rates are uncommon. Expert mode is enabled, so the model will compute with a negative rate (hypothetical). Results may be unrealistic; treat this as a sensitivity test.")
 if (down / price) < 0.10:
     st.warning("Low down payments increase leverage and risk. Ensure you understand insurance premiums, qualification rules, and cashflow sensitivity to rates.")
 
@@ -2398,16 +2460,9 @@ transfer_tax_note = tt.get("note","")
 
 cmhc_r = float(cmhc_premium_rate_from_ltv(float(ltv))) if insured else 0.0
 prem = loan * cmhc_r
-# PST/QST on CMHC premium is province-dependent (applies in QC/ON/SK).
-_pst_rate = 0.0
-_prov = str(province or "").strip().lower()
-if _prov == "ontario":
-    _pst_rate = 0.08
-elif _prov == "saskatchewan":
-    _pst_rate = 0.06
-elif _prov == "quebec":
-    _pst_rate = 0.09975  # commonly cited as QST on mortgage default insurance
-pst = prem * _pst_rate
+# Provincial sales tax on mortgage default insurance premium (cash due at closing).
+_pst_rate = mortgage_default_insurance_sales_tax_rate(str(province or ""), _tax_asof)
+pst = prem * float(_pst_rate)
 mort = loan + prem
 close = total_ltt + lawyer + insp + pst
 
@@ -2698,6 +2753,7 @@ def _build_cfg():
 
         "condo_inf": float(condo_inf_val) if condo_inf_val is not None else 0.0,
         "assume_sale_end": bool(assume_sale_end),
+        "is_principal_residence": bool(is_principal_residence),
         "show_liquidation_view": bool(show_liquidation_view),
         "cg_tax_end": float(cg_tax_end),
         "home_sale_legal_fee": float(home_sale_legal_fee),
@@ -3548,7 +3604,8 @@ try:
         if _wp is None:
             _wp = getattr(df, "attrs", {}).get("win_pct_pre_tax", None)
         _ns = int(st.session_state.get("num_sims", globals().get("num_sims", 1)) or 1)
-        if bool(use_volatility) and (_ns > 1) and (_wp is not None):
+        mc_degenerate = bool(getattr(df, "attrs", {}).get("mc_degenerate", False))
+        if bool(use_volatility) and (_ns > 1) and (_wp is not None) and (not mc_degenerate):
             _wp = float(_wp)
             _wp = max(0.0, min(100.0, _wp))
             _conf = _wp if bool(_is_buy) else (100.0 - _wp)
@@ -4019,7 +4076,8 @@ if show_liquidation_view:
         # Optional: show Monte Carlo win probability on a cash-out basis
         _liq_win_note = ""
         try:
-            if _liq_have and bool(use_volatility) and (liq_win_pct is not None):
+            mc_degenerate = bool(getattr(df, "attrs", {}).get("mc_degenerate", False))
+            if _liq_have and bool(use_volatility) and (liq_win_pct is not None) and (not mc_degenerate):
                 _lw = float(liq_win_pct)
                 _lw = max(0.0, min(100.0, _lw))
                 _conf_liq = _lw if bool(_liq_is_buy) else (100.0 - _lw)
@@ -4033,6 +4091,11 @@ if show_liquidation_view:
         try:
             if str(_tax_note).strip():
                 _liq_sub_bits.append(str(_tax_note).strip())
+            try:
+                if not bool(st.session_state.get("assume_sale_end", True)):
+                    _liq_sub_bits.append("Home held at horizon (equity excluded).")
+            except Exception:
+                pass
         except Exception:
             pass
         try:

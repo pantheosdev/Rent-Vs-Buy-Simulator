@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from .mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
-from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv
+from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate
 
 
 def _f(x, default=0.0):
@@ -21,6 +21,51 @@ def _i(x, default=0):
         return int(default)
 
 
+
+
+def _clamp_monthly_rate(mr: float) -> float:
+    """Clamp an effective monthly rate to a mathematically safe range for amortization math."""
+    try:
+        x = float(mr)
+    except Exception:
+        x = 0.0
+    # Prevent (1+mr) <= 0 from breaking pow() / division in payment math.
+    return max(x, -0.999999)
+
+
+def _mortgage_payment(principal: float, mr: float, rem_months: int) -> float:
+    """Fixed payment for remaining balance `principal` at monthly rate `mr` over `rem_months`.
+
+    Supports negative rates (hypothetical) as long as (1+mr) > 0. For mr≈0, falls back to principal/rem_months.
+    """
+    try:
+        p = float(principal)
+    except Exception:
+        p = 0.0
+    try:
+        n = int(rem_months)
+    except Exception:
+        n = 0
+    n = max(1, n)
+
+    r = _clamp_monthly_rate(mr)
+    if abs(r) < 1e-12:
+        return p / float(n)
+
+    base = 1.0 + r
+    if base <= 0.0:
+        base = 1e-12
+
+    try:
+        pow_ = base ** float(n)
+    except Exception:
+        return p / float(n)
+
+    denom = pow_ - 1.0
+    if abs(denom) < 1e-12:
+        return p / float(n)
+
+    return p * (r * pow_) / denom
 
 def _annual_effective_dec_to_monthly_log_mu(r_annual: float) -> float:
     """Convert an annual *effective* return (decimal, e.g., 0.06) into monthly log drift (mu).
@@ -199,6 +244,7 @@ def _run_monte_carlo_vectorized(
     budget_allow_withdraw: bool,
     condo_inf_mo: float,
     assume_sale_end: bool,
+    is_principal_residence: bool,
     show_liquidation_view: bool,
     cg_tax_end: float,
     home_sale_legal_fee: float,
@@ -393,14 +439,11 @@ def _run_monte_carlo_vectorized(
             shock_active = (start_m <= m <= end_m)
 
         eff_nominal = float(cur_rate_nominal_pct) + (float(rate_shock_pp) if shock_active else 0.0)
-        mr = max(0.0, float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding))))
+        mr = _clamp_monthly_rate(float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding))))
 
         if rate_changed or (shock_active != shock_was_active):
             rem_months = max(1, int(nm) - (m - 1))
-            if mr > 0:
-                pmt = float(c_mort) * (mr * (1 + mr) ** rem_months) / ((1 + mr) ** rem_months - 1)
-            else:
-                pmt = float(c_mort) / float(rem_months)
+            pmt = _mortgage_payment(float(c_mort), float(mr), int(rem_months))
         shock_was_active = shock_active
 
         # --- Property tax modeling ---
@@ -684,12 +727,30 @@ def _run_monte_carlo_vectorized(
                 b_port_after_tax = b_nw - b_tax
                 r_port_after_tax = r_nw - r_tax
 
+                # Home capital gains tax (only if selling at horizon AND not principal residence)
+                is_principal_residence = bool(is_principal_residence)
+                eff_home_cg = 0.0
+                try:
+                    eff_home_cg = max(0.0, float(cg_tax_end) / 100.0)
+                except Exception:
+                    eff_home_cg = 0.0
+
+                home_tax_final = 0.0
+                if bool(assume_sale_end) and (not is_principal_residence) and eff_home_cg > 0.0:
+                    home_acb = float(price) + float(close)  # purchase price + acquisition costs proxy
+                    home_proceeds_net = np.asarray(c_home, dtype=np.float64) - np.asarray(exit_cost_final, dtype=np.float64) - float(exit_legal_fee_final)
+                    home_gain = np.maximum(0.0, home_proceeds_net - float(home_acb))
+                    home_tax_final = _cg_tax_due(home_gain, eff_home_cg, cg_inclusion_policy, cg_inclusion_threshold)
+
+                home_cash = (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64)) if bool(assume_sale_end) else 0.0
+
                 b_liq_vals = (
-                    (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64))
+                    np.asarray(home_cash, dtype=np.float64)
                     + np.asarray(b_port_after_tax, dtype=np.float64)
                     - np.asarray(close, dtype=np.float64)
                     - np.asarray(exit_cost_final, dtype=np.float64)
                     - float(exit_legal_fee_final)
+                    - np.asarray(home_tax_final, dtype=np.float64)
                 )
                 r_liq_vals = r_port_after_tax
 
@@ -727,6 +788,19 @@ def _run_monte_carlo_vectorized(
             df.attrs["mc_num_sims"] = int(num_sims)
             df.attrs["mc_seed"] = None if mc_seed is None else int(mc_seed)
             df.attrs["win_pct_liquidation"] = liq_win_pct
+
+            # Guardrails: record non-finite terminal values
+            df.attrs["mc_win_n_finite"] = int(np.count_nonzero(finite))
+            df.attrs["mc_end_n_nonfinite"] = int(np.count_nonzero(~finite))
+
+            if win_pct is None:
+                if not np.any(finite):
+                    _msg = "No finite simulations for win% calculation (check extreme inputs)."
+                else:
+                    _msg = "Win% unavailable (non-finite or invalid)."
+                _prev = str(df.attrs.get("mc_error", "") or "").strip()
+                if _msg and (_msg not in _prev):
+                    df.attrs["mc_error"] = (_prev + (" " if _prev else "") + _msg).strip()
         except Exception:
             pass
         return df, win_pct
@@ -831,7 +905,30 @@ def _run_monte_carlo_vectorized(
             df.attrs["mc_win_n_finite"] = int(np.count_nonzero(finite))
         except Exception:
             pass
-
+        
+        # Guardrails: non-finite end values and any NaN/Inf in key MC paths (when present).
+        try:
+            df.attrs["mc_end_n_nonfinite"] = int(np.count_nonzero(~finite))
+        except Exception:
+            pass
+        
+        try:
+            _nf = 0
+            if buyer_nw_paths is not None:
+                _nf += int(np.count_nonzero(~np.isfinite(buyer_nw_paths)))
+            if renter_nw_paths is not None:
+                _nf += int(np.count_nonzero(~np.isfinite(renter_nw_paths)))
+            if buyer_unrec_paths is not None:
+                _nf += int(np.count_nonzero(~np.isfinite(buyer_unrec_paths)))
+            df.attrs["mc_path_n_nonfinite"] = int(_nf)
+            if _nf:
+                _prev = str(df.attrs.get("mc_error", "") or "").strip()
+                _msg = f"Non-finite values detected in Monte Carlo paths (count={_nf})."
+                if _msg and (_msg not in _prev):
+                    df.attrs["mc_error"] = (_prev + (" " if _prev else "") + _msg).strip()
+        except Exception:
+            pass
+        
         # Make failures explicit (never silently emit 0%)
         if win_pct is None:
             if not np.any(finite):
@@ -924,13 +1021,31 @@ def _run_monte_carlo_vectorized(
             b_port_after_tax = b_nw - b_tax
             r_port_after_tax = r_nw - r_tax
 
+            # Home capital gains tax (only if selling at horizon AND not principal residence)
+            is_principal_residence = bool(is_principal_residence)
+            eff_home_cg = 0.0
+            try:
+                eff_home_cg = max(0.0, float(cg_tax_end) / 100.0)
+            except Exception:
+                eff_home_cg = 0.0
+
+            home_tax_final = 0.0
+            if bool(assume_sale_end) and (not is_principal_residence) and eff_home_cg > 0.0:
+                home_acb = float(price) + float(close)  # purchase price + acquisition costs proxy
+                home_proceeds_net = np.asarray(c_home, dtype=np.float64) - np.asarray(exit_cost_final, dtype=np.float64) - float(exit_legal_fee_final)
+                home_gain = np.maximum(0.0, home_proceeds_net - float(home_acb))
+                home_tax_final = _cg_tax_due(home_gain, eff_home_cg, cg_inclusion_policy, cg_inclusion_threshold)
+
+            home_cash = (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64)) if bool(assume_sale_end) else 0.0
+
             b_liq_vals = (
-                (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64))
-                + np.asarray(b_port_after_tax, dtype=np.float64)
-                - np.asarray(close, dtype=np.float64)
-                - np.asarray(exit_cost_final, dtype=np.float64)
-                - float(exit_legal_fee_final)
-            )
+                    np.asarray(home_cash, dtype=np.float64)
+                    + np.asarray(b_port_after_tax, dtype=np.float64)
+                    - np.asarray(close, dtype=np.float64)
+                    - np.asarray(exit_cost_final, dtype=np.float64)
+                    - float(exit_legal_fee_final)
+                    - np.asarray(home_tax_final, dtype=np.float64)
+                )
             r_liq_vals = r_port_after_tax
 
             # Win% on a cash-out basis (tolerance-based ties)
@@ -1188,12 +1303,9 @@ def run_heatmap_mc_batch(
     # Mortgage recompute (matches run_simulation_core; price/down overrides not used for heatmap currently)
     mort_rate_nominal_pct_use = float(rate_override_pct) if rate_override_pct is not None else float(rate)
     canadian_compounding = bool(cfg.get("canadian_compounding", True))
-    mr_use = _annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding)
+    mr_use = _clamp_monthly_rate(_annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding))
     if float(mort) > 0:
-        if float(mr_use) > 0:
-            pmt_use = float(mort) * (float(mr_use) * (1 + float(mr_use)) ** nm) / ((1 + float(mr_use)) ** nm - 1)
-        else:
-            pmt_use = float(mort) / float(nm)
+        pmt_use = _mortgage_payment(float(mort), float(mr_use), int(nm))
     else:
         pmt_use = 0.0
 
@@ -1457,14 +1569,11 @@ def run_heatmap_mc_batch(
                 shock_active = (start_m <= m <= end_m)
 
             eff_nominal = float(cur_rate_nominal_pct) + (float(rate_shock_pp_eff) if shock_active else 0.0)
-            mr = max(0.0, float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding))))
+            mr = _clamp_monthly_rate(float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding))))
 
             if rate_changed or (shock_active != shock_was_active):
                 rem_months = max(1, int(nm) - (m - 1))
-                if mr > 0:
-                    pmt = float(c_mort) * (mr * (1 + mr) ** rem_months) / ((1 + mr) ** rem_months - 1)
-                else:
-                    pmt = float(c_mort) / float(rem_months)
+                pmt = _mortgage_payment(float(c_mort), float(mr), int(rem_months))
             shock_was_active = shock_active
 
             # --- Property tax modeling ---
@@ -1794,15 +1903,9 @@ def run_simulation_core(
             cmhc_r_use = cmhc_premium_rate_from_ltv(float(ltv_use))
             prem_use = loan_use * float(cmhc_r_use)
 
-            # PST/QST on the insurance premium is province-dependent (QC/ON/SK).
-            _pst_rate_use = 0.0
-            _prov_use = str(_overrides.get("province", cfg.get("province", "")) or "").strip().lower()
-            if _prov_use == "ontario":
-                _pst_rate_use = 0.08
-            elif _prov_use == "saskatchewan":
-                _pst_rate_use = 0.06
-            elif _prov_use == "quebec":
-                _pst_rate_use = 0.09975
+            # Provincial sales tax on the insurance premium is province-dependent (see policy_canada).
+            _prov_use = str(_overrides.get("province", cfg.get("province", "")) or "").strip()
+            _pst_rate_use = mortgage_default_insurance_sales_tax_rate(_prov_use, asof_date)
             pst_use = prem_use * float(_pst_rate_use)
 
         # Base closing costs excluding PST/QST on the insurance premium.
@@ -1824,11 +1927,9 @@ def run_simulation_core(
     mr_use = _annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding)
 
     # Recompute payment from principal + effective monthly rate
+    mr_use = _clamp_monthly_rate(float(mr_use))
     if float(mort_use) > 0:
-        if float(mr_use) > 0:
-            pmt_use = float(mort_use) * (float(mr_use) * (1 + float(mr_use)) ** nm) / ((1 + float(mr_use)) ** nm - 1)
-        else:
-            pmt_use = float(mort_use) / float(nm)
+        pmt_use = _mortgage_payment(float(mort_use), float(mr_use), int(nm))
     else:
         pmt_use = 0.0
 
@@ -1892,6 +1993,7 @@ def run_simulation_core(
 
     assume_sale_end = bool(cfg.get("assume_sale_end", False))
     show_liquidation_view = bool(cfg.get("show_liquidation_view", False))
+    is_principal_residence_cfg = bool(cfg.get("is_principal_residence", True))
     cg_tax_end = _f(cfg.get("cg_tax_end", 0.0), 0.0)
     home_sale_legal_fee = _f(cfg.get("home_sale_legal_fee", 0.0), 0.0)
 
@@ -1974,6 +2076,7 @@ def run_simulation_core(
                 budget_allow_withdraw=budget_allow_withdraw,
                 condo_inf_mo = _annual_effective_dec_to_monthly_eff(condo_inf),
                 assume_sale_end=assume_sale_end,
+                is_principal_residence=is_principal_residence_cfg,
                 show_liquidation_view=show_liquidation_view,
                 cg_tax_end=cg_tax_end,
                 home_sale_legal_fee=home_sale_legal_fee,
@@ -2038,6 +2141,7 @@ def run_simulation_core(
                     reg_shelter_enabled,
                     reg_initial_room,
                     reg_annual_room,
+                    is_principal_residence_cfg,
                 )
 
                 if bool(show_liquidation_view):
@@ -2238,6 +2342,7 @@ def run_simulation_core(
             reg_shelter_enabled,
             reg_initial_room,
             reg_annual_room,
+            is_principal_residence_cfg,
         )
 
     # PV series (discounted net worth delta)
@@ -2344,6 +2449,7 @@ def simulate_single(
     reg_shelter_enabled=False,
     reg_initial_room=0.0,
     reg_annual_room=0.0,
+    is_principal_residence=True,
 ):
     res = []
 
@@ -2431,14 +2537,11 @@ def simulate_single(
             shock_active = (start_m <= m <= end_m)
 
         eff_nominal = float(cur_rate_nominal_pct) + (float(rate_shock_pp) if shock_active else 0.0)
-        mr = max(0.0, _annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding)))
+        mr = _clamp_monthly_rate(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding)))
 
         if rate_changed or (shock_active != shock_was_active):
             rem_months = max(1, nm - (m - 1))
-            if mr > 0:
-                pmt = c_mort * (mr * (1 + mr) ** rem_months) / ((1 + mr) ** rem_months - 1)
-            else:
-                pmt = c_mort / rem_months
+            pmt = _mortgage_payment(float(c_mort), float(mr), int(rem_months))
         shock_was_active = shock_active
 
         # Property tax modeling
@@ -2622,8 +2725,23 @@ def simulate_single(
             b_port_after_tax = b_nw - b_tax
             r_port_after_tax = r_nw - r_tax
 
-            # Buyer liquidation: home (assume principal residence) + after-tax portfolio - exit costs/fees
-            b_liq = (c_home - c_mort) + b_port_after_tax - float(close) - exit_cost - exit_legal_fee
+            # Buyer liquidation (cash-out): home equity (net of selling costs, and home CG tax if not a principal residence)
+            is_principal_residence = bool(is_principal_residence)
+            eff_home_cg = 0.0
+            try:
+                eff_home_cg = max(0.0, float(cg_tax_end) / 100.0)
+            except Exception:
+                eff_home_cg = 0.0
+
+            home_tax = 0.0
+            if bool(assume_sale_end) and (not is_principal_residence) and eff_home_cg > 0.0:
+                home_acb = float(price) + float(close)  # purchase price + acquisition costs proxy
+                home_proceeds_net = float(c_home) - float(exit_cost) - float(exit_legal_fee)
+                home_gain = max(0.0, home_proceeds_net - float(home_acb))
+                home_tax = float(_cg_tax_due(home_gain, eff_home_cg, cg_inclusion_policy, cg_inclusion_threshold))
+
+            home_cash = ((c_home - c_mort) - exit_cost - exit_legal_fee - home_tax) if bool(assume_sale_end) else 0.0
+            b_liq = home_cash + b_port_after_tax - float(close)
             r_liq = r_port_after_tax
 
         cum_b_op += b_op

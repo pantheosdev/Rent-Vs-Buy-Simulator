@@ -68,6 +68,7 @@ def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
         "condo_inf_custom": 4.0,
         "canadian_compounding": True,
         "assume_sale_end": True,
+        "is_principal_residence": True,
         "investment_tax_mode": "Pre-tax (no investment taxes)",
         "cg_tax_end": 22.5,
         "show_liquidation_view": True,

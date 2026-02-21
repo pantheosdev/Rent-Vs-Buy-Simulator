@@ -60,3 +60,29 @@ def cmhc_premium_rate_from_ltv(ltv: float) -> float:
     if x <= 0.95:
         return 0.040
     return 0.0
+
+
+def mortgage_default_insurance_sales_tax_rate(province: str, asof_date: dt.date) -> float:
+    """Provincial sales tax on mortgage default insurance premiums (cash due at closing).
+
+    CMHC notes that some provinces apply provincial sales tax to the mortgage loan insurance premium,
+    and that this tax can't be added to the loan amount.
+
+    As of 2026-02-20:
+      - Ontario: 8% RST on many insurance premiums
+      - Saskatchewan: 6% PST
+      - Quebec: 9% tax on insurance premiums (scheduled to rise to 9.975% on premiums paid after 2026-12-31)
+
+    Returns the applicable tax rate as a decimal (e.g., 0.08 for 8%).
+    """
+    prov = (province or "").strip().lower()
+    if prov == "ontario":
+        return 0.08
+    if prov == "saskatchewan":
+        return 0.06
+    if prov == "quebec":
+        # Quebec's tax on insurance premiums is 9% through 2026, then aligns to 9.975% starting 2027-01-01.
+        if asof_date >= dt.date(2027, 1, 1):
+            return 0.09975
+        return 0.09
+    return 0.0

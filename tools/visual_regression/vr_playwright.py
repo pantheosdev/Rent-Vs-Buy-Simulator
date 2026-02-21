@@ -8,7 +8,6 @@ Targets the UI areas most prone to regressions:
 
 Usage:
   python tools/visual_regression/vr_playwright.py --update-baseline
-  python tools/visual_regression/vr_playwright.py --update  # alias
   python tools/visual_regression/vr_playwright.py
 """
 
@@ -151,7 +150,6 @@ def _img_diff(a: Path, b: Path, out: Path) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--update-baseline", action="store_true", help="Write current screenshots into baseline/")
-    ap.add_argument("--update", dest="update_baseline", action="store_true", help="Alias for --update-baseline")
     ap.add_argument(
         "--smoke",
         action="store_true",
@@ -203,48 +201,8 @@ def main() -> int:
             browser = p.chromium.launch(**launch_kwargs)
             context = browser.new_context(viewport={"width": 1400, "height": 900})
             page = context.new_page()
-
-            def _wait_for_app_ready() -> None:
-                """Wait until Streamlit has rendered real UI (not just the top shell)."""
-                page.wait_for_selector('div[data-testid="stAppViewContainer"]', timeout=60_000)
-                page.wait_for_selector('section[data-testid="stSidebar"]', timeout=60_000)
-
-                # Fail fast if Streamlit shows an exception block (the health endpoint can still be OK).
-                ex = page.locator('div[data-testid="stException"]').first
-                if ex.count() > 0:
-                    try:
-                        msg = ex.inner_text()
-                    except Exception:  # noqa: BLE001
-                        msg = "<unable to read Streamlit exception text>"
-                    raise RuntimeError(f"Streamlit exception visible in UI:\n{msg[:3000]}")  # noqa: TRY003
-
-                # Wait for any spinner to disappear (best-effort; some pages may not show one).
-                try:
-                    page.wait_for_selector('[data-testid="stSpinner"]', state="detached", timeout=60_000)
-                except Exception:  # noqa: BLE001
-                    pass
-
-                # Wait for at least one interactive control to render.
-                try:
-                    page.wait_for_selector(
-                        'div[data-testid="stNumberInput"] input, div[data-testid="stSlider"]',
-                        timeout=60_000,
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-
-                # Wait for a stable sidebar label (best-effort).
-                for t in ("Mortgage rate (%)", "Mortgage rate", "Home price", "Rent"):
-                    try:
-                        page.wait_for_selector(f"text={t}", timeout=5_000)
-                        break
-                    except Exception:  # noqa: BLE001
-                        continue
-
-                page.wait_for_timeout(750)
-
-            page.goto(url, wait_until="domcontentloaded")
-            _wait_for_app_ready()
+            page.goto(url, wait_until="networkidle")
+            page.wait_for_selector('div[data-testid="stAppViewContainer"]', timeout=60_000)
 
             def save(name: str, *, baseline: bool = False, clip=None, element=None):
                 target = (BASELINE_DIR if baseline else OUT_DIR) / name
