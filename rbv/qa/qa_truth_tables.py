@@ -516,10 +516,53 @@ def _tt_reference_numbers_regression() -> None:
     tt_to = calc_transfer_tax("Ontario", 800_000.0, first_time_buyer=False, toronto_property=True, asof_date=asof)
     _assert_close("TT-REF Toronto total LTT 800k", float(tt_to["total"]), 24_950.0, atol=1.0)
 
+
+def _tt_transfer_tax_examples_multi_province() -> None:
+    """Cross-province sanity anchors for transfer-tax / registration-fee schedules.
+
+    These are intentionally simple, hand-checkable examples that should remain stable
+    unless tax rule implementations change.
+    """
+    from rbv.core.taxes import calc_transfer_tax
+
+    # Ontario example: $500k, first-time buyer (rebate up to $4k), non-Toronto.
+    # LTT = 6475 - 4000 = 2475
+    _assert_close(
+        "TT-TAX ON 500k FTHB",
+        float(calc_transfer_tax("Ontario", 500_000.0, first_time_buyer=True, toronto_property=False)["total"]),
+        2475.0,
+        atol=1e-6,
+    )
+
+    # BC example: $500k => 200k*1% + 300k*2% = 8000
+    _assert_close(
+        "TT-TAX BC 500k",
+        float(calc_transfer_tax("British Columbia", 500_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        8000.0,
+        atol=1e-6,
+    )
+
+    # MB example: $250k => 0 on 30k; 60k*0.5%=300; 60k*1%=600; 50k*1.5%=750; 50k*2%=1000 => 2650
+    _assert_close(
+        "TT-TAX MB 250k",
+        float(calc_transfer_tax("Manitoba", 250_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        2650.0,
+        atol=1e-6,
+    )
+
+    # Alberta example: $400k => base 50 + 5*ceil(400k/5000)=50+5*80=450 (transfer-of-land)
+    _assert_close(
+        "TT-TAX AB 400k",
+        float(calc_transfer_tax("Alberta", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        450.0,
+        atol=1e-6,
+    )
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
     _tt_reference_numbers_regression()
+    _tt_transfer_tax_examples_multi_province()
     _tt_amortization_interest_equity()
     _tt_zero_rate_sanity()
 

@@ -1060,9 +1060,11 @@ buyer_inv_ret = st.session_state.get("buyer_ret", 7.5)
 
 lawyer = 1800
 insp = 500
-province = "Ontario"
-toronto = False
-first_time = True
+province = str(st.session_state.get("province", "Ontario") or "Ontario")
+if province not in PROVINCES:
+    province = "Ontario"
+toronto = bool(st.session_state.get("toronto", False))
+first_time = bool(st.session_state.get("first_time", True))
 transfer_tax_override = 0.0
 
 p_tax_rate = 0.01
@@ -2227,11 +2229,11 @@ with _sa_row[2]:
 
 st.caption("Tip: This shock is buyer-only and unrecoverable; it reduces buyer net worth by cash outflow and opportunity cost. It is off by default.")
 
-st.markdown('<div class="rbv-input-subhead">Utilities, Inflation & Eligibility</div>', unsafe_allow_html=True)
+st.markdown('<div class="rbv-input-subhead">Utilities & Inflation</div>', unsafe_allow_html=True)
 
 ## Layout: keep key items on one clean row (evenly distributed)
 # Owner utilities are intentionally simplified to a single fixed monthly amount (no mode selector).
-brow4 = st.columns([1.55, 1.00, 1.15, 0.95, 0.95])
+brow4 = st.columns([1.55, 1.00, 1.15])
 
 # Backward-compatible condo fee inflation mode (avoids ValueError on legacy saved values)
 _condo_inf_options = ["CPI + spread", "Inflate with general inflation", "Custom %", "No inflation"]
@@ -2291,7 +2293,31 @@ with brow4[2]:
         key="o_util",
     )
 
-with brow4[3]:
+st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
+
+st.markdown('<div class="rbv-input-subhead">Taxes & Eligibility</div>', unsafe_allow_html=True)
+
+# Toronto MLTT applies only in Ontario. If the user changes province away from Ontario,
+# automatically clear the Toronto flag so taxes remain well-defined.
+try:
+    _prov_now = str(st.session_state.get("province", "Ontario") or "Ontario")
+    if _prov_now != "Ontario" and bool(st.session_state.get("toronto", False)):
+        st.session_state["toronto"] = False
+except Exception:
+    pass
+
+taxrow = st.columns([1.45, 0.95, 0.95])
+with taxrow[0]:
+    _prov_raw = str(vals.get("province", "Ontario") or "Ontario")
+    _prov = _prov_raw if _prov_raw in PROVINCES else "Ontario"
+    province = rbv_selectbox(
+        "Province",
+        options=PROVINCES,
+        index=PROVINCES.index(_prov),
+        key="province",
+        tooltip="Select the province for land transfer / welcome tax rules.",
+    )
+with taxrow[1]:
     # Public-friendly default: assume first-time buyer unless scenario overrides.
     first_time = rbv_checkbox(
         "First-time buyer",
@@ -2299,14 +2325,18 @@ with brow4[3]:
         value=bool(vals.get("first_time", True)),
         key="first_time",
     )
-
-with brow4[4]:
-    toronto = rbv_checkbox(
-        "Toronto property",
-        tooltip="If yes, applies Toronto Municipal Land Transfer Tax (MLTT) in addition to Ontario LTT (rates depend on date).",
-        value=bool(vals.get("toronto", False)),
-        key="toronto",
-    )
+with taxrow[2]:
+    if str(province) == "Ontario":
+        toronto = rbv_checkbox(
+            "Toronto property",
+            tooltip="If yes, applies Toronto Municipal Land Transfer Tax (MLTT) in addition to Ontario LTT (rates depend on date).",
+            value=bool(vals.get("toronto", False)),
+            key="toronto",
+        )
+    else:
+        # Keep layout height stable while making it explicit that Toronto MLTT is Ontario-only.
+        toronto = False
+        st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 
 st.markdown('<div class="kpi-section-title rent-title">RENTING INPUTS</div>', unsafe_allow_html=True)
 
