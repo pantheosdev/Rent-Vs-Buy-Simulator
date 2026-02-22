@@ -61,6 +61,14 @@ def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
         "down": 160000.0,
         "rent": 3000.0,
 
+        # Region / eligibility (must be explicit so scenario export/import is location-correct)
+        "province": "Ontario",
+        "first_time": True,
+        "toronto": False,
+
+        # Mortgage
+        "amort": 25,
+
         # Pro realism defaults (additive; do not affect presets)
         "condo_inf": None,                 # Condo fees often outpace CPI; default = CPI + spread
         "condo_inf_mode": "CPI + spread",

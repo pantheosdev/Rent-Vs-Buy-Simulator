@@ -8,6 +8,12 @@
 - Tooltips (mobile): add horizontal auto-flip and overflow hardening to prevent clipping.
 - Sidebar: reduce overwhelm by collapsing Economic Scenario by default and clarifying Expert-mode lock wording.
 
+## v2.93.0
+
+- Buying inputs: add an explicit **Province** selector (drives land transfer / welcome tax rules).
+- Guardrail: **Toronto MLTT** toggle now only appears for Ontario; it is auto-cleared when switching provinces.
+- QA: add cross-province transfer-tax reference anchors (ON/BC/MB/AB) to truth tables.
+
 ## v2.92.9
 
 - Engine: when surplus investing is OFF, monthly buy-vs-rent cost differences are tracked as cash (0% return) rather than discarded.
