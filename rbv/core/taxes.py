@@ -8,7 +8,7 @@ import datetime
 
 
 # Policy freshness marker (used by CI reminder workflows)
-TAX_RULES_LAST_REVIEWED = datetime.date(2026, 2, 19)
+TAX_RULES_LAST_REVIEWED = datetime.date(2026, 2, 22)
 PROVINCES = [
     "Ontario", "British Columbia", "Alberta", "Quebec", "Manitoba", "Saskatchewan",
     "Nova Scotia", "New Brunswick", "Newfoundland and Labrador", "Prince Edward Island",
@@ -22,7 +22,7 @@ PROVINCES = [
 
 PROV_TAX_RULES_MD = {
     "Ontario": "- **Ontario LTT (provincial):** progressive brackets. **First-time buyer (FTHB)** rebate up to **$4,000** (simplified).\n- **Toronto (optional):** additional **Municipal LTT** with simplified FTHB rebate up to **$4,475**.",
-    "British Columbia": "- **BC PTT:** 1% on first $200k, 2% on $200k–$2M, 3% on $2M–$3M, 5% above $3M.\n- Excludes additional taxes (e.g., foreign buyer/speculation) and exemptions.",
+    "British Columbia": "- **BC PTT:** 1% on first $200k, 2% on $200k–$2M, 3% on $2M–$3M, 5% above $3M.\n- **FTHB exemption (simplified):** reduces PTT by up to **$8,000** (full up to **$835k**, phases out to **$860k**, as-of **Apr 1, 2024**+). Assumes you qualify; does not model all eligibility rules.\n- Excludes additional taxes (e.g., foreign buyer/speculation).",
     "Alberta": "- **AB:** no land transfer tax; **land title registration fee** estimated (transfer-of-land only; mortgage registration not included).",
     "Saskatchewan": "- **SK:** **land title transfer fee** estimated (mortgage registration not included).",
     "Manitoba": "- **MB land transfer tax:** progressive brackets (0% to $30k; then 0.5%, 1.0%, 1.5%, 2.0% tiers).",
@@ -124,6 +124,55 @@ def calc_ptt_bc(p: float) -> float:
     if p > 3_000_000.0:
         tax += (p - 3_000_000.0) * 0.05
     return tax
+
+
+def bc_fthb_exemption_amount(price: float, asof_date: datetime.date | None = None) -> float:
+    """BC First Time Home Buyers (FTHB) exemption amount (simplified).
+
+    This models the *max* exemption value (i.e., the amount that reduces the base PTT), not the
+    full set of eligibility criteria (principal residence, citizenship, prior ownership, etc.).
+
+    Approximation:
+    - For properties <= $500k: fully exempt the base PTT (which is <= $8,000)
+    - Post Apr 1, 2024: max exemption is $8,000 for FMV <= $835k; then phases out to $0 at $860k
+    - Pre Apr 1, 2024: legacy schedule: phases out from $500k to $525k
+
+    Notes:
+    - The max exemption of $8,000 corresponds to the base PTT on the first $500k.
+    - We treat purchase price as a proxy for fair market value.
+    """
+    p = round(float(price), 2)
+    if p <= 0:
+        return 0.0
+
+    d = asof_date if isinstance(asof_date, datetime.date) else datetime.date.today()
+    cutoff = datetime.date(2024, 4, 1)
+
+    # Fully exempt under $500k in both regimes
+    if p <= 500_000.0:
+        return calc_ptt_bc(p)
+
+    max_ex = 8_000.0
+
+    if d >= cutoff:
+        full_to = 835_000.0
+        phaseout_to = 860_000.0
+    else:
+        # Legacy program thresholds (pre-Apr 1, 2024)
+        full_to = 500_000.0
+        phaseout_to = 525_000.0
+
+    if p <= full_to:
+        return max_ex
+    if p >= phaseout_to:
+        return 0.0
+
+    # Linear phaseout between (full_to, phaseout_to)
+    span = float(phaseout_to - full_to)
+    if span <= 0:
+        return 0.0
+    frac = (float(phaseout_to) - p) / span
+    return max(0.0, min(max_ex, max_ex * frac))
 
 def _calc_bracket_tax(amount: float, brackets: list[tuple[float, float]]) -> float:
     """Generic marginal tax calculator.
@@ -308,8 +357,25 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
 
 
     elif province == "British Columbia":
-        prov = calc_ptt_bc(price)
-        note = "BC PTT excludes additional taxes (e.g., foreign buyer/speculation) and local exemptions."
+        raw = calc_ptt_bc(price)
+        prov = raw
+        note = "BC PTT excludes additional taxes (e.g., foreign buyer/speculation)."
+
+        if first_time_buyer:
+            ex = bc_fthb_exemption_amount(price, asof_date=asof_date)
+            if ex > 0:
+                prov = max(0.0, raw - ex)
+                try:
+                    _d = asof_date if isinstance(asof_date, datetime.date) else datetime.date.today()
+                except Exception:
+                    _d = datetime.date.today()
+                _cut = datetime.date(2024, 4, 1)
+                _sched = "post-Apr 1, 2024" if _d >= _cut else "pre-Apr 1, 2024"
+                note = (
+                    f"BC FTHB exemption applied (simplified; assumes eligible). "
+                    f"Max $8,000; {_sched} schedule as of {_d.isoformat()}. "
+                    "Excludes additional taxes (e.g., foreign buyer/speculation)."
+                )
 
     elif province == "Alberta":
         # Alberta has registration fees rather than a transfer tax; we estimate the transfer-of-land fee only.

@@ -559,6 +559,78 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     )
 
 
+def _tt_bc_fthb_exemption_date_aware() -> None:
+    """BC FTHB exemption should be date-aware and bounded by the $8,000 max benefit."""
+    from rbv.core.taxes import calc_transfer_tax
+    import datetime as _dt
+
+    # Post Apr 1, 2024 schedule (current)
+    asof = _dt.date(2026, 2, 20)
+
+    # <=500k: fully exempt (PTT <= 8k)
+    _assert_close(
+        "TT-BC-FTHB 400k post2024",
+        float(calc_transfer_tax("British Columbia", 400_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        0.0,
+        atol=1e-9,
+    )
+
+    # 500k: base PTT 8k; max exemption 8k => 0
+    _assert_close(
+        "TT-BC-FTHB 500k post2024",
+        float(calc_transfer_tax("British Columbia", 500_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        0.0,
+        atol=1e-9,
+    )
+
+    # 600k: base PTT 10k; exemption 8k => 2k
+    _assert_close(
+        "TT-BC-FTHB 600k post2024",
+        float(calc_transfer_tax("British Columbia", 600_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        2000.0,
+        atol=1e-6,
+    )
+
+    # 835k: full benefit (8k) still applies
+    _assert_close(
+        "TT-BC-FTHB 835k post2024",
+        float(calc_transfer_tax("British Columbia", 835_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        6700.0,
+        atol=1e-6,
+    )
+
+    # 850k: partial phaseout => exemption 3.2k; base 15k => 11.8k
+    _assert_close(
+        "TT-BC-FTHB 850k post2024",
+        float(calc_transfer_tax("British Columbia", 850_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        11800.0,
+        atol=1e-6,
+    )
+
+    # 860k+: no exemption
+    _assert_close(
+        "TT-BC-FTHB 860k post2024",
+        float(calc_transfer_tax("British Columbia", 860_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        15200.0,
+        atol=1e-6,
+    )
+
+    # Pre Apr 1, 2024 legacy schedule: phaseout 500k -> 525k
+    asof_old = _dt.date(2024, 3, 1)
+    _assert_close(
+        "TT-BC-FTHB 520k pre2024",
+        float(calc_transfer_tax("British Columbia", 520_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof_old)["total"]),
+        6800.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-BC-FTHB 525k pre2024",
+        float(calc_transfer_tax("British Columbia", 525_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof_old)["total"]),
+        8500.0,
+        atol=1e-6,
+    )
+
+
 
 def _tt_purchase_closing_costs_reduce_buyer_nw() -> None:
     """Truth table: one-time closing costs must reduce buyer net worth dollar-for-dollar when returns are zero."""
@@ -605,6 +677,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_reference_numbers_regression()
     _tt_purchase_closing_costs_reduce_buyer_nw()
     _tt_transfer_tax_examples_multi_province()
+    _tt_bc_fthb_exemption_date_aware()
     _tt_amortization_interest_equity()
     _tt_zero_rate_sanity()
 
