@@ -558,10 +558,52 @@ def _tt_transfer_tax_examples_multi_province() -> None:
         atol=1e-6,
     )
 
+
+
+def _tt_purchase_closing_costs_reduce_buyer_nw() -> None:
+    """Truth table: one-time closing costs must reduce buyer net worth dollar-for-dollar when returns are zero."""
+    cfg = _base_cfg()
+    cfg.update({
+        "years": 1,
+        "rent": 0.0,
+        "general_inf": 0.0,
+        "rent_inf": 0.0,
+        "sell_cost": 0.0,
+        "p_tax_rate": 0.0,
+        "maint_rate": 0.0,
+        "repair_rate": 0.0,
+        "condo": 0.0,
+        "h_ins": 0.0,
+        "o_util": 0.0,
+        "r_ins": 0.0,
+        "r_util": 0.0,
+        "moving_cost": 0.0,
+        "moving_freq": 1000.0,
+        "assume_sale_end": False,
+        "show_liquidation_view": False,
+    })
+
+    cfg0 = dict(cfg)
+    cfg0["close"] = 0.0
+    df0, _, _, _ = _run_det(cfg0, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+
+    cfg1 = dict(cfg)
+    cfg1["close"] = 10_000.0
+    df1, _, _, _ = _run_det(cfg1, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+
+    bnw0 = float(df0.iloc[-1]["Buyer Net Worth"])
+    bnw1 = float(df1.iloc[-1]["Buyer Net Worth"])
+    _assert_close("TT-CLOSE buyer NW delta", bnw0 - bnw1, 10_000.0, atol=1e-6)
+
+    bu0 = float(df0.iloc[-1]["Buyer Unrecoverable"])
+    bu1 = float(df1.iloc[-1]["Buyer Unrecoverable"])
+    _assert_close("TT-CLOSE buyer unrecoverable delta", bu1 - bu0, 10_000.0, atol=1e-6)
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
     _tt_reference_numbers_regression()
+    _tt_purchase_closing_costs_reduce_buyer_nw()
     _tt_transfer_tax_examples_multi_province()
     _tt_amortization_interest_equity()
     _tt_zero_rate_sanity()
