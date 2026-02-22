@@ -69,6 +69,11 @@ def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
         # Mortgage
         "amort": 25,
 
+        # One-time purchase closing costs (editable; do not hardcode in app logic)
+        "purchase_legal_fee": 1800.0,
+        "home_inspection": 500.0,
+        "other_closing_costs": 0.0,
+
         # Pro realism defaults (additive; do not affect presets)
         "condo_inf": None,                 # Condo fees often outpace CPI; default = CPI + spread
         "condo_inf_mode": "CPI + spread",

@@ -1058,8 +1058,9 @@ apprec = st.session_state.get("apprec", 3.5) / 100
 sell_cost = 0.05
 buyer_inv_ret = st.session_state.get("buyer_ret", 7.5)
 
-lawyer = 1800
-insp = 500
+lawyer = float(st.session_state.get("purchase_legal_fee", 1800.0) or 1800.0)
+insp = float(st.session_state.get("home_inspection", 500.0) or 500.0)
+other_closing = float(st.session_state.get("other_closing_costs", 0.0) or 0.0)
 province = str(st.session_state.get("province", "Ontario") or "Ontario")
 if province not in PROVINCES:
     province = "Ontario"
@@ -2049,6 +2050,14 @@ if "maint_rate" in st.session_state and "maint_rate_pct" not in st.session_state
 if "repairs_rate" in st.session_state and "repair_rate_pct" not in st.session_state:
     st.session_state["repair_rate_pct"] = st.session_state.get("repairs_rate")
 
+# Closing-cost legacy key migration (rare; keeps old saved scenarios compatible)
+if "lawyer" in st.session_state and "purchase_legal_fee" not in st.session_state:
+    st.session_state["purchase_legal_fee"] = st.session_state.get("lawyer")
+if "insp" in st.session_state and "home_inspection" not in st.session_state:
+    st.session_state["home_inspection"] = st.session_state.get("insp")
+if "other_closing" in st.session_state and "other_closing_costs" not in st.session_state:
+    st.session_state["other_closing_costs"] = st.session_state.get("other_closing")
+
 # Layout goal: 4-up grid with sliders grouped together for a clean/consistent look.
 st.markdown('<div class="rbv-input-subhead">Purchase & Mortgage</div>', unsafe_allow_html=True)
 
@@ -2097,6 +2106,39 @@ with brow1[3]:
         key="amort",
     )
 
+
+st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
+
+st.markdown('<div class="rbv-input-subhead">One-time Purchase Costs</div>', unsafe_allow_html=True)
+
+bclose = st.columns(3)
+with bclose[0]:
+    purchase_legal_fee = rbv_number_input(
+        "Legal & closing ($)",
+        tooltip="One-time legal and closing fees paid at purchase (excluding land transfer tax).",
+        min_value=0.0,
+        value=float(vals.get("purchase_legal_fee", 1800.0)),
+        step=100.0,
+        key="purchase_legal_fee",
+    )
+with bclose[1]:
+    home_inspection = rbv_number_input(
+        "Home inspection ($)",
+        tooltip="One-time home inspection cost paid at purchase.",
+        min_value=0.0,
+        value=float(vals.get("home_inspection", 500.0)),
+        step=50.0,
+        key="home_inspection",
+    )
+with bclose[2]:
+    other_closing_costs = rbv_number_input(
+        "Other closing costs ($)",
+        tooltip="Other one-time purchase costs (e.g., appraisal, title insurance, adjustments). Excluding land transfer tax and CMHC PST.",
+        min_value=0.0,
+        value=float(vals.get("other_closing_costs", 0.0)),
+        step=100.0,
+        key="other_closing_costs",
+    )
 
 st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
 
@@ -2568,7 +2610,11 @@ prem = loan * cmhc_r
 _pst_rate = mortgage_default_insurance_sales_tax_rate(str(province or ""), _tax_asof)
 pst = prem * float(_pst_rate)
 mort = loan + prem
-close = total_ltt + lawyer + insp + pst
+# Closing cost inputs (editable)
+lawyer = float(st.session_state.get("purchase_legal_fee", lawyer) or lawyer)
+insp = float(st.session_state.get("home_inspection", insp) or insp)
+other_closing = float(st.session_state.get("other_closing_costs", other_closing) or other_closing)
+close = total_ltt + lawyer + insp + other_closing + pst
 
 
 # --- Mortgage rate conversion helpers (Canada vs standard monthly compounding) ---
@@ -3891,7 +3937,7 @@ with col_buy:
     b1, b2 = st.columns(2, gap="small")
     with b1:
         _kpi("Cash to Close", f"${close_cash:,.0f}", "var(--buy)",
-             "Upfront cash required to buy: down payment + closing costs (transfer tax, legal, inspection, PST on CMHC premium where applicable).")
+             "Upfront cash required to buy: down payment + closing costs (transfer tax, legal/closing, inspection, other one-time costs, PST on CMHC premium where applicable).")
     with b2:
         _kpi("Avg Monthly Outflow", f"${avg_buy_monthly:,.0f}", "var(--buy)",
              "Average monthly cash outflow for the buyer over the horizon (mortgage payment incl. principal + recurring ownership costs). Principal paydown builds equity; see the Irrecoverable Costs tab for pure non-equity costs.")

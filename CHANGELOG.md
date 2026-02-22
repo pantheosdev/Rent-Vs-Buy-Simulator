@@ -67,6 +67,19 @@
 - Tax modeling: Add opt-in cash-out sensitivity knobs for **CG inclusion policy** (current vs hypothetical tiered) and a conservative **registered shelter** approximation.
 - QA: Extend Truth Tables to cover special assessment timing, tiered inclusion math, and shelter behavior.
 
+
+## v2.93.1 (2026-02-22)
+
+- UX: Make purchase closing costs editable via inputs (legal/closing, inspection, other one-time costs).
+- Calc: Closing costs now include the new editable 'Other closing costs' bucket.
+- QA: Add truth-table invariant that one-time closing costs reduce buyer net worth dollar-for-dollar when returns are zero.
+
+## v2.93.0 (2026-02-22)
+
+- UX: Add Province selector so transfer tax rules are not implicitly locked to Ontario.
+- UX: Toronto MLTT toggle is now Ontario-only and is auto-cleared when switching provinces.
+- QA: Add cross-province transfer tax anchors.
+
 ## v2.90.4 (2026-02-20)
 
 - UX: Fix clipped custom tooltips by allowing KPI cards to overflow and restoring tooltip scrolling.
