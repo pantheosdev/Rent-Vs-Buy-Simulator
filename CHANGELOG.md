@@ -68,6 +68,13 @@
 - QA: Extend Truth Tables to cover special assessment timing, tiered inclusion math, and shelter behavior.
 
 
+## v2.93.2 (2026-02-22)
+
+- Tax: Model **BC First-Time Home Buyer (FTHB)** exemption (simplified) as a reduction to base PTT, capped at **$8,000**.
+- Policy: Make BC FTHB schedule **date-aware** (pre/post **Apr 1, 2024** thresholds).
+- QA: Add BC FTHB boundary truth-table tests (500k, 835k, 850k, 860k; plus legacy 520k/525k).
+
+
 ## v2.93.1 (2026-02-22)
 
 - UX: Make purchase closing costs editable via inputs (legal/closing, inspection, other one-time costs).
