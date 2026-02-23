@@ -1,6 +1,12 @@
 # Changelog
 
 
+## v2.93.3
+
+- UX: Add an itemized **Cash to Close** breakdown (down payment, transfer tax, legal/closing, inspection, other closing costs, PST on CMHC premium where applicable).
+- UX: Surface province transfer-tax notes (e.g., BC FTHB exemption) alongside the breakdown for easier verification.
+
+
 ## v2.92.10
 
 - Net Worth chart: add optional breakeven (Δ=0) vertical marker + subtle negative-region shading.
