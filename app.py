@@ -2585,7 +2585,9 @@ if rate < 0:
         st.stop()
     st.warning("Negative mortgage rates are uncommon. Expert mode is enabled, so the model will compute with a negative rate (hypothetical). Results may be unrealistic; treat this as a sensitivity test.")
 if (down / price) < 0.10:
+    st.markdown('<div class="rbv-center-alert">', unsafe_allow_html=True)
     st.warning("Low down payments increase leverage and risk. Ensure you understand insurance premiums, qualification rules, and cashflow sensitivity to rates.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Closing Costs Calculation ---
 _tax_asof = st.session_state.get("tax_rules_asof", datetime.date.today())
@@ -2601,6 +2603,8 @@ elif not isinstance(_tax_asof, datetime.date):
 
 tt = calc_transfer_tax(province, float(price), first_time, toronto, override_amount=transfer_tax_override, asof_date=_tax_asof)
 total_ltt = float(tt["total"])
+prov_ltt = float(tt.get("prov", 0.0) or 0.0)
+muni_ltt = float(tt.get("muni", 0.0) or 0.0)
 # Optional note (shown later in UI if non-empty)
 transfer_tax_note = tt.get("note","")
 
@@ -3913,7 +3917,7 @@ try:
             "Surplus investing",
             ("ON" if _inv else "OFF"),
             ("var(--buy)" if _inv else "rgba(255,90,90,0.85)"),
-            "If ON, any monthly cost advantage is invested. If OFF, the model treats it as spent.",
+            "If ON, any monthly cost advantage is invested. If OFF, the model tracks it as cash (0% return).",
             neutral=True,
         )
     with q4:
@@ -4075,6 +4079,76 @@ try:
         st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
         with st.expander("🔎 What changed in this run?", expanded=False):
             st.markdown("\n".join([f"- {c}" for c in _changes]))
+
+    # Cash-to-close breakdown (kept near other run-level drop-downs, below banners).
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+    with st.expander("💰 Cash to Close breakdown", expanded=False):
+        try:
+            _items = [
+                ("Down payment", float(down)),
+                ("Transfer tax (provincial)", float(prov_ltt)),
+                ("Legal & closing", float(lawyer)),
+                ("Home inspection", float(insp)),
+                ("Other closing costs", float(other_closing)),
+            ]
+
+            try:
+                if float(muni_ltt) > 0:
+                    _items.insert(2, ("Transfer tax (municipal)", float(muni_ltt)))
+            except Exception:
+                pass
+
+            _pst = float(pst) if "pst" in globals() else 0.0
+            if _pst > 0:
+                _items.append(("PST on CMHC premium", _pst))
+
+            _total_calc = sum(v for _, v in _items)
+            _items.append(("Total cash to close", _total_calc))
+
+            # Render as simple key/value rows (no headers, no row numbers).
+            for _label, _val in _items:
+                _is_total = (str(_label).lower().strip() == "total cash to close")
+                st.markdown(
+                    f"<div class=\"rbv-kv-row{(' rbv-kv-total' if _is_total else '')}\">"
+                    f"<div class=\"rbv-kv-key\">{_label}</div>"
+                    f"<div class=\"rbv-kv-val\">{_fmt_money(_val)}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Mortgage default insurance (premium is typically capitalized into the mortgage).
+            try:
+                _prem = float(prem) if "prem" in globals() else 0.0
+                _mort = float(mort) if "mort" in globals() else 0.0
+                _cmhc_r = float(cmhc_r) if "cmhc_r" in globals() else 0.0
+                _ltv = float(ltv) if "ltv" in globals() else 0.0
+                if bool(insured) and _prem > 0:
+                    st.markdown('<div class="rbv-kv-divider"></div>', unsafe_allow_html=True)
+                    st.markdown("**Mortgage default insurance**", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class=\"rbv-kv-row\"><div class=\"rbv-kv-key\">CMHC premium (financed)</div><div class=\"rbv-kv-val\">{_fmt_money(_prem)}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(
+                        f"Premium rate: {_cmhc_r*100:.2f}% at LTV {_ltv*100:.2f}%. The premium is typically added to the mortgage principal (so it's repaid over time in the monthly payment). PST, if applicable, is paid at closing."
+                    )
+                    if _mort > 0:
+                        st.caption(f"Insured mortgage principal (loan + premium): {_fmt_money(_mort)}")
+            except Exception:
+                pass
+
+            if transfer_tax_note:
+                st.caption(str(transfer_tax_note))
+
+            # Cash to close returned by the engine should closely match the computed breakdown.
+            try:
+                _diff = float(close_cash) - float(_total_calc)
+                if abs(_diff) >= 2.0:
+                    st.caption(f"Engine Cash to Close: {_fmt_money(float(close_cash))} (diff {(_diff):+,.0f}).")
+            except Exception:
+                pass
+        except Exception:
+            st.caption("Breakdown unavailable for current inputs.")
 except Exception:
     # Never block the app if the badge fails
     pass

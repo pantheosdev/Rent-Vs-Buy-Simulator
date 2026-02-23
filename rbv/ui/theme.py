@@ -3494,6 +3494,43 @@ button[data-testid="baseButton-secondary"]:focus-visible{
   outline: 2px solid rgba(224,82,82,0.72) !important;
   outline-offset: 2px !important;
 }
+
+/* ================= RBV KEY/VALUE ROWS + CENTERED ALERTS (v2.93.4) ================= */
+.rbv-kv-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  margin: 6px 0;
+}
+.rbv-kv-key{
+  color: rgba(241,241,243,0.92);
+  font-weight: 560;
+}
+.rbv-kv-val{
+  color: rgba(241,241,243,0.96);
+  font-weight: 760;
+  text-align:right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rbv-kv-total{
+  border-color: rgba(61,155,255,0.30);
+  background: rgba(61,155,255,0.08);
+}
+.rbv-kv-divider{ height: 10px; }
+
+/* Center a specific warning block without affecting all alerts */
+.rbv-center-alert [data-testid="stAlert"]{
+  text-align: center !important;
+}
+.rbv-center-alert [data-testid="stAlert"] div{
+  justify-content: center !important;
+}
 /* ================= END ACTION BUTTON EMPHASIS ================= */
 """
 

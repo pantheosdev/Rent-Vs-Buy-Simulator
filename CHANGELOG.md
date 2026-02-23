@@ -1,6 +1,15 @@
 # Changelog
 
 
+## v2.93.4
+
+- UX: Add an itemized **Cash to Close** breakdown (down payment, transfer tax, legal/closing, inspection, other closing costs, PST on CMHC premium where applicable).
+- UX: Move **Cash to Close** breakdown below the run-level banners (next to "What changed in this run?") and render as simple key/value rows (no index/headers).
+- UX: Surface province transfer-tax notes (e.g., BC FTHB exemption) alongside the breakdown for easier verification.
+- UX: If mortgage default insurance applies, surface **CMHC premium (financed)** and clarify that PST (if any) is due at closing.
+- UX: Center the low-down-payment leverage warning within its banner for readability.
+
+
 ## v2.93.3
 
 - UX: Add an itemized **Cash to Close** breakdown (down payment, transfer tax, legal/closing, inspection, other closing costs, PST on CMHC premium where applicable).
