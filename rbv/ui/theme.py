@@ -3531,6 +3531,105 @@ button[data-testid="baseButton-secondary"]:focus-visible{
 .rbv-center-alert [data-testid="stAlert"] div{
   justify-content: center !important;
 }
+
+/* ================= PREMIUM POLISH OVERRIDES (v2.94) =================
+   Keep this block near the end so it can safely override older legacy rules. */
+
+/* Keep one type system for a cleaner, premium look and less layout shifting. */
+:root{ --rbv-font: var(--rbv-font-sans) !important; }
+html, body, .stApp,
+.stApp :is(p, label, input, textarea, button, select, option, h1,h2,h3,h4,h5,h6, th, td, li, a, small, strong, em){
+  font-family: var(--rbv-font-sans) !important;
+}
+
+/* Improve content readability and information hierarchy. */
+.block-container{
+  max-width: 1260px !important;
+  padding-top: 1.5rem !important;
+  padding-bottom: 3.2rem !important;
+}
+h1, h2, h3{ letter-spacing: 0.01em !important; }
+h1{ font-size: clamp(1.65rem, 2.7vw, 2.15rem) !important; margin-bottom: 18px !important; }
+
+/* Give sections and expanders a higher-end glass-card treatment. */
+[data-testid="stExpander"],
+[data-testid="stMetric"],
+.kpi-card,
+.note-box,
+.fin-table-wrap{
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015)) !important;
+  border: 1px solid rgba(255,255,255,0.13) !important;
+  box-shadow: 0 14px 30px rgba(0,0,0,0.30) !important;
+  border-radius: 14px !important;
+}
+
+/* Inputs were visually flat; add clear focus and hover affordances. */
+div[data-baseweb="input"] > div,
+div[data-baseweb="select"] > div,
+div[data-baseweb="textarea"] > div{
+  border-radius: 12px !important;
+  border-color: rgba(255,255,255,0.16) !important;
+  background: rgba(255,255,255,0.04) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+div[data-baseweb="input"] > div:hover,
+div[data-baseweb="select"] > div:hover,
+div[data-baseweb="textarea"] > div:hover{
+  border-color: rgba(255,255,255,0.26) !important;
+  background: rgba(255,255,255,0.055) !important;
+}
+div[data-baseweb="input"] > div:focus-within,
+div[data-baseweb="select"] > div:focus-within,
+div[data-baseweb="textarea"] > div:focus-within{
+  border-color: rgba(61,155,255,0.75) !important;
+  box-shadow: 0 0 0 3px rgba(61,155,255,0.22) !important;
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* Sidebar had dense spacing that read as amateur; improve rhythm. */
+section[data-testid="stSidebar"] .block-container,
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{
+  gap: 0.35rem !important;
+}
+section[data-testid="stSidebar"] [data-testid="stExpander"] details summary{
+  border-radius: 10px !important;
+  min-height: 40px !important;
+}
+
+/* Stabilize tab labels and preserve designed muted tones (avoid forced all-white spans). */
+.st-key-rbv_tab_nav label{ color: rgba(241,241,243,0.80) !important; }
+.st-key-rbv_tab_nav label:has(input:checked){ color: rgba(248,250,255,0.98) !important; }
+.stApp span,
+.stApp small{ color: inherit !important; }
+
+/* Reduce visual bugs in dense sections and improve table usability. */
+.kpi-card{ min-height: 112px !important; }
+.kpi-title,
+.rbv-label-text{ text-wrap: balance; }
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+section[data-testid="stSidebar"] .rbv-label-text{ overflow-wrap: anywhere; }
+.fin-table-scroll{
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+.fin-table thead th:first-child,
+.fin-table tbody td:first-child{
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #141417 !important;
+}
+.fin-table tbody tr:nth-child(even) td:first-child{ background: rgba(255,255,255,0.03) !important; }
+
+/* Accessibility and perceived quality: smooth defaults + reduced motion support. */
+html:focus-within{ scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
 /* ================= END ACTION BUTTON EMPHASIS ================= */
 """
 
