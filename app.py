@@ -1073,6 +1073,10 @@ if province not in PROVINCES:
     province = "Ontario"
 toronto = bool(st.session_state.get("toronto", False))
 first_time = bool(st.session_state.get("first_time", True))
+# Province-specific transfer-tax helpers
+assessed_value = float(st.session_state.get("assessed_value", price) or price) if province in ("New Brunswick", "Prince Edward Island") else None
+ns_deed_transfer_rate = (float(st.session_state.get("ns_deed_transfer_rate_pct", 1.5) or 1.5) / 100.0) if province == "Nova Scotia" else None
+
 transfer_tax_override = 0.0
 
 p_tax_rate = 0.01
@@ -2411,6 +2415,39 @@ with taxrow[2]:
         toronto = False
         st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 
+
+# Province-specific transfer tax inputs (only shown when relevant).
+if str(province) in ("New Brunswick", "Prince Edward Island"):
+    # NB/PEI transfer tax is assessed-value based; in practice the basis is often max(purchase, assessed).
+    if "assessed_value" not in st.session_state or st.session_state.get("assessed_value") in (None, ""):
+        st.session_state["assessed_value"] = float(vals.get("purchase_price", 0.0) or 0.0) or float(price)
+    assessed_value = rbv_number_input(
+        "Assessed value ($)",
+        min_value=0.0,
+        value=float(st.session_state.get("assessed_value") or float(price)),
+        step=1000.0,
+        key="assessed_value",
+        tooltip="NB/PEI transfer tax base uses max(purchase price, assessed value). Defaults to purchase price.",
+    )
+    sidebar_hint("NB/PEI transfer tax uses the higher of purchase price and assessed value.")
+
+elif str(province) == "Nova Scotia":
+    if "ns_deed_transfer_rate_pct" not in st.session_state or st.session_state.get("ns_deed_transfer_rate_pct") in (None, ""):
+        st.session_state["ns_deed_transfer_rate_pct"] = 1.5
+    _ns_rate_pct = rbv_number_input(
+        "Deed transfer tax rate (%)",
+        min_value=0.0,
+        max_value=5.0,
+        value=float(st.session_state.get("ns_deed_transfer_rate_pct") or 1.5),
+        step=0.05,
+        key="ns_deed_transfer_rate_pct",
+        tooltip="Nova Scotia deed transfer tax rates vary by municipality. Set your local rate (default 1.5%).",
+    )
+    ns_deed_transfer_rate = float(_ns_rate_pct) / 100.0
+    st.markdown('<div class="rbv-center-alert">', unsafe_allow_html=True)
+    st.info("Rates vary by municipality (Nova Scotia). Adjust the deed transfer tax rate for your area.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
 st.markdown('<div class="kpi-section-title rent-title">RENTING INPUTS</div>', unsafe_allow_html=True)
 
 # --- Legacy key/value migration (keeps older session_state compatible) ---
@@ -2664,7 +2701,7 @@ if (down / price) < 0.10:
 # insured eligibility validations stay on the same policy calendar.
 _tax_asof = _policy_asof
 
-tt = calc_transfer_tax(province, float(price), first_time, toronto, override_amount=transfer_tax_override, asof_date=_tax_asof)
+tt = calc_transfer_tax(province, float(price), first_time, toronto, override_amount=transfer_tax_override, asof_date=_tax_asof, assessed_value=assessed_value, ns_deed_transfer_rate=ns_deed_transfer_rate)
 total_ltt = float(tt["total"])
 prov_ltt = float(tt.get("prov", 0.0) or 0.0)
 muni_ltt = float(tt.get("muni", 0.0) or 0.0)
@@ -5794,7 +5831,7 @@ If enabled, a one-time (or short-duration) drawdown is applied to both the portf
 
     # Province tax assumptions (keeps override as ground-truth option)
     with st.expander("🏛️ Province tax assumptions", expanded=False):
-        applied = calc_transfer_tax(province, float(price), first_time, toronto, override_amount=transfer_tax_override, asof_date=_tax_asof)
+        applied = calc_transfer_tax(province, float(price), first_time, toronto, override_amount=transfer_tax_override, asof_date=_tax_asof, assessed_value=assessed_value, ns_deed_transfer_rate=ns_deed_transfer_rate)
         rule_md = PROV_TAX_RULES_MD.get(province, "- No built-in rule text for this region. Use **Override** if applicable.")
         st.markdown(rule_md)
 

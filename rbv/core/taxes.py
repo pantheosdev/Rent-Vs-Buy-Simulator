@@ -27,9 +27,9 @@ PROV_TAX_RULES_MD = {
     "Saskatchewan": "- **SK:** **land title transfer fee** estimated (mortgage registration not included).",
     "Manitoba": "- **MB land transfer tax:** progressive brackets (0% to $30k; then 0.5%, 1.0%, 1.5%, 2.0% tiers).",
     "Quebec": "- **QC welcome tax (standard):** 0.5% to $55,200; 1.0% to $276,200; 1.5% above.\n- Many municipalities apply higher top rates; use **Override** for precision.",
-    "New Brunswick": "- **NB:** simplified **1%** of purchase price (proxy for assessed value).",
-    "Nova Scotia": "- **NS:** deed transfer tax is municipal; defaulting to **1.5%**. Use **Override** for your municipality.",
-    "Prince Edward Island": "- **PEI:** 1% on portion above $30k; **2% on portion above $1M** (simplified). Exemptions not modeled; use **Override** if applicable.",
+    "New Brunswick": "- **NB property transfer tax:** simplified as **1%** of the **higher of purchase price and assessed value**. Provide assessed value (defaults to purchase price).",
+    "Nova Scotia": "- **NS deed transfer tax:** municipal; rates vary. Default **1.5%**. Adjust the rate input (or override) for your municipality.",
+    "Prince Edward Island": "- **PEI real property transfer tax:** simplified bracketed schedule. Uses the **higher of purchase price and assessed value**; some exemptions not modeled (use override if applicable).",
     "Newfoundland and Labrador": "- **NL:** estimates deed **registration fee** portion only (simplified; may vary by local rules).",
     "Northwest Territories": "- **Territories:** fees vary; defaulting to **$0**. Use **Override** if applicable.",
     "Yukon": "- **Territories:** fees vary; defaulting to **$0**. Use **Override** if applicable.",
@@ -317,7 +317,7 @@ def calc_registration_fee_newfoundland(price: float) -> float:
         fee += increments * 0.40
     return min(5000.0, fee)
 
-def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toronto_property: bool, override_amount: float = 0.0, asof_date: datetime.date | None = None) -> dict:
+def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toronto_property: bool, override_amount: float = 0.0, asof_date: datetime.date | None = None, assessed_value: float | None = None, ns_deed_transfer_rate: float | None = None) -> dict:
     """Return dict with total and components: {'prov': x, 'muni': y, 'total': z, 'note': str}.
 
     If override_amount > 0, it is used as the provincial component (and a note is added).
@@ -325,6 +325,8 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
     province = (province or "Ontario").strip()
     price = round(float(price), 2)
     prov = 0.0
+    assessed_value = None if assessed_value is None else round(float(assessed_value), 2)
+
     muni = 0.0
     note = ""
 
@@ -394,16 +396,22 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
         note = "Quebec duties can vary by municipality (some apply higher rates in top brackets). Use override for precision."
 
     elif province == "New Brunswick":
-        prov = calc_property_transfer_tax_new_brunswick(price)
+        basis = max(price, assessed_value) if assessed_value is not None else price
+        prov = calc_property_transfer_tax_new_brunswick(basis)
+        note = "NB property transfer tax is based on assessed value; using max(purchase price, assessed value)." if assessed_value is not None else "NB property transfer tax is based on assessed value; using purchase price as proxy. Provide assessed value for precision."
 
     elif province == "Nova Scotia":
-        prov = calc_deed_transfer_tax_nova_scotia_default(price, rate=0.015)
-        note = "Nova Scotia deed transfer tax is municipal; defaulting to 1.5%. Use override for your municipality."
+        _rate = float(ns_deed_transfer_rate) if (ns_deed_transfer_rate is not None and float(ns_deed_transfer_rate) > 0) else 0.015
+        prov = calc_deed_transfer_tax_nova_scotia_default(price, rate=_rate)
+        if ns_deed_transfer_rate is not None and float(ns_deed_transfer_rate) > 0:
+            note = f"Nova Scotia deed transfer tax is municipal; using your selected rate of {_rate*100:.3g}%."
+        else:
+            note = "Nova Scotia deed transfer tax is municipal; defaulting to 1.5%. Use the rate input or override for your municipality."
 
     elif province == "Prince Edward Island":
-        prov = calc_real_property_transfer_tax_pei(price)
-        note = "PEI transfer tax can include exemptions/eligibility rules; override if you have a local exemption."
-
+        basis = max(price, assessed_value) if assessed_value is not None else price
+        prov = calc_real_property_transfer_tax_pei(basis)
+        note = "PEI transfer tax can include exemptions/eligibility rules; using max(purchase price, assessed value). Override if you have a local exemption."
     elif province == "Newfoundland and Labrador":
         prov = calc_registration_fee_newfoundland(price)
         note = "NL uses registration fees; this estimates the deed registration portion only."

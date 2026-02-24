@@ -554,6 +554,44 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     )
 
     # Alberta example: $400k => base 50 + 5*ceil(400k/5000)=50+5*80=450 (transfer-of-land)
+
+    # NB: tax base is max(purchase price, assessed value) (1% simplified).
+    _assert_close(
+        "TT-TAX NB assessed>price",
+        float(calc_transfer_tax("New Brunswick", 300_000.0, first_time_buyer=False, toronto_property=False, assessed_value=350_000.0)["total"]),
+        3500.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-TAX NB assessed<price",
+        float(calc_transfer_tax("New Brunswick", 300_000.0, first_time_buyer=False, toronto_property=False, assessed_value=250_000.0)["total"]),
+        3000.0,
+        atol=1e-6,
+    )
+
+    # PEI: simplified schedule uses max(purchase price, assessed value).
+    # 1% on (min(base,1M)-30k) + 2% above 1M
+    _assert_close(
+        "TT-TAX PEI assessed>price",
+        float(calc_transfer_tax("Prince Edward Island", 200_000.0, first_time_buyer=False, toronto_property=False, assessed_value=250_000.0)["total"]),
+        2200.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-TAX PEI assessed<price",
+        float(calc_transfer_tax("Prince Edward Island", 200_000.0, first_time_buyer=False, toronto_property=False, assessed_value=150_000.0)["total"]),
+        1700.0,
+        atol=1e-6,
+    )
+
+    # Nova Scotia: municipal rate varies; ensure custom rate is applied.
+    _assert_close(
+        "TT-TAX NS custom rate 2.0%",
+        float(calc_transfer_tax("Nova Scotia", 500_000.0, first_time_buyer=False, toronto_property=False, ns_deed_transfer_rate=0.02)["total"]),
+        10_000.0,
+        atol=1e-6,
+    )
+
     _assert_close(
         "TT-TAX AB 400k",
         float(calc_transfer_tax("Alberta", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
