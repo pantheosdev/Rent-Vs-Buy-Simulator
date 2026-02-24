@@ -35,9 +35,24 @@ PROV_TAX_RULES_MD = {
     "Yukon": "- **Territories:** fees vary; defaulting to **$0**. Use **Override** if applicable.",
     "Nunavut": "- **Territories:** fees vary; defaulting to **$0**. Use **Override** if applicable.",
 }
+
+
+def _safe_float(value: float | int | str | None, default: float = 0.0) -> float:
+    """Return a finite float, otherwise ``default``.
+
+    Tax helpers are used from both UI and scripts; this prevents NaN/inf inputs from
+    contaminating downstream totals with NaN.
+    """
+    try:
+        x = float(value)
+    except Exception:
+        return float(default)
+    return x if math.isfinite(x) else float(default)
+
+
 def calc_ltt_ontario(p: float) -> float:
     """Ontario Land Transfer Tax (provincial portion), excluding rebates."""
-    p = round(float(p), 2)
+    p = round(max(0.0, _safe_float(p)), 2)
     if p <= 0.0:
         return 0.0
     ltt = 0.0
@@ -64,7 +79,7 @@ def calc_ltt_toronto_municipal(p: float, asof_date: datetime.date | None = None)
     - Uses the April 1, 2026 schedule automatically once that date has passed.
       (Schedule selection can be controlled via asof_date; defaults to today's date.)
     """
-    p = round(float(p), 2)
+    p = round(max(0.0, _safe_float(p)), 2)
     if p <= 0:
         return 0.0
 
@@ -112,7 +127,7 @@ def calc_ltt_toronto_municipal(p: float, asof_date: datetime.date | None = None)
 
 def calc_ptt_bc(p: float) -> float:
     """BC Property Transfer Tax (base, excluding additional foreign buyer/speculation taxes)."""
-    p = round(float(p), 2)
+    p = round(max(0.0, _safe_float(p)), 2)
     if p <= 0.0:
         return 0.0
     tax = 0.0
@@ -145,7 +160,7 @@ def bc_fthb_exemption_amount(price: float, asof_date: datetime.date | None = Non
     - The max exemption of $8,000 corresponds to the base PTT on the first $500k.
     - We treat purchase price as a proxy for fair market value.
     """
-    p = round(float(price), 2)
+    p = round(max(0.0, _safe_float(price)), 2)
     if p <= 0:
         return 0.0
 
@@ -182,7 +197,7 @@ def _calc_bracket_tax(amount: float, brackets: list[tuple[float, float]]) -> flo
     """Generic marginal tax calculator.
     brackets: list of (upper_limit, rate) in ascending order; last upper_limit can be float('inf').
     """
-    x = float(amount)
+    x = max(0.0, _safe_float(amount))
     tax = 0.0
     prev = 0.0
     for upper, rate in brackets:
@@ -198,7 +213,7 @@ def calc_land_title_fee_alberta(price: float) -> float:
     """Alberta Transfer of Land registration fee (Land Titles Registration Levy, Oct 2024+).
     Simplified: $50 base + $5 per $5,000 (or part thereof) of property value.
     """
-    p = float(price)
+    p = max(0.0, _safe_float(price))
     if p <= 0:
         return 0.0
     portions = math.ceil(p / 5000.0)
@@ -210,7 +225,7 @@ def calc_land_title_fee_saskatchewan(price: float) -> float:
     $500 to $6,300: $25 flat
     Over $6,300: $25 + 0.4% of amount over $6,300
     """
-    p = float(price)
+    p = max(0.0, _safe_float(price))
     if p <= 500:
         return 0.0
     if p <= 6300:
@@ -219,7 +234,7 @@ def calc_land_title_fee_saskatchewan(price: float) -> float:
 
 def calc_land_transfer_tax_manitoba(price: float) -> float:
     """Manitoba land transfer tax (provincial schedule)."""
-    p = float(price)
+    p = max(0.0, _safe_float(price))
     brackets = [
         (30000.0, 0.0),
         (90000.0, 0.005),
@@ -235,7 +250,7 @@ def calc_transfer_duty_quebec_baseline(price: float, asof_date: 'datetime.date |
     Quebec municipalities can adopt higher rates in upper brackets. This function implements the *baseline*
     schedule (0.5% / 1% / 1.5%) with annually indexed thresholds.
     """
-    p = round(float(price), 2)
+    p = round(max(0.0, _safe_float(price)), 2)
     d = asof_date if isinstance(asof_date, datetime.date) else datetime.date.today()
     y = int(getattr(d, "year", datetime.date.today().year))
 
@@ -268,7 +283,7 @@ def calc_transfer_duty_quebec_big_city(price: float, asof_date: 'datetime.date |
 
     Not used by default; kept for future municipality selectors.
     """
-    p = round(float(price), 2)
+    p = round(max(0.0, _safe_float(price)), 2)
 
     brackets = [
         (62_900.0, 0.005),
@@ -285,15 +300,16 @@ def calc_property_transfer_tax_new_brunswick(price: float) -> float:
     """New Brunswick property transfer tax (simplified): 1% of assessed value.
     We use purchase price as proxy.
     """
-    p = float(price)
+    p = max(0.0, _safe_float(price))
     return max(0.0, p) * 0.01
 
 def calc_deed_transfer_tax_nova_scotia_default(price: float, rate: float = 0.015) -> float:
     """Nova Scotia deed transfer tax is municipal. Default 1.5% (common, e.g. HRM).
     Use override for a precise local rate.
     """
-    p = float(price)
-    return max(0.0, p) * float(rate)
+    p = max(0.0, _safe_float(price))
+    r = max(0.0, _safe_float(rate, default=0.0))
+    return p * r
 
 def calc_real_property_transfer_tax_pei(price: float) -> float:
     """Prince Edward Island real property transfer tax (simplified).
@@ -301,7 +317,7 @@ def calc_real_property_transfer_tax_pei(price: float) -> float:
     Implemented here as: 1% on (min(price, 1M) - 30k) + 2% on amount above 1M.
     Use override for edge cases / exemptions.
     """
-    p = float(price)
+    p = max(0.0, _safe_float(price))
     if p <= 30000:
         return 0.0
     base = (min(p, 1_000_000.0) - 30000.0) * 0.01
@@ -312,7 +328,7 @@ def calc_registration_fee_newfoundland(price: float) -> float:
     """Newfoundland & Labrador registration of deeds fee (simplified).
     Base $100 covers first $500; then $0.40 per $100 over $500 (rounded down). Capped at $5,000.
     """
-    p = float(price)
+    p = max(0.0, _safe_float(price))
     if p <= 0:
         return 0.0
     fee = 100.0
@@ -326,17 +342,18 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
 
     If override_amount > 0, it is used as the provincial component (and a note is added).
     """
-    province = (province or "Ontario").strip()
-    price = round(float(price), 2)
+    province = (province or "Ontario").strip().title()
+    price = round(max(0.0, _safe_float(price)), 2)
     prov = 0.0
-    assessed_value = None if assessed_value is None else round(float(assessed_value), 2)
+    assessed_value = None if assessed_value is None else round(max(0.0, _safe_float(assessed_value)), 2)
 
     muni = 0.0
     note = ""
 
     # User override always wins (keeps behavior predictable)
-    if override_amount and float(override_amount) > 0:
-        prov = float(override_amount)
+    override = _safe_float(override_amount, default=0.0)
+    if override > 0:
+        prov = override
         note = "Using your 'Transfer Tax Override' amount for this province/municipality."
         return {"prov": prov, "muni": 0.0, "total": prov, "note": note}
 
@@ -405,9 +422,10 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
         note = "NB property transfer tax is based on assessed value; using max(purchase price, assessed value)." if assessed_value is not None else "NB property transfer tax is based on assessed value; using purchase price as proxy. Provide assessed value for precision."
 
     elif province == "Nova Scotia":
-        _rate = float(ns_deed_transfer_rate) if (ns_deed_transfer_rate is not None and float(ns_deed_transfer_rate) > 0) else 0.015
+        _input_rate = _safe_float(ns_deed_transfer_rate, default=0.0) if ns_deed_transfer_rate is not None else 0.0
+        _rate = _input_rate if _input_rate > 0 else 0.015
         prov = calc_deed_transfer_tax_nova_scotia_default(price, rate=_rate)
-        if ns_deed_transfer_rate is not None and float(ns_deed_transfer_rate) > 0:
+        if ns_deed_transfer_rate is not None and _input_rate > 0:
             note = f"Nova Scotia deed transfer tax is municipal; using your selected rate of {_rate*100:.3g}%."
         else:
             note = "Nova Scotia deed transfer tax is municipal; defaulting to 1.5%. Use the rate input or override for your municipality."
