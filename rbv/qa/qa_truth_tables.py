@@ -496,6 +496,9 @@ def _tt_reference_numbers_regression() -> None:
     prem_5 = loan_5 * cmhc_premium_rate_from_ltv(ltv_5)
     _assert_close("TT-REF CMHC prem 5% down", prem_5, 22_800.0, atol=1.0)
 
+    prem_5_non = loan_5 * cmhc_premium_rate_from_ltv(ltv_5, "Non-traditional")
+    _assert_close("TT-REF CMHC prem 5% down (non-traditional)", prem_5_non, 25_650.0, atol=1.0)
+
     down_10 = 60_000.0
     loan_10 = price - down_10
     ltv_10 = loan_10 / price

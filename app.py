@@ -2058,6 +2058,12 @@ if "insp" in st.session_state and "home_inspection" not in st.session_state:
 if "other_closing" in st.session_state and "other_closing_costs" not in st.session_state:
     st.session_state["other_closing_costs"] = st.session_state.get("other_closing")
 
+
+# Down payment source (affects insured-mortgage premium tier for some insurers at high LTV).
+# Default to Traditional for deterministic behavior when the widget is not shown.
+if "down_payment_source" not in st.session_state:
+    st.session_state["down_payment_source"] = "Traditional"
+
 # Layout goal: 4-up grid with sliders grouped together for a clean/consistent look.
 st.markdown('<div class="rbv-input-subhead">Purchase & Mortgage</div>', unsafe_allow_html=True)
 
@@ -2083,6 +2089,24 @@ with brow1[1]:
     )
     down_pct_disp = (down / price * 100.0) if price else 0.0
     st.caption(f"≈ {down_pct_disp:.1f}% down")
+    _loan_preview = max(price - down, 0.0)
+    _ltv_preview = (_loan_preview / price) if price > 0 else 0.0
+    if _ltv_preview > 0.90 + 1e-12:
+        _opts = ["Traditional", "Non-traditional"]
+        _cur = str(vals.get("down_payment_source", st.session_state.get("down_payment_source", "Traditional")) or "Traditional")
+        _idx = 1 if _cur.strip().lower().startswith("non") else 0
+        rbv_selectbox(
+            "Down payment source",
+            options=_opts,
+            index=_idx,
+            key="down_payment_source",
+            tooltip="If your down payment is non-traditional (e.g., borrowed/unsecured or certain gifts), some insurers may charge a higher premium at 90–95% LTV. Leave Traditional if you're using savings/equity.",
+        )
+    else:
+        # Auto-clear to default when not applicable (prevents “sticky” premiums).
+        if str(st.session_state.get("down_payment_source", "Traditional")) != "Traditional":
+            st.session_state["down_payment_source"] = "Traditional"
+
 with brow1[2]:
     rate = rbv_number_input(
         "Mortgage rate (%)",
@@ -2608,7 +2632,8 @@ muni_ltt = float(tt.get("muni", 0.0) or 0.0)
 # Optional note (shown later in UI if non-empty)
 transfer_tax_note = tt.get("note","")
 
-cmhc_r = float(cmhc_premium_rate_from_ltv(float(ltv))) if insured else 0.0
+dp_source = str(st.session_state.get("down_payment_source", "Traditional") or "Traditional")
+cmhc_r = float(cmhc_premium_rate_from_ltv(float(ltv), dp_source)) if insured else 0.0
 prem = loan * cmhc_r
 # Provincial sales tax on mortgage default insurance premium (cash due at closing).
 _pst_rate = mortgage_default_insurance_sales_tax_rate(str(province or ""), _tax_asof)
@@ -2864,6 +2889,7 @@ def _build_cfg():
         "price": price,
         "rent": rent,
         "down": down,
+        "down_payment_source": str(st.session_state.get("down_payment_source", "Traditional") or "Traditional"),
         "rate": rate,
         "rent_inf": float(rent_inf),
         "sell_cost": float(sell_cost),

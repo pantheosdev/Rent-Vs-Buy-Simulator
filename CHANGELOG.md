@@ -1,5 +1,9 @@
 # Changelog
+## v2.93.5
 
+- Policy/UI: Add **Down payment source** toggle (Traditional vs Non-traditional) for high-LTV insured mortgages.
+- Policy: Model non-traditional down payment premium tier: **4.50%** for **90.01–95% LTV** (else standard CMHC tiers).
+- QA: Add reference regression check for the non-traditional premium tier.
 
 ## v2.93.4
 
