@@ -45,6 +45,59 @@ def min_down_payment_canada(price: float, asof_date: dt.date) -> float:
     return 0.20 * p
 
 
+def insured_30yr_amortization_policy_stage(asof_date: dt.date) -> str:
+    """Return the insured 30-year amortization eligibility regime for an as-of date.
+
+    Stages modeled (date-aware):
+      - pre_2024_08_01: insured mortgages are generally capped at 25-year amortization
+      - ftb_and_new_build: 30-year insured amortization allowed only for first-time buyers
+        purchasing newly built homes (effective 2024-08-01)
+      - ftb_or_new_build: 30-year insured amortization expanded to all first-time buyers
+        OR all buyers of newly built homes (effective 2024-12-15)
+
+    These stages align with 2024 federal mortgage-rule changes and are intentionally
+    represented as a policy schedule rather than a single cutoff so future amendments
+    can be added cleanly.
+    """
+    if asof_date >= dt.date(2024, 12, 15):
+        return "ftb_or_new_build"
+    if asof_date >= dt.date(2024, 8, 1):
+        return "ftb_and_new_build"
+    return "pre_2024_08_01"
+
+
+def insured_max_amortization_years(
+    asof_date: dt.date,
+    *,
+    first_time_buyer: bool = False,
+    new_construction: bool = False,
+) -> int:
+    """Return the maximum insured amortization (years) under the modeled schedule.
+
+    This helper only models the *30-year* eligibility schedule for insured (high-ratio)
+    mortgages; it does not assess other lender/insurer underwriting criteria.
+    """
+    stage = insured_30yr_amortization_policy_stage(asof_date)
+    ftb = bool(first_time_buyer)
+    newb = bool(new_construction)
+
+    if stage == "ftb_or_new_build":
+        return 30 if (ftb or newb) else 25
+    if stage == "ftb_and_new_build":
+        return 30 if (ftb and newb) else 25
+    return 25
+
+
+def insured_amortization_rule_label(asof_date: dt.date) -> str:
+    """Human-readable summary of the insured 30-year amortization rule on a date."""
+    stage = insured_30yr_amortization_policy_stage(asof_date)
+    if stage == "ftb_or_new_build":
+        return "30-year insured amortization allowed for first-time buyers OR new builds"
+    if stage == "ftb_and_new_build":
+        return "30-year insured amortization allowed only for first-time buyers purchasing new builds"
+    return "25-year max insured amortization (no 30-year exception modeled yet)"
+
+
 def cmhc_premium_rate_from_ltv(ltv: float, down_payment_source: str | None = None) -> float:
     """Approximate CMHC premium rate based on loan-to-value (LTV).
 
