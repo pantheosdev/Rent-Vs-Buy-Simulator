@@ -33,7 +33,14 @@ from rbv.core.taxes import (
     calc_deed_transfer_tax_nova_scotia_default, calc_land_title_fee_alberta, calc_land_title_fee_saskatchewan, calc_land_transfer_tax_manitoba, calc_ltt_ontario, calc_ltt_toronto_municipal, calc_property_transfer_tax_new_brunswick, calc_ptt_bc, calc_real_property_transfer_tax_pei, calc_registration_fee_newfoundland, calc_transfer_duty_quebec_standard, calc_transfer_tax,
 )
 from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
-from rbv.core.policy_canada import min_down_payment_canada, insured_mortgage_price_cap, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate
+from rbv.core.policy_canada import (
+    min_down_payment_canada,
+    insured_mortgage_price_cap,
+    cmhc_premium_rate_from_ltv,
+    mortgage_default_insurance_sales_tax_rate,
+    insured_max_amortization_years,
+    insured_amortization_rule_label,
+)
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
 from rbv.ui.defaults import PRESETS, build_session_defaults
@@ -2567,11 +2574,25 @@ loan = max(price - down, 0)
 ltv = loan / price if price > 0 else 0
 insured = ltv > 0.8
 
+# Policy/tax as-of date (single parse for validations + closing-cost tax logic).
+_policy_asof_raw = st.session_state.get("tax_rules_asof", datetime.date.today().isoformat())
+if isinstance(_policy_asof_raw, str):
+    try:
+        _policy_asof = datetime.date.fromisoformat(_policy_asof_raw[:10])
+    except Exception:
+        _policy_asof = datetime.date.today()
+elif isinstance(_policy_asof_raw, datetime.datetime):
+    _policy_asof = _policy_asof_raw.date()
+elif isinstance(_policy_asof_raw, datetime.date):
+    _policy_asof = _policy_asof_raw
+else:
+    _policy_asof = datetime.date.today()
+
 # Minimum down payment (Canada) — policy helper (rules change over time; see rbv.core.policy_canada).
 if price <= 0:
     min_down_amt = 0.0
 else:
-    min_down_amt = float(min_down_payment_canada(float(price), datetime.date.today()))
+    min_down_amt = float(min_down_payment_canada(float(price), _policy_asof))
 
 min_down_pct = (min_down_amt / price) if price > 0 else 0.0
 if down + 1e-6 < min_down_amt:
@@ -2579,13 +2600,38 @@ if down + 1e-6 < min_down_amt:
     st.stop()
 
 # Default insurance eligibility (price cap varies over time; current policy uses a $1.5M cap).
-_insured_cap = float(insured_mortgage_price_cap(datetime.date.today()))
+_insured_cap = float(insured_mortgage_price_cap(_policy_asof))
 if insured and price >= _insured_cap:
     st.error(f"Default mortgage insurance is not available at/above ${_insured_cap:,.0f} purchase price. Minimum 20% down required.")
     st.stop()
 if insured and ltv > 0.95:
     st.error("Maximum LTV for insured mortgages is 95%. Increase down payment to at least 5%.")
     st.stop()
+
+if insured and int(amort) > 25:
+    _new_construction = bool(st.session_state.get("new_construction", False))
+    _insured_amort_max = int(
+        insured_max_amortization_years(
+            _policy_asof,
+            first_time_buyer=bool(first_time),
+            new_construction=_new_construction,
+        )
+    )
+    if int(amort) > _insured_amort_max:
+        _rule_label = insured_amortization_rule_label(_policy_asof)
+        _extra = ""
+        if (
+            _policy_asof >= datetime.date(2024, 8, 1)
+            and _policy_asof < datetime.date(2024, 12, 15)
+            and bool(first_time)
+            and not _new_construction
+        ):
+            _extra = " This as-of window requires BOTH first-time buyer and new build eligibility for 30-year insured amortization."
+        st.error(
+            f"Insured mortgage amortization exceeds modeled policy limit ({_insured_amort_max} years as of {_policy_asof.isoformat()}). "
+            f"Rule: {_rule_label}." + _extra
+        )
+        st.stop()
 
 # --- Soft Warnings (non-blocking) ---
 if years >= 40:
@@ -2614,16 +2660,9 @@ if (down / price) < 0.10:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Closing Costs Calculation ---
-_tax_asof = st.session_state.get("tax_rules_asof", datetime.date.today())
-if isinstance(_tax_asof, str):
-    try:
-        _tax_asof = datetime.date.fromisoformat(_tax_asof[:10])
-    except Exception:
-        _tax_asof = datetime.date.today()
-elif isinstance(_tax_asof, datetime.datetime):
-    _tax_asof = _tax_asof.date()
-elif not isinstance(_tax_asof, datetime.date):
-    _tax_asof = datetime.date.today()
+# Reuse the already-parsed policy as-of date so transfer taxes / insurance PST and
+# insured eligibility validations stay on the same policy calendar.
+_tax_asof = _policy_asof
 
 tt = calc_transfer_tax(province, float(price), first_time, toronto, override_amount=transfer_tax_override, asof_date=_tax_asof)
 total_ltt = float(tt["total"])

@@ -674,6 +674,36 @@ def _tt_purchase_closing_costs_reduce_buyer_nw() -> None:
     bu1 = float(df1.iloc[-1]["Buyer Unrecoverable"])
     _assert_close("TT-CLOSE buyer unrecoverable delta", bu1 - bu0, 10_000.0, atol=1e-6)
 
+
+
+def _tt_insured_30yr_amortization_policy_schedule() -> None:
+    import datetime as dt
+    from rbv.core.policy_canada import insured_max_amortization_years, insured_30yr_amortization_policy_stage
+
+    # Stage transitions
+    assert insured_30yr_amortization_policy_stage(dt.date(2024, 7, 31)) == "pre_2024_08_01"
+    assert insured_30yr_amortization_policy_stage(dt.date(2024, 8, 1)) == "ftb_and_new_build"
+    assert insured_30yr_amortization_policy_stage(dt.date(2024, 12, 14)) == "ftb_and_new_build"
+    assert insured_30yr_amortization_policy_stage(dt.date(2024, 12, 15)) == "ftb_or_new_build"
+
+    # Before Aug 1, 2024: no modeled insured 30-year exception
+    assert insured_max_amortization_years(dt.date(2024, 7, 31), first_time_buyer=False, new_construction=False) == 25
+    assert insured_max_amortization_years(dt.date(2024, 7, 31), first_time_buyer=True, new_construction=True) == 25
+
+    # Aug 1, 2024 .. Dec 14, 2024: must be BOTH first-time buyer and new build
+    d_mid = dt.date(2024, 10, 1)
+    assert insured_max_amortization_years(d_mid, first_time_buyer=False, new_construction=False) == 25
+    assert insured_max_amortization_years(d_mid, first_time_buyer=True, new_construction=False) == 25
+    assert insured_max_amortization_years(d_mid, first_time_buyer=False, new_construction=True) == 25
+    assert insured_max_amortization_years(d_mid, first_time_buyer=True, new_construction=True) == 30
+
+    # Dec 15, 2024+: first-time buyer OR new build qualifies
+    d_new = dt.date(2024, 12, 15)
+    assert insured_max_amortization_years(d_new, first_time_buyer=False, new_construction=False) == 25
+    assert insured_max_amortization_years(d_new, first_time_buyer=True, new_construction=False) == 30
+    assert insured_max_amortization_years(d_new, first_time_buyer=False, new_construction=True) == 30
+    assert insured_max_amortization_years(d_new, first_time_buyer=True, new_construction=True) == 30
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
@@ -681,6 +711,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_purchase_closing_costs_reduce_buyer_nw()
     _tt_transfer_tax_examples_multi_province()
     _tt_bc_fthb_exemption_date_aware()
+    _tt_insured_30yr_amortization_policy_schedule()
     _tt_amortization_interest_equity()
     _tt_zero_rate_sanity()
 
