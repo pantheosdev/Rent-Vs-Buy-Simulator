@@ -553,6 +553,21 @@ def _tt_transfer_tax_examples_multi_province() -> None:
         atol=1e-6,
     )
 
+    # Non-positive prices should never generate negative transfer tax.
+    _assert_close(
+        "TT-TAX ON negative",
+        float(calc_transfer_tax("Ontario", -100_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        0.0,
+        atol=1e-9,
+    )
+
+    _assert_close(
+        "TT-TAX BC negative",
+        float(calc_transfer_tax("British Columbia", -100_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        0.0,
+        atol=1e-9,
+    )
+
     # Alberta example: $400k => base 50 + 5*ceil(400k/5000)=50+5*80=450 (transfer-of-land)
 
     # NB: tax base is max(purchase price, assessed value) (1% simplified).
@@ -742,6 +757,19 @@ def _tt_insured_30yr_amortization_policy_schedule() -> None:
     assert insured_max_amortization_years(d_new, first_time_buyer=False, new_construction=True) == 30
     assert insured_max_amortization_years(d_new, first_time_buyer=True, new_construction=True) == 30
 
+def _tt_discount_rate_unit_guard() -> None:
+    """Guard: discount_rate passed as percent-points should not zero-out PV outputs."""
+    cfg = _base_cfg()
+    cfg["discount_rate"] = 3.0  # percent points (UI-style); engine should normalize to 0.03
+    df, _, _, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    # PV should be finite and non-trivial; also engine should mark normalization.
+    assert bool(getattr(df, "attrs", {}).get("discount_rate_autonormalized", False)) is True
+    bpv = float(df.iloc[-1].get("Buyer PV NW", 0.0))
+    rpv = float(df.iloc[-1].get("Renter PV NW", 0.0))
+    assert math.isfinite(bpv) and math.isfinite(rpv)
+    assert (bpv > 1_000.0) and (rpv > 1_000.0)
+
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
@@ -759,6 +787,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_annual_drag_disables_extra_liquidation_cg()
     _tt_special_assessment_applied_once()
     _tt_cg_inclusion_tier_and_shelter()
+    _tt_discount_rate_unit_guard()
     _tt_ui_defaults_match_presets()
 
     # Rent control cadence
@@ -772,17 +801,4 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-def _tt_discount_rate_unit_guard():
-    """Guard: discount_rate passed as percent-points should not zero-out PV outputs."""
-    cfg = _base_cfg()
-    cfg["discount_rate"] = 3.0  # percent points (UI-style); engine should normalize to 0.03
-    df, _, _, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
-    # PV should be finite and non-trivial; also engine should mark normalization.
-    assert bool(getattr(df, "attrs", {}).get("discount_rate_autonormalized", False)) is True
-    bpv = float(df.iloc[-1].get("Buyer PV NW", 0.0))
-    rpv = float(df.iloc[-1].get("Renter PV NW", 0.0))
-    assert math.isfinite(bpv) and math.isfinite(rpv)
-    assert (bpv > 1_000.0) and (rpv > 1_000.0)
-
-
 

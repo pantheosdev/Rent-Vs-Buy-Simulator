@@ -38,6 +38,8 @@ PROV_TAX_RULES_MD = {
 def calc_ltt_ontario(p: float) -> float:
     """Ontario Land Transfer Tax (provincial portion), excluding rebates."""
     p = round(float(p), 2)
+    if p <= 0.0:
+        return 0.0
     ltt = 0.0
     orig_p = p
     if p > 2000000:
@@ -111,6 +113,8 @@ def calc_ltt_toronto_municipal(p: float, asof_date: datetime.date | None = None)
 def calc_ptt_bc(p: float) -> float:
     """BC Property Transfer Tax (base, excluding additional foreign buyer/speculation taxes)."""
     p = round(float(p), 2)
+    if p <= 0.0:
+        return 0.0
     tax = 0.0
     # 1% on first 200k
     tax += min(p, 200_000.0) * 0.01
