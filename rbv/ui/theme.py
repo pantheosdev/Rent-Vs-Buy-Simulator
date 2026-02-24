@@ -3621,6 +3621,72 @@ section[data-testid="stSidebar"] .rbv-label-text{ overflow-wrap: anywhere; }
 }
 .fin-table tbody tr:nth-child(even) td:first-child{ background: rgba(255,255,255,0.03) !important; }
 
+/* ================= UI Polish pass (premium visual tuning) ================= */
+/* Keep the app centered on large displays instead of stretching too wide. */
+div[data-testid="stMainBlockContainer"] .block-container{
+  max-width: 1280px !important;
+  padding-left: clamp(1rem, 2.4vw, 2.2rem) !important;
+  padding-right: clamp(1rem, 2.4vw, 2.2rem) !important;
+}
+
+/* Refine hero area so the first fold looks less heavy and more premium. */
+.title-banner{
+  font-size: clamp(1.26rem, 1.9vw, 1.68rem) !important;
+  letter-spacing: 0.018em !important;
+  border-radius: 20px !important;
+  padding: 16px 18px !important;
+  background:
+    linear-gradient(115deg, rgba(61,155,255,0.18) 0%, rgba(230,184,0,0.14) 56%, rgba(255,255,255,0.02) 100%) !important;
+}
+.rbv-disclaimer{
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.02) 100%) !important;
+}
+
+/* Bug fix: large monetary KPI values occasionally overflow cards on narrow widths. */
+.kpi-card{
+  border-radius: 16px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.42) !important;
+}
+.kpi-value{
+  font-size: clamp(1.28rem, 2.2vw, 1.72rem) !important;
+  line-height: 1.15 !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Input section headers: remove hard all-caps look for a more professional tone. */
+.rbv-input-subhead,
+.kpi-section-title{
+  text-transform: none !important;
+  letter-spacing: 0.03em !important;
+}
+
+/* Make tab navigation read as a true segmented control with clearer active affordance. */
+.st-key-rbv_tab_nav div[role="radiogroup"]{
+  border-radius: 16px !important;
+  background: rgba(255,255,255,0.035) !important;
+}
+.st-key-rbv_tab_nav label:has(input:checked){
+  background: linear-gradient(180deg, rgba(61,155,255,0.20) 0%, rgba(61,155,255,0.11) 100%) !important;
+  border-color: rgba(61,155,255,0.40) !important;
+}
+
+/* Buttons: clearer hierarchy and less "default Streamlit" appearance. */
+div[data-testid="stButton"] button,
+div[data-testid="stDownloadButton"] button{
+  border-radius: 12px !important;
+  font-weight: 640 !important;
+  transition: transform .12s ease, box-shadow .18s ease, background-color .18s ease !important;
+}
+div[data-testid="stButton"] button:hover,
+div[data-testid="stDownloadButton"] button:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(52,194,107,0.18) !important;
+}
+
 /* Accessibility and perceived quality: smooth defaults + reduced motion support. */
 html:focus-within{ scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce){
