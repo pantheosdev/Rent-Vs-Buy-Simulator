@@ -1,14 +1,14 @@
 # Minimal UI theme helpers (modular split)
 
 # --- Theme constants (Azure B + warm orange; Phase 3 contrast tune) ---
-BUY_COLOR = "#3D9BFF"
-RENT_COLOR = "#E6B800"
+BUY_COLOR = "#4FD1C5"
+RENT_COLOR = "#C084FC"
 
-BG_BLACK = "#000000"
-SURFACE_CARD = "#1A1A1A"
-SURFACE_INPUT = "#2A2A2A"
-BORDER = "#333333"
-TEXT_MUTED = "#9A9A9A"
+BG_BLACK = "#0B1020"
+SURFACE_CARD = "#121A2A"
+SURFACE_INPUT = "#182235"
+BORDER = "#2A3A54"
+TEXT_MUTED = "#9FB0C9"
 
 
 # Consolidated stylesheet (Phase 3C): single injection point.
@@ -209,7 +209,7 @@ body div[data-baseweb="tooltip"] div[role="tooltip"]{ z-index: 1000000 !importan
 body div[data-baseweb="popover"] div[role="tooltip"]{ z-index: 1000000 !important; }
 body div[data-baseweb="tooltip"] div[role="tooltip"] > div,
 body div[data-baseweb="popover"] div[role="tooltip"] > div{
-  background: #141417 !important;
+  background: #0F1728 !important;
   opacity: 1 !important;
   color: #E6EDF7 !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
@@ -305,7 +305,7 @@ div[data-baseweb="popover"] div[role="tooltip"]{
 /* The actual bubble */
 div[data-baseweb="tooltip"] div[role="tooltip"] > div,
 div[data-baseweb="popover"] div[role="tooltip"] > div{
-  background: #141417 !important; /* fully opaque */
+  background: #0F1728 !important; /* fully opaque */
   color: #E6EDF7 !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
   border-radius: 12px !important;
@@ -332,9 +332,9 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
 /* ================= RBV CSS BLOCK ================= */
 
     /* IMPORT FONT */
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
-    :root{ --rbv-font: 'Roboto', sans-serif; }
+    :root{ --rbv-font: 'Manrope', var(--rbv-font-sans); }
 
     /* GLOBAL RESET & BACKGROUND */
     html, body, .stApp { font-family: var(--rbv-font) !important; }
@@ -359,7 +359,7 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
         text-transform: none !important;
     }
     code, pre, kbd, samp { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; }
-    .stApp { background-color: #000000; color: #F1F1F3; }
+    .stApp { background-color: #0B1020; color: #E8EEF8; }
     
 
 /* --- MAIN TITLE BANNER --- */
@@ -419,7 +419,7 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
 }
 
 /* TOP HEADER / TOOLBAR (keep hamburger visible, remove white strip) */
-    header[data-testid="stHeader"] { background: #000000 !important; }
+    header[data-testid="stHeader"] { background: #0B1020 !important; }
     header[data-testid="stHeader"] * { color: #E2E8F0 !important; }
     div[data-testid="stToolbar"] { background: transparent !important; }
     /* Toolbar (...) menu popovers */
@@ -554,7 +554,7 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
 div[data-baseweb="popover"] ul[role="listbox"],
 div[data-baseweb="popover"] div[role="listbox"],
 div[data-baseweb="popover"] div[data-baseweb="menu"] {
-    background: #141417 !important;
+    background: #0F1728 !important;
     color: #E6EDF7 !important;
     border: 1px solid rgba(255,255,255,0.10) !important;
     border-radius: 12px !important;
@@ -564,7 +564,7 @@ div[data-baseweb="popover"] div[data-baseweb="menu"] {
 /* Fix Streamlit element "..." menus (BaseWeb): prevent inverted hover (white highlight + invisible text). */
 div[data-baseweb="menu"],
 div[data-baseweb="popover"] div[data-baseweb="menu"]{
-  background: #141417 !important;
+  background: #0F1728 !important;
   color: #E6EDF7 !important;
 }
 div[data-baseweb="menu"] [role="menuitem"],
@@ -1529,7 +1529,7 @@ div[data-testid="stSidebar"] div[data-baseweb="select"] > div > div,
 div[data-testid="stSidebar"] div[data-baseweb="input"] > div,
 div[data-testid="stSidebar"] div[data-baseweb="input"] > div > div,
 div[data-testid="stSidebar"] div[data-baseweb="textarea"] > div{
-  background: #141417 !important;
+  background: #0F1728 !important;
   border: 1px solid rgba(255,255,255,0.14) !important;
   color: #E6EDF7 !important;
   box-shadow: none !important;
@@ -1581,7 +1581,7 @@ div[data-testid="stSidebar"] div[data-baseweb="tooltip"] [data-baseweb="arrow"]{
     .stApp [data-baseweb="select"] > div,
     .stApp [data-baseweb="input"] > div,
     .stApp [data-baseweb="textarea"] > div{
-        background: #141417 !important;
+        background: #0F1728 !important;
         border: 1px solid rgba(255,255,255,0.14) !important;
         border-radius: 10px !important;
         color: rgba(241,241,243,0.92) !important;
@@ -1642,7 +1642,7 @@ div[data-testid="stSidebar"] div[data-baseweb="tooltip"] [data-baseweb="arrow"]{
 
     /* Streamlit tooltip content — single dark bubble, smaller text */
     div[data-testid="stTooltipContent"]{
-        background: #141417 !important;
+        background: #0F1728 !important;
         color: #E6EDF7 !important;
         border: 1px solid rgba(255,255,255,0.14) !important;
         box-shadow: 0 14px 40px rgba(0,0,0,0.55) !important;
@@ -1721,7 +1721,7 @@ div[data-baseweb="popover"] div[data-baseweb="menu"] *{
 /* ===== Tooltip icons ("?") — make them visible on dark background ===== */
 button[data-testid="stTooltipIcon"]{
   border: 1px solid rgba(255,255,255,0.22) !important;
-  background: #141417 !important;
+  background: #0F1728 !important;
   border-radius: 999px !important;
   width: 22px !important;
   height: 22px !important;
@@ -1825,7 +1825,7 @@ div[data-baseweb="popover"] div[role="tooltip"] *{
 /* Style only the inner bubble container */
 div[data-baseweb="tooltip"] div[role="tooltip"] > div,
 div[data-baseweb="popover"] div[role="tooltip"] > div{
-  background: #141417 !important;
+  background: #0F1728 !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
   color: #E6EDF7 !important;
   padding: 16px 20px !important;
@@ -1987,7 +1987,7 @@ div[role="tooltip"] > div p{ margin: 0 !important; }
 
     div[data-baseweb="tooltip"] div[role="tooltip"] > div,
     div[data-baseweb="popover"] div[role="tooltip"] > div{
-      background: #141417 !important;
+      background: #0F1728 !important;
       color: #E6EDF7 !important;
       border: 1px solid rgba(255,255,255,0.12) !important;
       border-radius: 12px !important;
@@ -2021,7 +2021,7 @@ div[data-baseweb="tooltip"] div[role="tooltip"] > div,
 div[data-baseweb="popover"] div[role="tooltip"] > div,
 div[data-testid="stSidebar"] div[data-baseweb="tooltip"] div[role="tooltip"] > div,
 div[data-testid="stSidebar"] div[data-baseweb="popover"] div[role="tooltip"] > div {
-  background: #141417 !important;      /* fully opaque */
+  background: #0F1728 !important;      /* fully opaque */
   color: #E6EDF7 !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
   border-radius: 12px !important;
@@ -2122,7 +2122,7 @@ div[data-testid="stTooltipContent"]{
   box-shadow: none !important;
 }
 div[data-testid="stTooltipContent"] div[role="tooltip"]{
-  background: #141417 !important;
+  background: #0F1728 !important;
   color: #e7eefc !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
   border-radius: 12px !important;
@@ -2192,7 +2192,7 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
   --buy: #2F8BFF;
   --buy-bg: rgba(47,139,255,0.12);
   --buy-border: rgba(47,139,255,0.42);
-  --rent: #E6B800;
+  --rent: #C084FC;
   --rent-bg: rgba(230,184,0,0.12);
   --rent-border: rgba(230,184,0,0.42);
 
@@ -2680,7 +2680,7 @@ div[data-baseweb="popover"] [data-baseweb="arrow"]{
           --buy-bg: rgba(47,139,255,0.12);
           --buy-border: rgba(47,139,255,0.42);
 
-          --rent: #E6B800;
+          --rent: #C084FC;
           --rent-bg: rgba(230,184,0,0.12);
           --rent-border: rgba(230,184,0,0.42);
 
@@ -2973,12 +2973,12 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
 
 /* Ensure current palette variables align with Azure/Orange constants */
 :root{
-  --buy: #3D9BFF;
-  --buy-bg: rgba(61,155,255,0.10);
-  --buy-border: rgba(61,155,255,0.40);
-  --rent: #E6B800;
-  --rent-bg: rgba(230,184,0,0.10);
-  --rent-border: rgba(230,184,0,0.40);
+  --buy: #4FD1C5;
+  --buy-bg: rgba(79,209,197,0.12);
+  --buy-border: rgba(79,209,197,0.40);
+  --rent: #C084FC;
+  --rent-bg: rgba(192,132,252,0.12);
+  --rent-border: rgba(192,132,252,0.40);
 
   /* Subtle action accent */
   --action: #34C26B;
@@ -3617,7 +3617,7 @@ section[data-testid="stSidebar"] .rbv-label-text{ overflow-wrap: anywhere; }
   position: sticky;
   left: 0;
   z-index: 3;
-  background: #141417 !important;
+  background: #0F1728 !important;
 }
 .fin-table tbody tr:nth-child(even) td:first-child{ background: rgba(255,255,255,0.03) !important; }
 
@@ -3716,6 +3716,7 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
     rr, rg, rb = _hex_to_rgb(rent_color)
 
     css = css.replace("rgba(47,139,255", f"rgba({br},{bg},{bb}".format(br=br, bg=bg, bb=bb))
+    css = css.replace("rgba(61,155,255", f"rgba({br},{bg},{bb}".format(br=br, bg=bg, bb=bb))
     css = css.replace("rgba(230,184,0", f"rgba({rr},{rg},{rb}".format(rr=rr, rg=rg, rb=rb))
     return css
 
