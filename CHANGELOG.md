@@ -1,4 +1,10 @@
 # Changelog
+## v2.93.6
+
+- Policy: Add **date-aware insured 30-year amortization validation** schedule (pre-2024-08-01, Aug 1 2024 FTB+new-build, Dec 15 2024 FTB-or-new-build).
+- Validation: Block insured amortizations above the modeled policy limit and surface rule-specific error messaging tied to the **Tax/Policy Rules As-of Date**.
+- QA: Add truth-table coverage for insured 30-year amortization policy stage boundaries and eligibility combinations.
+
 ## v2.93.5
 
 - Policy/UI: Add **Down payment source** toggle (Traditional vs Non-traditional) for high-LTV insured mortgages.
