@@ -3971,40 +3971,7 @@ with col_buy:
     with b2:
         _kpi("Avg Monthly Outflow", f"${avg_buy_monthly:,.0f}", "var(--buy)",
              "Average monthly cash outflow for the buyer over the horizon (mortgage payment incl. principal + recurring ownership costs). Principal paydown builds equity; see the Irrecoverable Costs tab for pure non-equity costs.")
-
-    # Itemized closing-cost breakdown (makes transfer-tax assumptions easy to verify).
-    with st.expander("Cash to Close breakdown", expanded=False):
-        try:
-            _items = [
-                ("Down payment", float(down)),
-                ("Transfer tax (prov + muni)", float(total_ltt)),
-                ("Legal & closing", float(lawyer)),
-                ("Home inspection", float(insp)),
-                ("Other closing costs", float(other_closing)),
-            ]
-            _pst = float(pst) if "pst" in globals() else 0.0
-            if _pst > 0:
-                _items.append(("PST on CMHC premium", _pst))
-
-            _total_calc = sum(v for _, v in _items)
-            _items.append(("Total cash to close", _total_calc))
-
-            _df = pd.DataFrame(_items, columns=["Item", "Amount"])
-            _df["Amount"] = _df["Amount"].map(lambda x: f"${float(x):,.0f}")
-            st.table(_df)
-
-            if transfer_tax_note:
-                st.caption(str(transfer_tax_note))
-
-            # Cash to close returned by the engine should closely match the computed breakdown.
-            try:
-                _diff = float(close_cash) - float(_total_calc)
-                if abs(_diff) >= 2.0:
-                    st.caption(f"Engine Cash to Close: ${float(close_cash):,.0f} (diff {(_diff):+,.0f}).")
-            except Exception:
-                pass
-        except Exception:
-            st.caption("Breakdown unavailable for current inputs.")
+    
     b3, b4 = st.columns(2, gap="small")
     with b3:
         _kpi("Total NW (Horizon)", f"${buyer_nw_end:,.0f}", "var(--buy)",

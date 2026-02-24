@@ -1,4 +1,18 @@
 # Changelog
+## v2.93.7
+
+- PR7: Added **New construction** toggle and simplified **net GST/HST** estimate (with manual override field) for cash-to-close planning.
+- Added cash-to-close breakdown line item for net GST/HST (new construction) and surfaced estimator note/override status in run summary.
+- Added truth-table QA coverage for simplified new-home GST/HST rebate estimator thresholds and caps.
+- Sensitivity/override recompute path now refreshes new-construction GST/HST estimate when price changes (unless override is set).
+- UI cleanup: removed duplicate **Cash to Close breakdown** dropdown under **BUYING DETAILS** (kept the run-level breakdown below “What changed in this run?”).
+
+## v2.93.6
+
+- Policy: Add **date-aware insured 30-year amortization validation** schedule (pre-2024-08-01, Aug 1 2024 FTB+new-build, Dec 15 2024 FTB-or-new-build).
+- Validation: Block insured amortizations above the modeled policy limit and surface rule-specific error messaging tied to the **Tax/Policy Rules As-of Date**.
+- QA: Add truth-table coverage for insured 30-year amortization policy stage boundaries and eligibility combinations.
+
 ## v2.93.5
 
 - Policy/UI: Add **Down payment source** toggle (Traditional vs Non-traditional) for high-LTV insured mortgages.
