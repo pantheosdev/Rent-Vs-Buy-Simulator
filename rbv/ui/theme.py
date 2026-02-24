@@ -3602,8 +3602,27 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] details summary{
 .stApp span,
 .stApp small{ color: inherit !important; }
 
+/* Reduce visual bugs in dense sections and improve table usability. */
+.kpi-card{ min-height: 112px !important; }
+.kpi-title,
+.rbv-label-text{ text-wrap: balance; }
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+section[data-testid="stSidebar"] .rbv-label-text{ overflow-wrap: anywhere; }
+.fin-table-scroll{
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+.fin-table thead th:first-child,
+.fin-table tbody td:first-child{
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #141417 !important;
+}
+.fin-table tbody tr:nth-child(even) td:first-child{ background: rgba(255,255,255,0.03) !important; }
+
 /* Accessibility and perceived quality: smooth defaults + reduced motion support. */
-*{ scroll-behavior: smooth; }
+html:focus-within{ scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{
     animation: none !important;
