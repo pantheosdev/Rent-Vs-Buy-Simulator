@@ -11,7 +11,7 @@ import datetime as dt
 
 # Last reviewed for correctness (YYYY-MM-DD).
 # Update this when modifying any thresholds in this module.
-POLICY_LAST_REVIEWED = dt.date(2026, 2, 19)
+POLICY_LAST_REVIEWED = dt.date(2026, 2, 23)
 
 
 def insured_mortgage_price_cap(asof_date: dt.date) -> float:
@@ -45,20 +45,42 @@ def min_down_payment_canada(price: float, asof_date: dt.date) -> float:
     return 0.20 * p
 
 
-def cmhc_premium_rate_from_ltv(ltv: float) -> float:
+def cmhc_premium_rate_from_ltv(ltv: float, down_payment_source: str | None = None) -> float:
     """Approximate CMHC premium rate based on loan-to-value (LTV).
 
-    Returns 0 when no insurance is required (<=80% LTV) or when out-of-range.
+    Premiums are modeled as a simple percent of the base loan amount (pre-premium).
+
+    Notes:
+      - Returns 0 when no insurance is required (<=80% LTV) or when out-of-range.
+      - Some insurers apply a higher premium when the down payment is **non-traditional**
+        (e.g., borrowed / unsecured / certain gift structures). We model that case as:
+            - LTV 90.01% .. 95.00%: 4.50% (instead of 4.00%)
+
+    Args:
+        ltv: Loan-to-value as a fraction (e.g., 0.95 for 95%).
+        down_payment_source: Optional label, typically "Traditional" or "Non-traditional".
+
+    Returns:
+        Premium rate as a decimal fraction (e.g., 0.04 for 4%).
     """
     x = float(ltv)
+
     if x <= 0.80:
         return 0.0
+
+    src = (down_payment_source or "").strip().lower()
+    non_traditional = src.startswith("non") or (src in {"borrowed", "gift", "gifted", "other"})
+
     if x <= 0.85:
         return 0.028
     if x <= 0.90:
         return 0.031
     if x <= 0.95:
+        # Non-traditional down payment: model the 4.50% tier for 90.01–95% LTV.
+        if non_traditional and (x > 0.90 + 1e-12):
+            return 0.045
         return 0.040
+
     return 0.0
 
 

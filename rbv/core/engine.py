@@ -1920,7 +1920,8 @@ def run_simulation_core(
         cmhc_eligible = cmhc_attempt and (float(price_use) < float(price_cap)) and (float(down_use) + 1e-9 >= float(min_down))
 
         if cmhc_eligible:
-            cmhc_r_use = cmhc_premium_rate_from_ltv(float(ltv_use))
+            dp_source_use = str(_overrides.get("down_payment_source", cfg.get("down_payment_source", "Traditional")) or "Traditional")
+            cmhc_r_use = cmhc_premium_rate_from_ltv(float(ltv_use), dp_source_use)
             prem_use = loan_use * float(cmhc_r_use)
 
             # Provincial sales tax on the insurance premium is province-dependent (see policy_canada).
