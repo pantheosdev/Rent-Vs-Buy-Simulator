@@ -770,6 +770,56 @@ def _tt_discount_rate_unit_guard() -> None:
     assert (bpv > 1_000.0) and (rpv > 1_000.0)
 
 
+def _tt_scenario_snapshot_hash_stable_roundtrip() -> None:
+    from rbv.core.scenario_snapshots import (
+        build_scenario_config,
+        build_scenario_snapshot,
+        parse_scenario_payload,
+    )
+
+    state_a = {
+        "price": 800000.0,
+        "down": 160000.00000000003,
+        "province": "Ontario",
+        "years": 25,
+        "use_volatility": False,
+    }
+    # Same semantic values, different key order / floating noise.
+    state_b = {
+        "use_volatility": False,
+        "years": 25.0,
+        "province": "Ontario",
+        "down": 160000.0,
+        "price": 800000,
+    }
+
+    cfg_a = build_scenario_config(state_a)
+    cfg_b = build_scenario_config(state_b)
+    assert cfg_a.deterministic_hash() == cfg_b.deterministic_hash()
+
+    snap = build_scenario_snapshot(state_a, slot="A", label="Scenario A", version="qa")
+    payload = snap.to_dict()
+    state_rt, meta = parse_scenario_payload(payload)
+    assert state_rt.get("province") == "Ontario"
+    assert int(state_rt.get("years")) == 25
+    assert float(state_rt.get("down")) == 160000.0
+    assert str(meta.get("slot")) == "A"
+    assert str(meta.get("scenario_hash")) == cfg_a.deterministic_hash()
+
+
+def _tt_scenario_snapshot_filters_allowed_keys() -> None:
+    from rbv.core.scenario_snapshots import build_scenario_snapshot
+
+    state = {"price": 700000, "province": "Quebec", "_tmp": "ignore-me"}
+    snap = build_scenario_snapshot(state, slot="B", allowed_keys=["price", "province"])
+    payload = snap.to_dict()
+    st = payload.get("state") or {}
+    assert "price" in st and "province" in st
+    assert "_tmp" not in st
+    assert str(payload.get("slot")) == "B"
+    assert bool(payload.get("scenario_hash"))
+
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
@@ -789,6 +839,8 @@ def main(argv: list[str] | None = None) -> None:
     _tt_cg_inclusion_tier_and_shelter()
     _tt_discount_rate_unit_guard()
     _tt_ui_defaults_match_presets()
+    _tt_scenario_snapshot_hash_stable_roundtrip()
+    _tt_scenario_snapshot_filters_allowed_keys()
 
     # Rent control cadence
     _tt_rent_control_cadence_every3()

@@ -1,6 +1,8 @@
+import re
+
 # Minimal UI theme helpers (modular split)
 
-# --- Theme constants (Azure B + warm orange; Phase 3 contrast tune) ---
+# --- Theme constants (premium teal + violet on deep navy surfaces) ---
 BUY_COLOR = "#4FD1C5"
 RENT_COLOR = "#C084FC"
 
@@ -26,7 +28,7 @@ _RBV_GLOBAL_CSS_RAW = r""":root{
 
 /* --- Global typography (Sprint 1) --- */
 html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"]{
-  font-family: var(--rbv-font-sans) !important;
+  font-family: var(--rbv-font) !important;
   font-size: 13px !important;
   line-height: 1.35 !important;
   -webkit-font-smoothing: antialiased;
@@ -3536,10 +3538,10 @@ button[data-testid="baseButton-secondary"]:focus-visible{
    Keep this block near the end so it can safely override older legacy rules. */
 
 /* Keep one type system for a cleaner, premium look and less layout shifting. */
-:root{ --rbv-font: var(--rbv-font-sans) !important; }
+:root{ --rbv-font: "Manrope", var(--rbv-font-sans) !important; }
 html, body, .stApp,
 .stApp :is(p, label, input, textarea, button, select, option, h1,h2,h3,h4,h5,h6, th, td, li, a, small, strong, em){
-  font-family: var(--rbv-font-sans) !important;
+  font-family: var(--rbv-font) !important;
 }
 
 /* Improve content readability and information hierarchy. */
@@ -3701,23 +3703,73 @@ html:focus-within{ scroll-behavior: smooth; }
 
 
 
+def _hex_to_rgb(h: str) -> tuple[int, int, int]:
+    h = (h or "").lstrip("#")
+    if len(h) != 6:
+        return (0, 0, 0)
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except Exception:
+        return (0, 0, 0)
+
+
+def _dynamic_palette_vars_css(buy_color: str, rent_color: str) -> str:
+    br, bg, bb = _hex_to_rgb(buy_color)
+    rr, rg, rb = _hex_to_rgb(rent_color)
+    return f""":root{{
+  --buy: {buy_color};
+  --rent: {rent_color};
+  --buy-rgb: {br}, {bg}, {bb};
+  --rent-rgb: {rr}, {rg}, {rb};
+  --buy-soft-bg: rgba({br}, {bg}, {bb}, 0.12);
+  --buy-soft-border: rgba({br}, {bg}, {bb}, 0.34);
+  --rent-soft-bg: rgba({rr}, {rg}, {rb}, 0.12);
+  --rent-soft-border: rgba({rr}, {rg}, {rb}, 0.34);
+  --rbv-bg: {BG_BLACK};
+  --rbv-surface: {SURFACE_CARD};
+  --rbv-surface-2: {SURFACE_INPUT};
+  --rbv-border: {BORDER};
+  --rbv-muted: {TEXT_MUTED};
+}}
+
+/* Force key areas to consume the canonical palette variables (wins over older style blocks). */
+.st-key-rbv_tab_nav label:has(input:checked){{
+  background: linear-gradient(180deg, rgba({br}, {bg}, {bb}, 0.20) 0%, rgba({br}, {bg}, {bb}, 0.11) 100%) !important;
+  border-color: rgba({br}, {bg}, {bb}, 0.40) !important;
+}}
+.title-banner{{
+  background:
+    linear-gradient(115deg, rgba({br}, {bg}, {bb}, 0.18) 0%, rgba({rr}, {rg}, {rb}, 0.14) 56%, rgba(255,255,255,0.02) 100%) !important;
+}}
+div[data-baseweb="input"] > div:focus-within,
+div[data-baseweb="select"] > div:focus-within,
+div[data-baseweb="textarea"] > div:focus-within{{
+  border-color: rgba({br}, {bg}, {bb}, 0.75) !important;
+  box-shadow: 0 0 0 3px rgba({br}, {bg}, {bb}, 0.22) !important;
+}}
+"""
+
+
 def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
     """Replace legacy hard-coded palette values with the current theme palette."""
-    css = css.replace("#2F8BFF", buy_color).replace("#E6B800", rent_color)
-
-    # Also replace common rgba() occurrences for the legacy colors used across charts/borders.
-    def _hex_to_rgb(h: str):
-        h = (h or "").lstrip("#")
-        if len(h) != 6:
-            return (0, 0, 0)
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    # Hex replacements (case-insensitive) for historical buy/rent accents.
+    css = re.sub(r"(?i)#2f8bff", buy_color, css)
+    css = re.sub(r"(?i)#3d9bff", buy_color, css)
+    css = re.sub(r"(?i)#e6b800", rent_color, css)
 
     br, bg, bb = _hex_to_rgb(buy_color)
     rr, rg, rb = _hex_to_rgb(rent_color)
 
-    css = css.replace("rgba(47,139,255", f"rgba({br},{bg},{bb}".format(br=br, bg=bg, bb=bb))
-    css = css.replace("rgba(61,155,255", f"rgba({br},{bg},{bb}".format(br=br, bg=bg, bb=bb))
-    css = css.replace("rgba(230,184,0", f"rgba({rr},{rg},{rb}".format(rr=rr, rg=rg, rb=rb))
+    # Harden palette propagation: map both legacy azure rgba families to buy_color, regardless of spacing.
+    css = re.sub(r"rgba\(\s*47\s*,\s*139\s*,\s*255\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgba\(\s*61\s*,\s*155\s*,\s*255\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgb\(\s*47\s*,\s*139\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgb\(\s*61\s*,\s*155\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
+
+    # Legacy rent gold.
+    css = re.sub(r"rgba\(\s*230\s*,\s*184\s*,\s*0\s*,", f"rgba({rr},{rg},{rb},", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgb\(\s*230\s*,\s*184\s*,\s*0\s*\)", f"rgb({rr},{rg},{rb})", css, flags=re.IGNORECASE)
+
     return css
 
 
@@ -3734,7 +3786,11 @@ def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_
     harmless and are preferable to intermittent styling loss.
     """
 
-    css = _apply_palette(_RBV_GLOBAL_CSS_RAW + "\n" + _RBV_ACTION_BUTTONS_CSS, buy_color, rent_color)
+    css = _dynamic_palette_vars_css(buy_color, rent_color) + _apply_palette(
+        _RBV_GLOBAL_CSS_RAW + "\n" + _RBV_ACTION_BUTTONS_CSS,
+        buy_color,
+        rent_color,
+    )
 
     st.markdown(
         "<style>\n" + css + "\n</style>",
