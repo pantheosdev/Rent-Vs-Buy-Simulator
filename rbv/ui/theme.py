@@ -2,8 +2,8 @@ import re
 
 # Minimal UI theme helpers (modular split)
 
-# --- Theme constants (premium teal + violet on deep navy surfaces) ---
-BUY_COLOR = "#4FD1C5"
+# --- Theme constants (premium cyan + violet on deep navy surfaces) ---
+BUY_COLOR = "#66C2FF"
 RENT_COLOR = "#C084FC"
 
 BG_BLACK = "#0B1020"
@@ -3619,9 +3619,17 @@ section[data-testid="stSidebar"] .rbv-label-text{ overflow-wrap: anywhere; }
   position: sticky;
   left: 0;
   z-index: 3;
-  background: #0F1728 !important;
+}
+.fin-table thead th:first-child{
+  z-index: 4;
+  background: var(--rbv-surface) !important;
+}
+.fin-table tbody td:first-child{
+  background: #141417 !important;
+  box-shadow: 1px 0 0 rgba(255,255,255,0.06) inset;
 }
 .fin-table tbody tr:nth-child(even) td:first-child{ background: rgba(255,255,255,0.03) !important; }
+.fin-table tbody tr:hover td:first-child{ background: rgba(255,255,255,0.06) !important; }
 
 /* ================= UI Polish pass (premium visual tuning) ================= */
 /* Keep the app centered on large displays instead of stretching too wide. */

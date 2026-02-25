@@ -219,6 +219,135 @@ def build_scenario_snapshot(
     )
 
 
+
+
+def _to_float_or_none(v: Any) -> float | None:
+    try:
+        x = float(v)
+    except Exception:
+        return None
+    if not math.isfinite(x):
+        return None
+    return x
+
+
+def extract_terminal_metrics(
+    df: Any,
+    *,
+    close_cash: Any = None,
+    monthly_payment: Any = None,
+    win_pct: Any = None,
+) -> dict[str, float | None]:
+    """Extract comparable terminal metrics from a simulation output dataframe (best-effort)."""
+    out: dict[str, float | None] = {
+        "buyer_nw_final": None,
+        "renter_nw_final": None,
+        "advantage_final": None,
+        "buyer_pv_nw_final": None,
+        "renter_pv_nw_final": None,
+        "pv_advantage_final": None,
+        "buyer_unrecoverable_final": None,
+        "renter_unrecoverable_final": None,
+        "close_cash": _to_float_or_none(close_cash),
+        "monthly_payment": _to_float_or_none(monthly_payment),
+        "win_pct": _to_float_or_none(win_pct),
+    }
+    try:
+        if df is None or len(df) == 0:  # type: ignore[arg-type]
+            return out
+        row = df.iloc[-1]
+    except Exception:
+        return out
+
+    def _row(col: str) -> float | None:
+        try:
+            return _to_float_or_none(row.get(col))
+        except Exception:
+            try:
+                return _to_float_or_none(row[col])
+            except Exception:
+                return None
+
+    out["buyer_nw_final"] = _row("Buyer Net Worth")
+    out["renter_nw_final"] = _row("Renter Net Worth")
+    if (out["buyer_nw_final"] is not None) and (out["renter_nw_final"] is not None):
+        out["advantage_final"] = float(out["buyer_nw_final"] - out["renter_nw_final"])
+
+    out["buyer_pv_nw_final"] = _row("Buyer PV NW")
+    out["renter_pv_nw_final"] = _row("Renter PV NW")
+    if (out["buyer_pv_nw_final"] is not None) and (out["renter_pv_nw_final"] is not None):
+        out["pv_advantage_final"] = float(out["buyer_pv_nw_final"] - out["renter_pv_nw_final"])
+
+    out["buyer_unrecoverable_final"] = _row("Buyer Unrecoverable")
+    out["renter_unrecoverable_final"] = _row("Renter Unrecoverable")
+    return out
+
+
+def compare_metric_rows(
+    metrics_a: dict[str, Any] | None,
+    metrics_b: dict[str, Any] | None,
+    *,
+    atol: float = 1e-9,
+) -> list[dict[str, Any]]:
+    """Build A/B metric compare rows with absolute and percent deltas (B − A)."""
+    a = dict(metrics_a or {})
+    b = dict(metrics_b or {})
+    specs = [
+        ("Final Buyer Net Worth", "buyer_nw_final"),
+        ("Final Renter Net Worth", "renter_nw_final"),
+        ("Final Net Advantage", "advantage_final"),
+        ("Final Buyer PV NW", "buyer_pv_nw_final"),
+        ("Final Renter PV NW", "renter_pv_nw_final"),
+        ("Final PV Advantage", "pv_advantage_final"),
+        ("Final Buyer Unrecoverable", "buyer_unrecoverable_final"),
+        ("Final Renter Unrecoverable", "renter_unrecoverable_final"),
+        ("Cash to Close", "close_cash"),
+        ("Monthly Payment", "monthly_payment"),
+        ("Win %", "win_pct"),
+    ]
+    rows: list[dict[str, Any]] = []
+    for label, key in specs:
+        va = _to_float_or_none(a.get(key))
+        vb = _to_float_or_none(b.get(key))
+        delta = None
+        pct_delta = None
+        if (va is not None) and (vb is not None):
+            d = float(vb - va)
+            if abs(d) <= float(atol):
+                d = 0.0
+            delta = d
+            if abs(va) > float(atol):
+                pct_delta = (d / abs(va)) * 100.0
+            elif abs(d) <= float(atol):
+                pct_delta = 0.0
+        rows.append({"metric": label, "a": va, "b": vb, "delta": delta, "pct_delta": pct_delta})
+    return rows
+
+
+def scenario_state_diff_rows(
+    state_a: dict[str, Any] | None,
+    state_b: dict[str, Any] | None,
+    *,
+    atol: float = 1e-9,
+) -> list[dict[str, Any]]:
+    """Canonical A/B state diff rows (stable sort; ignores tiny float noise)."""
+    a = canonicalize_jsonish(state_a or {})
+    b = canonicalize_jsonish(state_b or {})
+    rows: list[dict[str, Any]] = []
+    for k in sorted(set(a.keys()) | set(b.keys())):
+        va = a.get(k)
+        vb = b.get(k)
+        if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+            try:
+                if math.isfinite(float(va)) and math.isfinite(float(vb)) and abs(float(va) - float(vb)) <= float(atol):
+                    continue
+            except Exception:
+                pass
+        if va != vb:
+            rows.append({"key": str(k), "a": va, "b": vb})
+    return rows
+
+
 def parse_scenario_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (state, metadata) from legacy or v1 snapshot payloads."""
     snap = ScenarioSnapshot.from_payload(payload)
