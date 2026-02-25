@@ -44,6 +44,12 @@ from rbv.core.policy_canada import (
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
 from rbv.ui.defaults import PRESETS, build_session_defaults
+from rbv.core.scenario_snapshots import (
+    build_scenario_config,
+    build_scenario_snapshot,
+    parse_scenario_payload,
+    scenario_hash_from_state,
+)
 # --- Cross-session caching for simulation runs ---
 # Streamlit reruns the script on every interaction; Monte Carlo runs can be expensive.
 # st.session_state caches are per-user; st.cache_data provides shared caching across sessions.
@@ -109,7 +115,7 @@ def _rbv_install_plotly_template() -> None:
         tmpl = go.layout.Template(
             layout=dict(
                 font=dict(
-                    family='Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
+                    family='Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
                     size=12,
                     color='rgba(241,241,243,0.92)'
                 ),
@@ -815,13 +821,32 @@ def _rbv_capture_scenario_state() -> dict:
             state[k] = st.session_state.get(k)
     return state
 
-def _rbv_make_scenario_payload() -> dict:
-    return {
-        "app": "Rent vs Buy Simulator",
-        "version": _rbv_version_line(),
-        "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
-        "state": _rbv_capture_scenario_state(),
-    }
+def _rbv_make_scenario_config():
+    return build_scenario_config(
+        _rbv_capture_scenario_state(),
+        allowed_keys=_rbv_scenario_allowed_keys(),
+    )
+
+
+def _rbv_make_scenario_payload(*, slot: str = "active", label: str | None = None, extra_meta: dict | None = None) -> dict:
+    snap = build_scenario_snapshot(
+        _rbv_capture_scenario_state(),
+        slot=slot,
+        label=label,
+        app="Rent vs Buy Simulator",
+        version=_rbv_version_line(),
+        meta=(extra_meta or {}),
+        allowed_keys=_rbv_scenario_allowed_keys(),
+    )
+    return snap.to_dict()
+
+
+def _rbv_scenario_hash_short() -> str:
+    try:
+        return _rbv_make_scenario_config().deterministic_hash()[:12]
+    except Exception:
+        return "n/a"
+
 
 def _rbv_apply_scenario_state(state: dict) -> None:
     if not isinstance(state, dict):
@@ -854,6 +879,72 @@ def _rbv_apply_scenario_state(state: dict) -> None:
         pass
 
 
+def _rbv_parse_imported_scenario(obj: dict) -> tuple[dict, dict]:
+    """Parse legacy or PR9 scenario payloads and return (state, meta)."""
+    try:
+        return parse_scenario_payload(obj if isinstance(obj, dict) else {})
+    except Exception:
+        # Back-compat fallback: older exports may be bare state dicts.
+        if isinstance(obj, dict) and isinstance(obj.get("state"), dict):
+            return dict(obj.get("state") or {}), {}
+        return (dict(obj) if isinstance(obj, dict) else {}), {}
+
+
+def _rbv_compare_slot_key(slot: str) -> str:
+    s = str(slot or "A").strip().upper()[:1] or "A"
+    return f"_rbv_compare_snapshot_{s}"
+
+
+def _rbv_save_compare_snapshot(slot: str) -> None:
+    _slot = str(slot or "A").strip().upper()[:1] or "A"
+    _label = f"Scenario {_slot}"
+    _payload = _rbv_make_scenario_payload(
+        slot=_slot,
+        label=_label,
+        extra_meta={
+            "scenario_select": st.session_state.get("scenario_select"),
+            "province": st.session_state.get("province"),
+        },
+    )
+    st.session_state[_rbv_compare_slot_key(_slot)] = _payload
+    _h = str((_payload or {}).get("scenario_hash") or "")[:12]
+    st.session_state["_rbv_loaded_scenario_msg"] = f"Saved current inputs to {_label} ({_h})."
+
+
+def _rbv_load_compare_snapshot(slot: str) -> None:
+    _slot = str(slot or "A").strip().upper()[:1] or "A"
+    _payload = st.session_state.get(_rbv_compare_slot_key(_slot))
+    if not isinstance(_payload, dict):
+        st.session_state["_rbv_loaded_scenario_msg"] = f"Scenario {_slot} slot is empty."
+        return
+    _state, _meta = _rbv_parse_imported_scenario(_payload)
+    _rbv_apply_scenario_state(_state)
+    _h = str((_meta or {}).get("scenario_hash") or (_payload or {}).get("scenario_hash") or "")[:12]
+    st.session_state["_rbv_loaded_scenario_msg"] = f"Loaded Scenario {_slot} ({_h})."
+    st.rerun()
+
+
+def _rbv_clear_compare_snapshot(slot: str) -> None:
+    _slot = str(slot or "A").strip().upper()[:1] or "A"
+    st.session_state.pop(_rbv_compare_slot_key(_slot), None)
+    st.session_state["_rbv_loaded_scenario_msg"] = f"Cleared Scenario {_slot}."
+
+
+def _rbv_compare_slot_summary(slot: str) -> str:
+    _slot = str(slot or "A").strip().upper()[:1] or "A"
+    _payload = st.session_state.get(_rbv_compare_slot_key(_slot))
+    if not isinstance(_payload, dict):
+        return f"{_slot}: empty"
+    _h = str(_payload.get("scenario_hash") or scenario_hash_from_state(_payload.get("state") or {}))[:12]
+    _meta = _payload.get("meta") if isinstance(_payload.get("meta"), dict) else {}
+    _province = _meta.get("province") or ((_payload.get("state") or {}).get("province") if isinstance(_payload.get("state"), dict) else None)
+    _preset = _meta.get("scenario_select") or ((_payload.get("state") or {}).get("scenario_select") if isinstance(_payload.get("state"), dict) else None)
+    _ts = str(_payload.get("exported_at") or "")[:19].replace("T", " ")
+    _bits = [f"{_slot}", str(_preset or "Custom"), str(_province or "-")]
+    if _ts:
+        _bits.append(_ts)
+    _bits.append(_h)
+    return " • ".join(_bits)
 
 
 # --- Shareable scenario URL (compact, bookmarkable) ---
@@ -1253,12 +1344,11 @@ with st.sidebar:
                         _obj = json.loads(_raw.decode("utf-8"))
                     except Exception:
                         _obj = json.loads(_raw)
-                    if isinstance(_obj, dict) and "state" in _obj:
-                        _rbv_apply_scenario_state(_obj.get("state", {}))
-                    elif isinstance(_obj, dict):
-                        _rbv_apply_scenario_state(_obj)
+                    _state, _meta = _rbv_parse_imported_scenario(_obj if isinstance(_obj, dict) else {})
+                    _rbv_apply_scenario_state(_state)
+                    _canon_h = str((_meta or {}).get("scenario_hash") or scenario_hash_from_state(_state, allowed_keys=_rbv_scenario_allowed_keys()))
                     st.session_state["_rbv_loaded_scenario_hash"] = _h
-                    st.session_state["_rbv_loaded_scenario_msg"] = "Scenario loaded."
+                    st.session_state["_rbv_loaded_scenario_msg"] = f"Scenario loaded ({_canon_h[:12]})."
                     st.rerun()
             except Exception:
                 st.session_state["_rbv_loaded_scenario_msg"] = "Failed to load scenario JSON."
@@ -1266,6 +1356,37 @@ with st.sidebar:
         _msg = st.session_state.get("_rbv_loaded_scenario_msg", "")
         if isinstance(_msg, str) and _msg.strip():
             sidebar_hint(_msg)
+
+        # PR9 foundation: local A/B compare snapshots (state + deterministic hash).
+        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+        sidebar_label("Scenario Compare slots (A/B)", "Save the current inputs into A/B slots now. PR10 will render deltas side-by-side using these snapshots.")
+        _col_save_a, _col_save_b = st.columns(2)
+        with _col_save_a:
+            if st.button("Save → A", key="rbv_save_ab_a", use_container_width=True):
+                _rbv_save_compare_snapshot("A")
+        with _col_save_b:
+            if st.button("Save → B", key="rbv_save_ab_b", use_container_width=True):
+                _rbv_save_compare_snapshot("B")
+
+        _col_load_a, _col_load_b = st.columns(2)
+        with _col_load_a:
+            if st.button("Load A", key="rbv_load_ab_a", use_container_width=True):
+                _rbv_load_compare_snapshot("A")
+        with _col_load_b:
+            if st.button("Load B", key="rbv_load_ab_b", use_container_width=True):
+                _rbv_load_compare_snapshot("B")
+
+        _col_clr_a, _col_clr_b = st.columns(2)
+        with _col_clr_a:
+            if st.button("Clear A", key="rbv_clear_ab_a", use_container_width=True):
+                _rbv_clear_compare_snapshot("A")
+        with _col_clr_b:
+            if st.button("Clear B", key="rbv_clear_ab_b", use_container_width=True):
+                _rbv_clear_compare_snapshot("B")
+
+        st.caption(f"Active scenario hash: {_rbv_scenario_hash_short()}")
+        st.caption(_rbv_compare_slot_summary("A"))
+        st.caption(_rbv_compare_slot_summary("B"))
     with st.expander("Economic Scenario", expanded=False):
         st.selectbox(
             "Economic Scenario",
@@ -4681,7 +4802,7 @@ if tab == _TAB_NET:
         height=400, 
         margin=dict(l=0,r=0,t=10,b=0), 
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")), 
-        font=dict(family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)") 
+        font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)") 
     )
     # Thinner, faint white cursor
     fig.update_xaxes(
@@ -5407,7 +5528,7 @@ if tab == _TAB_NET:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=40, r=20, t=20, b=40),
-            font=dict(color="#E2E8F0", family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif"),
+            font=dict(color="#E2E8F0", family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif"),
         )
 
         fig_hm.update_xaxes(title="Home Appreciation (%)", showgrid=False, zeroline=False, mirror=True, ticks="outside")
@@ -5552,7 +5673,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         height=420,
         margin=dict(l=0, r=0, t=10, b=0),
         legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
-        font=dict(family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
+        font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
     )
     fig_uc_bar.update_xaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     fig_uc_bar.update_yaxes(gridcolor="rgba(255,255,255,0.14)", autorange="reversed")
@@ -5609,7 +5730,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         height=330,
         margin=dict(l=0, r=0, t=10, b=0),
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
-        font=dict(family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
+        font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
         hovermode="x unified",
     )
     fig_mo_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
@@ -5640,7 +5761,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
             height=350, 
             margin=dict(l=0,r=0,t=10,b=0), 
             legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")), 
-            font=dict(family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)") 
+            font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)") 
         )
         fig_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
         fig_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
@@ -7341,8 +7462,8 @@ try:
                 lvl = str(item.get("level", "INFO")).upper()
                 title = str(item.get("title", "")).strip()
                 detail = str(item.get("detail", "")).strip()
-                pill_bg = "rgba(47,139,255,0.16)" if lvl == "OK" else ("rgba(204,85,0,0.16)" if lvl == "WARN" else "rgba(255,255,255,0.10)")
-                pill_bd = "rgba(47,139,255,0.35)" if lvl == "OK" else ("rgba(204,85,0,0.35)" if lvl == "WARN" else "rgba(255,255,255,0.18)")
+                pill_bg = _rbv_rgba(BUY_COLOR, 0.16) if lvl == "OK" else (_rbv_rgba(RENT_COLOR, 0.16) if lvl == "WARN" else "rgba(255,255,255,0.10)")
+                pill_bd = _rbv_rgba(BUY_COLOR, 0.35) if lvl == "OK" else (_rbv_rgba(RENT_COLOR, 0.35) if lvl == "WARN" else "rgba(255,255,255,0.18)")
                 pill_tx = BUY_COLOR if lvl == "OK" else (RENT_COLOR if lvl == "WARN" else "#F8FAFC")
                 st.markdown(
                     f"""
