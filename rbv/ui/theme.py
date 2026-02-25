@@ -3,7 +3,7 @@ import re
 # Minimal UI theme helpers (modular split)
 
 # --- Theme constants (premium cyan + violet on deep navy surfaces) ---
-BUY_COLOR = "#66C2FF"
+BUY_COLOR = "#39E7FF"
 RENT_COLOR = "#C084FC"
 
 BG_BLACK = "#0B1020"
@@ -2975,17 +2975,18 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
 
 /* Ensure current palette variables align with Azure/Orange constants */
 :root{
-  --buy: #4FD1C5;
-  --buy-bg: rgba(79,209,197,0.12);
-  --buy-border: rgba(79,209,197,0.40);
+  /* Keep v2_60 aliases aligned to the current premium palette (avoid stale teal/green overrides). */
+  --buy: #39E7FF;
+  --buy-bg: rgba(57,231,255,0.12);
+  --buy-border: rgba(57,231,255,0.40);
   --rent: #C084FC;
   --rent-bg: rgba(192,132,252,0.12);
   --rent-border: rgba(192,132,252,0.40);
 
-  /* Subtle action accent */
-  --action: #34C26B;
-  --action-bg: rgba(52,194,107,0.08);
-  --action-border: rgba(52,194,107,0.28);
+  /* Subtle action accent follows buy accent to avoid unrelated green bias on decision UI. */
+  --action: #39E7FF;
+  --action-bg: rgba(57,231,255,0.08);
+  --action-border: rgba(57,231,255,0.28);
 }
 
 /* Center the tab bar visually within its container */
@@ -3583,8 +3584,8 @@ div[data-baseweb="textarea"] > div:hover{
 div[data-baseweb="input"] > div:focus-within,
 div[data-baseweb="select"] > div:focus-within,
 div[data-baseweb="textarea"] > div:focus-within{
-  border-color: rgba(61,155,255,0.75) !important;
-  box-shadow: 0 0 0 3px rgba(61,155,255,0.22) !important;
+  border-color: rgba(var(--buy-rgb),0.78) !important;
+  box-shadow: 0 0 0 3px rgba(var(--buy-rgb),0.22) !important;
   background: rgba(255,255,255,0.06) !important;
 }
 
@@ -3622,14 +3623,25 @@ section[data-testid="stSidebar"] .rbv-label-text{ overflow-wrap: anywhere; }
 }
 .fin-table thead th:first-child{
   z-index: 4;
-  background: var(--rbv-surface) !important;
+  background: #141417 !important; /* match header row; avoid blue corner tint */
+  background-clip: padding-box;
 }
 .fin-table tbody td:first-child{
-  background: #141417 !important;
-  box-shadow: 1px 0 0 rgba(255,255,255,0.06) inset;
+  background: #141417 !important; /* match row base; avoid mixed sticky-column tint */
+  background-clip: padding-box;
+  box-shadow: 1px 0 0 rgba(255,255,255,0.05) inset;
 }
 .fin-table tbody tr:nth-child(even) td:first-child{ background: rgba(255,255,255,0.03) !important; }
 .fin-table tbody tr:hover td:first-child{ background: rgba(255,255,255,0.06) !important; }
+
+/* Let the wrapper own the rounding to avoid square-looking inner corner seams. */
+.fin-table-scroll{ border-radius: inherit !important; }
+.fin-table thead th:first-child,
+.fin-table thead th:last-child,
+.fin-table tbody tr:last-child td:first-child,
+.fin-table tbody tr:last-child td:last-child{
+  border-radius: 0 !important;
+}
 
 /* ================= UI Polish pass (premium visual tuning) ================= */
 /* Keep the app centered on large displays instead of stretching too wide. */
@@ -3763,6 +3775,9 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
     # Hex replacements (case-insensitive) for historical buy/rent accents.
     css = re.sub(r"(?i)#2f8bff", buy_color, css)
     css = re.sub(r"(?i)#3d9bff", buy_color, css)
+    css = re.sub(r"(?i)#66c2ff", buy_color, css)  # transitional PR10 cyan
+    css = re.sub(r"(?i)#4fd1c5", buy_color, css)  # stale teal from v2_60 overrides
+    css = re.sub(r"(?i)#34c26b", buy_color, css)  # action green -> buy accent for neutrality
     css = re.sub(r"(?i)#e6b800", rent_color, css)
 
     br, bg, bb = _hex_to_rgb(buy_color)
@@ -3773,6 +3788,12 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
     css = re.sub(r"rgba\(\s*61\s*,\s*155\s*,\s*255\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
     css = re.sub(r"rgb\(\s*47\s*,\s*139\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
     css = re.sub(r"rgb\(\s*61\s*,\s*155\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgba\(\s*79\s*,\s*209\s*,\s*197\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgb\(\s*79\s*,\s*209\s*,\s*197\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgba\(\s*102\s*,\s*194\s*,\s*255\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgb\(\s*102\s*,\s*194\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgba\(\s*52\s*,\s*194\s*,\s*107\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
+    css = re.sub(r"rgb\(\s*52\s*,\s*194\s*,\s*107\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
 
     # Legacy rent gold.
     css = re.sub(r"rgba\(\s*230\s*,\s*184\s*,\s*0\s*,", f"rgba({rr},{rg},{rb},", css, flags=re.IGNORECASE)
