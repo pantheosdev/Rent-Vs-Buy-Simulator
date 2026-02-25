@@ -820,6 +820,40 @@ def _tt_scenario_snapshot_filters_allowed_keys() -> None:
     assert bool(payload.get("scenario_hash"))
 
 
+
+def _tt_scenario_compare_delta_engine_zero_when_equal() -> None:
+    from rbv.core.scenario_snapshots import compare_metric_rows, scenario_state_diff_rows
+
+    metrics_a = {
+        "advantage_final": 125000.0,
+        "pv_advantage_final": 82000.0,
+        "close_cash": 45550.0,
+        "monthly_payment": 3199.25,
+        "win_pct": 61.25,
+    }
+    metrics_b = {
+        "advantage_final": 125000.0 + 1e-12,
+        "pv_advantage_final": 82000.0,
+        "close_cash": 45550.0,
+        "monthly_payment": 3199.25 + 1e-12,
+        "win_pct": 61.25,
+    }
+
+    rows = compare_metric_rows(metrics_a, metrics_b, atol=1e-9)
+    by_metric = {str(r.get("metric")): r for r in rows}
+    assert float(by_metric["Final Net Advantage"]["delta"]) == 0.0
+    assert float(by_metric["Monthly Payment"]["delta"]) == 0.0
+    assert float(by_metric["Win %"]["delta"]) == 0.0
+
+    state_a = {"price": 900000.0, "rate": 5.1, "province": "Ontario"}
+    state_b = {"province": "Ontario", "rate": 5.1 + 1e-12, "price": 900000}
+    assert scenario_state_diff_rows(state_a, state_b, atol=1e-9) == []
+
+    # Material change should still be reported.
+    state_c = {"province": "Ontario", "rate": 5.6, "price": 900000}
+    diffs = scenario_state_diff_rows(state_a, state_c, atol=1e-9)
+    assert any(str(r.get("key")) == "rate" for r in diffs)
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
@@ -841,6 +875,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_ui_defaults_match_presets()
     _tt_scenario_snapshot_hash_stable_roundtrip()
     _tt_scenario_snapshot_filters_allowed_keys()
+    _tt_scenario_compare_delta_engine_zero_when_equal()
 
     # Rent control cadence
     _tt_rent_control_cadence_every3()

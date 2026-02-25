@@ -21,6 +21,8 @@ import datetime
 import io
 import zipfile
 import functools
+import contextlib
+import copy
 
 # --- Global patch: strip Streamlit widget help tooltips (prevents sidebar "?" icons entirely)
 # and suppress "default value + Session State" warnings by removing default kwargs when a key already exists.
@@ -47,8 +49,11 @@ from rbv.ui.defaults import PRESETS, build_session_defaults
 from rbv.core.scenario_snapshots import (
     build_scenario_config,
     build_scenario_snapshot,
+    compare_metric_rows,
+    extract_terminal_metrics,
     parse_scenario_payload,
     scenario_hash_from_state,
+    scenario_state_diff_rows,
 )
 # --- Cross-session caching for simulation runs ---
 # Streamlit reruns the script on every interaction; Monte Carlo runs can be expensive.
@@ -947,6 +952,373 @@ def _rbv_compare_slot_summary(slot: str) -> str:
     return " • ".join(_bits)
 
 
+def _rbv_swap_compare_snapshots() -> None:
+    ka = _rbv_compare_slot_key("A")
+    kb = _rbv_compare_slot_key("B")
+    a_payload = st.session_state.get(ka)
+    b_payload = st.session_state.get(kb)
+    if (not isinstance(a_payload, dict)) and (not isinstance(b_payload, dict)):
+        st.session_state["_rbv_loaded_scenario_msg"] = "Swap skipped (A and B are both empty)."
+        return
+    st.session_state[ka], st.session_state[kb] = b_payload, a_payload
+    st.session_state["_rbv_loaded_scenario_msg"] = "Swapped Scenario A ↔ B."
+
+
+def _rbv_copy_compare_snapshot(src_slot: str, dst_slot: str) -> None:
+    src = str(src_slot or "A").strip().upper()[:1] or "A"
+    dst = str(dst_slot or "B").strip().upper()[:1] or "B"
+    payload = st.session_state.get(_rbv_compare_slot_key(src))
+    if not isinstance(payload, dict):
+        st.session_state["_rbv_loaded_scenario_msg"] = f"Copy skipped: Scenario {src} slot is empty."
+        return
+    cloned = copy.deepcopy(payload)
+    cloned["slot"] = dst
+    cloned["label"] = f"Scenario {dst}"
+    st.session_state[_rbv_compare_slot_key(dst)] = cloned
+    _h = str(cloned.get("scenario_hash") or "")[:12]
+    st.session_state["_rbv_loaded_scenario_msg"] = f"Copied Scenario {src} → {dst} ({_h})."
+
+
+def _rbv_compare_extra_engine_kwargs_from_session() -> dict:
+    _g = st.session_state.get
+    return {
+        "crisis_enabled": bool(_g("crisis_enabled", False)),
+        "crisis_year": float(_g("crisis_year", 5)),
+        "crisis_stock_dd": float(_g("crisis_stock_dd", 30.0)) / 100.0,
+        "crisis_house_dd": float(_g("crisis_house_dd", 20.0)) / 100.0,
+        "crisis_duration_months": int(_g("crisis_duration_months", 1)),
+        "budget_enabled": bool(_g("budget_enabled", False)),
+        "monthly_income": float(_g("monthly_income", 0.0) or 0.0),
+        "monthly_nonhousing": float(_g("monthly_nonhousing", 0.0) or 0.0),
+        "income_growth_pct": float(_g("income_growth_pct", 0.0) or 0.0),
+        "budget_allow_withdraw": bool(_g("budget_allow_withdraw", True)),
+    }
+
+
+def _rbv_compare_recompute_cfg_derived(cfg: dict) -> dict:
+    """Recompute derived closing/mortgage fields from session state for snapshot compare runs."""
+    out = dict(cfg or {})
+    try:
+        price_v = float(st.session_state.get("price", out.get("price", 0.0)) or 0.0)
+        down_v = float(st.session_state.get("down", out.get("down", 0.0)) or 0.0)
+        rate_v = float(st.session_state.get("rate", out.get("rate", 0.0)) or 0.0)
+        amort_v = int(st.session_state.get("amort", 25) or 25)
+        province_v = str(st.session_state.get("province", out.get("province", "Ontario")) or "Ontario")
+        first_time_v = bool(st.session_state.get("first_time", True))
+        toronto_v = bool(st.session_state.get("toronto", False))
+        assessed_value_v = None
+        try:
+            if st.session_state.get("assessed_value") not in (None, ""):
+                assessed_value_v = float(st.session_state.get("assessed_value"))
+        except Exception:
+            assessed_value_v = None
+        ns_deed_rate = None
+        try:
+            if province_v == "Nova Scotia":
+                ns_deed_rate = float(st.session_state.get("ns_deed_transfer_rate_pct", 1.5) or 1.5) / 100.0
+        except Exception:
+            ns_deed_rate = None
+
+        transfer_tax_override_v = 0.0
+        try:
+            transfer_tax_override_v = float(st.session_state.get("transfer_tax_override", 0.0) or 0.0)
+        except Exception:
+            transfer_tax_override_v = 0.0
+
+        asof_raw = st.session_state.get("tax_rules_asof", out.get("asof_date", datetime.date.today().isoformat()))
+        if isinstance(asof_raw, datetime.datetime):
+            asof_date_v = asof_raw.date()
+        elif isinstance(asof_raw, datetime.date):
+            asof_date_v = asof_raw
+        else:
+            try:
+                asof_date_v = datetime.date.fromisoformat(str(asof_raw)[:10])
+            except Exception:
+                asof_date_v = datetime.date.today()
+
+        loan_v = max(0.0, price_v - down_v)
+        ltv_v = (loan_v / price_v) if price_v > 0 else 0.0
+        insured_v = bool(ltv_v > 0.8)
+        dp_source_v = str(st.session_state.get("down_payment_source", out.get("down_payment_source", "Traditional")) or "Traditional")
+        cmhc_r_v = float(cmhc_premium_rate_from_ltv(float(ltv_v), dp_source_v)) if insured_v else 0.0
+        prem_v = loan_v * cmhc_r_v
+        pst_rate_v = float(mortgage_default_insurance_sales_tax_rate(province_v, asof_date_v))
+        pst_v = prem_v * pst_rate_v
+        mort_v = loan_v + prem_v
+
+        tt_v = calc_transfer_tax(
+            province_v,
+            float(price_v),
+            first_time_v,
+            toronto_v,
+            override_amount=transfer_tax_override_v,
+            asof_date=asof_date_v,
+            assessed_value=assessed_value_v,
+            ns_deed_transfer_rate=ns_deed_rate,
+        )
+        total_ltt_v = float((tt_v or {}).get("total", 0.0) or 0.0)
+        lawyer_v = float(st.session_state.get("purchase_legal_fee", 1500.0) or 1500.0)
+        insp_v = float(st.session_state.get("home_inspection", 500.0) or 500.0)
+        other_close_v = float(st.session_state.get("other_closing_costs", 0.0) or 0.0)
+        close_v = total_ltt_v + lawyer_v + insp_v + other_close_v + pst_v
+        nm_v = max(1, int(amort_v) * 12)
+
+        out["mort"] = float(mort_v)
+        out["pst"] = float(pst_v)
+        out["close"] = float(close_v)
+        out["nm"] = int(nm_v)
+        out["asof_date"] = asof_date_v.isoformat()
+    except Exception:
+        pass
+    return out
+
+
+@contextlib.contextmanager
+def _rbv_temp_scenario_overlay(state: dict | None):
+    payload_state = dict(state or {})
+    allowed = set(_rbv_scenario_allowed_keys())
+    touched = [k for k in payload_state.keys() if k in allowed]
+    sentinel = object()
+    prev = {k: st.session_state.get(k, sentinel) for k in touched}
+    _rbv_apply_scenario_state(payload_state)
+    try:
+        yield
+    finally:
+        for k in touched:
+            try:
+                if prev.get(k, sentinel) is sentinel:
+                    st.session_state.pop(k, None)
+                else:
+                    st.session_state[k] = prev[k]
+            except Exception:
+                pass
+
+
+def _rbv_compare_run_from_payload(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    state, meta = _rbv_parse_imported_scenario(payload)
+    if not isinstance(state, dict):
+        return None
+
+    with _rbv_temp_scenario_overlay(state):
+        cfg = _rbv_compare_recompute_cfg_derived(_build_cfg())
+        cfg_json = json.dumps(cfg, sort_keys=True, separators=(",", ":"), default=str)
+        buyer_ret_pct = float(st.session_state.get("buyer_ret", 0.0) or 0.0)
+        renter_ret_pct = float(st.session_state.get("renter_ret", 0.0) or 0.0)
+        apprec_pct = float(st.session_state.get("apprec", 0.0) or 0.0)
+        invest_diff = bool(st.session_state.get("invest_surplus_input", True)) and (not bool(st.session_state.get("budget_enabled", False)))
+        rent_closing = bool(st.session_state.get("renter_uses_closing_input", True))
+        mkt_corr = float(st.session_state.get("market_corr_input", 0.0) or 0.0)
+        extra_kwargs = _rbv_compare_extra_engine_kwargs_from_session()
+
+        # Compare preview intentionally uses deterministic mode for speed and stable deltas.
+        df_cmp, fig_cmp, close_cash_cmp, m_pmt_cmp, win_pct_cmp = _rbv_cached_run_simulation_core(
+            cfg_json,
+            buyer_ret_pct,
+            renter_ret_pct,
+            apprec_pct,
+            invest_diff,
+            rent_closing,
+            mkt_corr,
+            None,
+            False,
+            None,
+            tuple(sorted(extra_kwargs.items())),
+        )
+        metrics = extract_terminal_metrics(
+            df_cmp,
+            close_cash=close_cash_cmp,
+            monthly_payment=m_pmt_cmp,
+            win_pct=win_pct_cmp,
+        )
+    return {
+        "payload": payload,
+        "state": state,
+        "meta": meta or {},
+        "cfg": cfg,
+        "df": df_cmp,
+        "fig": fig_cmp,
+        "close_cash": close_cash_cmp,
+        "m_pmt": m_pmt_cmp,
+        "win_pct": win_pct_cmp,
+        "metrics": metrics,
+    }
+
+
+def _rbv_fmt_compare_metric(value: object, metric_label: str) -> str:
+    try:
+        if value is None:
+            return "—"
+        x = float(value)
+        if not math.isfinite(x):
+            return "—"
+        if metric_label == "Win %":
+            return f"{x:.1f}%"
+        if abs(x) >= 1000:
+            return f"${x:,.0f}"
+        if abs(x) >= 1:
+            return f"${x:,.2f}"
+        return f"{x:.4f}"
+    except Exception:
+        return str(value)
+
+
+def _rbv_fmt_compare_delta(value: object, metric_label: str, pct_value: object | None = None) -> str:
+    try:
+        if value is None:
+            return "—"
+        x = float(value)
+        if not math.isfinite(x):
+            return "—"
+        if metric_label == "Win %":
+            out = f"{x:+.2f} pp"
+        elif abs(x) >= 1000:
+            out = f"${x:+,.0f}"
+        elif abs(x) >= 1:
+            out = f"${x:+,.2f}"
+        else:
+            out = f"{x:+.4f}"
+        try:
+            if pct_value is not None and math.isfinite(float(pct_value)):
+                out += f" ({float(pct_value):+.1f}%)"
+        except Exception:
+            pass
+        return out
+    except Exception:
+        return str(value)
+
+
+def _rbv_render_compare_preview() -> None:
+    """PR10 (R2-2): deterministic A/B preview chart + delta summary from saved slots."""
+    with st.expander("Scenario Compare A vs B (preview)", expanded=False):
+        payload_a = st.session_state.get(_rbv_compare_slot_key("A"))
+        payload_b = st.session_state.get(_rbv_compare_slot_key("B"))
+
+        st.caption(_rbv_compare_slot_summary("A"))
+        st.caption(_rbv_compare_slot_summary("B"))
+
+        if not isinstance(payload_a, dict) or not isinstance(payload_b, dict):
+            st.info("Save snapshots into both **A** and **B** in the sidebar to render the PR10 compare preview.")
+            return
+
+        cmp_a = _rbv_compare_run_from_payload(payload_a)
+        cmp_b = _rbv_compare_run_from_payload(payload_b)
+        if not isinstance(cmp_a, dict) or not isinstance(cmp_b, dict):
+            st.warning("Unable to compute one or both compare snapshots. Re-save A/B from the current version and try again.")
+            return
+
+        dfa = cmp_a.get("df")
+        dfb = cmp_b.get("df")
+        if dfa is None or dfb is None:
+            st.warning("Compare preview dataframes are unavailable.")
+            return
+
+        # Summary metrics (terminal deltas B − A)
+        rows = compare_metric_rows(cmp_a.get("metrics"), cmp_b.get("metrics"), atol=1e-9)
+        by_metric = {str(r.get("metric")): r for r in rows}
+
+        row_adv = by_metric.get("Final Net Advantage", {})
+        row_pv = by_metric.get("Final PV Advantage", {})
+        row_close = by_metric.get("Cash to Close", {})
+        row_pmt = by_metric.get("Monthly Payment", {})
+        row_win = by_metric.get("Win %", {})
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("A final net advantage", _rbv_fmt_compare_metric(row_adv.get("a"), "Final Net Advantage"))
+        with c2:
+            st.metric("B final net advantage", _rbv_fmt_compare_metric(row_adv.get("b"), "Final Net Advantage"))
+        with c3:
+            st.metric("Δ final net adv (B−A)", _rbv_fmt_compare_delta(row_adv.get("delta"), "Final Net Advantage", row_adv.get("pct_delta")))
+        with c4:
+            # Prefer win% delta if available; else fall back to monthly payment delta.
+            if row_win and row_win.get("delta") is not None:
+                st.metric("Δ win % (B−A)", _rbv_fmt_compare_delta(row_win.get("delta"), "Win %", row_win.get("pct_delta")))
+            else:
+                st.metric("Δ monthly payment", _rbv_fmt_compare_delta(row_pmt.get("delta"), "Monthly Payment", row_pmt.get("pct_delta")))
+
+        # Compact secondary callouts.
+        st.caption(
+            " • ".join(
+                [
+                    f"Cash to close Δ: {_rbv_fmt_compare_delta(row_close.get('delta'), 'Cash to Close', row_close.get('pct_delta'))}",
+                    f"PV advantage Δ: {_rbv_fmt_compare_delta(row_pv.get('delta'), 'Final PV Advantage', row_pv.get('pct_delta'))}",
+                    f"Monthly payment Δ: {_rbv_fmt_compare_delta(row_pmt.get('delta'), 'Monthly Payment', row_pmt.get('pct_delta'))}",
+                ]
+            )
+        )
+
+        # Dual rendering overlay: Buyer/Renter NW for A vs B (same chart, deterministic).
+        try:
+            xa = pd.to_numeric(dfa.get("Month"), errors="coerce") / 12.0
+            xb = pd.to_numeric(dfb.get("Month"), errors="coerce") / 12.0
+            fig_cmp = go.Figure()
+            fig_cmp.add_trace(go.Scatter(x=xa, y=dfa.get("Buyer Net Worth"), name="Buyer A", mode='lines', line=dict(color=BUY_COLOR, width=2)))
+            fig_cmp.add_trace(go.Scatter(x=xa, y=dfa.get("Renter Net Worth"), name="Renter A", mode='lines', line=dict(color=RENT_COLOR, width=2)))
+            fig_cmp.add_trace(go.Scatter(x=xb, y=dfb.get("Buyer Net Worth"), name="Buyer B", mode='lines', line=dict(color=BUY_COLOR, width=2, dash='dash')))
+            fig_cmp.add_trace(go.Scatter(x=xb, y=dfb.get("Renter Net Worth"), name="Renter B", mode='lines', line=dict(color=RENT_COLOR, width=2, dash='dash')))
+            fig_cmp.update_layout(
+                template=pio.templates.default,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                hovermode='x unified',
+                height=360,
+                margin=dict(l=0, r=0, t=8, b=0),
+                legend=dict(orientation='h', y=1.10, x=0.5, xanchor='center'),
+                font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
+            )
+            fig_cmp.update_xaxes(title_text="Years", gridcolor="rgba(255,255,255,0.12)")
+            fig_cmp.update_yaxes(title_text="Net worth", tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.12)")
+            st.plotly_chart(_rbv_apply_plotly_theme(fig_cmp, height=360), use_container_width=True)
+            st.caption("Solid = A, dashed = B. Compare preview runs deterministically for speed/stability.")
+        except Exception:
+            st.caption("Compare overlay chart unavailable for this pair.")
+
+        # Delta engine table (B − A) for key terminal metrics.
+        try:
+            tbl_rows = []
+            for r in rows:
+                metric = str(r.get("metric") or "")
+                a_val = r.get("a")
+                b_val = r.get("b")
+                d_val = r.get("delta")
+                p_val = r.get("pct_delta")
+                if metric == "Win %":
+                    a_txt = _rbv_fmt_compare_metric(a_val, metric)
+                    b_txt = _rbv_fmt_compare_metric(b_val, metric)
+                    d_txt = _rbv_fmt_compare_delta(d_val, metric, p_val)
+                else:
+                    a_txt = _rbv_fmt_compare_metric(a_val, metric)
+                    b_txt = _rbv_fmt_compare_metric(b_val, metric)
+                    d_txt = _rbv_fmt_compare_delta(d_val, metric, p_val)
+                tbl_rows.append({"Metric": metric, "A": a_txt, "B": b_txt, "Δ (B−A)": d_txt})
+            if tbl_rows:
+                st.markdown(render_fin_table(pd.DataFrame(tbl_rows), table_key="compare_metrics_ab"), unsafe_allow_html=True)
+        except Exception:
+            pass
+
+        # State diff table for explainability.
+        try:
+            diff_rows = scenario_state_diff_rows(cmp_a.get("state"), cmp_b.get("state"), atol=1e-9)
+            if diff_rows:
+                view_rows = []
+                for r in diff_rows[:30]:
+                    view_rows.append({
+                        "Input": str(r.get("key")),
+                        "A": str(r.get("a")),
+                        "B": str(r.get("b")),
+                    })
+                st.caption(f"Changed inputs: {len(diff_rows)}" + (" (showing first 30)" if len(diff_rows) > 30 else ""))
+                st.markdown(render_fin_table(pd.DataFrame(view_rows), table_key="compare_state_diff_ab"), unsafe_allow_html=True)
+            else:
+                st.success("A and B snapshots are identical on all tracked scenario inputs (delta engine expects ~0 changes).")
+        except Exception:
+            pass
+
+
+
+
 # --- Shareable scenario URL (compact, bookmarkable) ---
 # Encodes the allowed scenario state into a URL-safe token stored in query param `s`.
 import base64
@@ -1357,9 +1729,9 @@ with st.sidebar:
         if isinstance(_msg, str) and _msg.strip():
             sidebar_hint(_msg)
 
-        # PR9 foundation: local A/B compare snapshots (state + deterministic hash).
+        # PR9/PR10: local A/B compare snapshots (state + deterministic hash) + slot ops.
         st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
-        sidebar_label("Scenario Compare slots (A/B)", "Save the current inputs into A/B slots now. PR10 will render deltas side-by-side using these snapshots.")
+        sidebar_label("Scenario Compare slots (A/B)", "Save, load, swap, and copy scenario snapshots. PR10 renders deterministic A/B deltas side-by-side from these slots.")
         _col_save_a, _col_save_b = st.columns(2)
         with _col_save_a:
             if st.button("Save → A", key="rbv_save_ab_a", use_container_width=True):
@@ -1376,7 +1748,21 @@ with st.sidebar:
             if st.button("Load B", key="rbv_load_ab_b", use_container_width=True):
                 _rbv_load_compare_snapshot("B")
 
-        _col_clr_a, _col_clr_b = st.columns(2)
+        _col_swap, _col_copy = st.columns(2)
+        with _col_swap:
+            if st.button("Swap A ↔ B", key="rbv_swap_ab", use_container_width=True):
+                _rbv_swap_compare_snapshots()
+                st.rerun()
+        with _col_copy:
+            if st.button("Copy A → B", key="rbv_copy_a_to_b", use_container_width=True):
+                _rbv_copy_compare_snapshot("A", "B")
+                st.rerun()
+
+        _col_copy_ba, _col_clr_a, _col_clr_b = st.columns([1.2, 1, 1])
+        with _col_copy_ba:
+            if st.button("Copy B → A", key="rbv_copy_b_to_a", use_container_width=True):
+                _rbv_copy_compare_snapshot("B", "A")
+                st.rerun()
         with _col_clr_a:
             if st.button("Clear A", key="rbv_clear_ab_a", use_container_width=True):
                 _rbv_clear_compare_snapshot("A")
@@ -4815,6 +5201,11 @@ if tab == _TAB_NET:
     fig.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), use_container_width=True)
     st.caption("Note: Buyer net worth permanently subtracts one-time closing costs (sunk costs), so it can start negative in Month 1.")
+
+    try:
+        _rbv_render_compare_preview()
+    except Exception:
+        pass
     
     view = st.radio("", ["Yearly", "Monthly"], horizontal=True, label_visibility="collapsed")
 
