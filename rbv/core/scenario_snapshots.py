@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import csv
 import datetime as _dt
 import hashlib
+import io
 import json
 import math
 from typing import Any, Iterable
@@ -361,3 +363,77 @@ def parse_scenario_payload(payload: dict[str, Any] | None) -> tuple[dict[str, An
         "app": snap.app,
     }
     return dict(snap.config.canonical_state), meta
+
+def rows_to_csv_text(rows: list[dict[str, Any]] | None, *, columns: list[str] | tuple[str, ...] | None = None) -> str:
+    """Serialize rows to CSV text with stable column ordering."""
+    data = [dict(r or {}) for r in (rows or [])]
+    if columns is None:
+        seen: list[str] = []
+        seen_set: set[str] = set()
+        for r in data:
+            for k in r.keys():
+                sk = str(k)
+                if sk not in seen_set:
+                    seen.append(sk)
+                    seen_set.add(sk)
+        columns = tuple(seen)
+    else:
+        columns = tuple(str(c) for c in columns)
+
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(columns), extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    for row in data:
+        out: dict[str, Any] = {}
+        for c in columns:
+            v = canonicalize_jsonish(row.get(c))
+            if isinstance(v, (dict, list)):
+                out[c] = json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            elif v is None:
+                out[c] = ""
+            else:
+                out[c] = v
+        w.writerow(out)
+    return buf.getvalue()
+
+
+def compare_metric_rows_to_csv_text(rows: list[dict[str, Any]] | None) -> str:
+    return rows_to_csv_text(rows, columns=["metric", "a", "b", "delta", "pct_delta"])
+
+
+def scenario_state_diff_rows_to_csv_text(rows: list[dict[str, Any]] | None) -> str:
+    return rows_to_csv_text(rows, columns=["key", "a", "b"])
+
+
+def build_compare_export_payload(
+    *,
+    payload_a: dict[str, Any] | None,
+    payload_b: dict[str, Any] | None,
+    metric_rows: list[dict[str, Any]] | None,
+    state_diff_rows: list[dict[str, Any]] | None,
+    meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a JSON-safe compare export payload for PR11 exports."""
+    def _snap_meta(payload: dict[str, Any] | None) -> dict[str, Any]:
+        try:
+            _state, _meta = parse_scenario_payload(payload or {})
+            return canonicalize_jsonish(_meta) if isinstance(_meta, dict) else {}
+        except Exception:
+            return {}
+
+    return {
+        "schema": "rbv.compare_export.v1",
+        "exported_at": _dt.datetime.now().isoformat(timespec="seconds"),
+        "meta": canonicalize_jsonish(meta or {}),
+        "snapshots": {
+            "A": canonicalize_jsonish(payload_a or {}),
+            "B": canonicalize_jsonish(payload_b or {}),
+        },
+        "snapshot_meta": {
+            "A": _snap_meta(payload_a),
+            "B": _snap_meta(payload_b),
+        },
+        "metrics": [canonicalize_jsonish(r) for r in (metric_rows or [])],
+        "state_diffs": [canonicalize_jsonish(r) for r in (state_diff_rows or [])],
+    }
+

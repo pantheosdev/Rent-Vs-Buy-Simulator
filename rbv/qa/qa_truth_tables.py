@@ -772,6 +772,8 @@ def _tt_discount_rate_unit_guard() -> None:
 
 def _tt_scenario_snapshot_hash_stable_roundtrip() -> None:
     from rbv.core.scenario_snapshots import (
+        SCENARIO_CONFIG_SCHEMA,
+        SCENARIO_SNAPSHOT_SCHEMA,
         build_scenario_config,
         build_scenario_snapshot,
         parse_scenario_payload,
@@ -799,6 +801,8 @@ def _tt_scenario_snapshot_hash_stable_roundtrip() -> None:
 
     snap = build_scenario_snapshot(state_a, slot="A", label="Scenario A", version="qa")
     payload = snap.to_dict()
+    assert str(payload.get("schema")) == SCENARIO_SNAPSHOT_SCHEMA
+    assert isinstance(payload.get("config"), dict) and str((payload.get("config") or {}).get("schema")) == SCENARIO_CONFIG_SCHEMA
     state_rt, meta = parse_scenario_payload(payload)
     assert state_rt.get("province") == "Ontario"
     assert int(state_rt.get("years")) == 25
@@ -854,6 +858,55 @@ def _tt_scenario_compare_delta_engine_zero_when_equal() -> None:
     diffs = scenario_state_diff_rows(state_a, state_c, atol=1e-9)
     assert any(str(r.get("key")) == "rate" for r in diffs)
 
+def _tt_compare_export_helpers_schema_and_csv() -> None:
+    from rbv.core.scenario_snapshots import (
+        build_compare_export_payload,
+        compare_metric_rows_to_csv_text,
+        scenario_state_diff_rows_to_csv_text,
+    )
+
+    payload_a = {
+        "schema": "rbv.scenario_snapshot.v1",
+        "slot": "A",
+        "state": {"price": 800000, "province": "Ontario"},
+    }
+    payload_b = {
+        "schema": "rbv.scenario_snapshot.v1",
+        "slot": "B",
+        "state": {"price": 820000, "province": "Ontario"},
+    }
+    metric_rows = [
+        {"metric": "Final Net Advantage", "a": 100000.0, "b": 120000.0, "delta": 20000.0, "pct_delta": 20.0},
+        {"metric": "Win %", "a": 55.0, "b": 61.0, "delta": 6.0, "pct_delta": 10.9090909},
+    ]
+    diff_rows = [
+        {"key": "price", "a": 800000, "b": 820000},
+        {"key": "notes", "a": {"x": 1}, "b": [1, 2]},
+    ]
+
+    exp = build_compare_export_payload(
+        payload_a=payload_a,
+        payload_b=payload_b,
+        metric_rows=metric_rows,
+        state_diff_rows=diff_rows,
+        meta={"source": "qa"},
+    )
+    assert str(exp.get("schema")) == "rbv.compare_export.v1"
+    assert isinstance(exp.get("snapshots"), dict) and "A" in exp["snapshots"] and "B" in exp["snapshots"]
+    assert isinstance(exp.get("metrics"), list) and len(exp["metrics"]) == 2
+    assert isinstance(exp.get("state_diffs"), list) and len(exp["state_diffs"]) == 2
+
+    csv_metrics = compare_metric_rows_to_csv_text(metric_rows)
+    assert csv_metrics.startswith("metric,a,b,delta,pct_delta\n")
+    assert "Final Net Advantage" in csv_metrics and "Win %" in csv_metrics
+
+    csv_diffs = scenario_state_diff_rows_to_csv_text(diff_rows)
+    assert csv_diffs.startswith("key,a,b\n")
+    assert "price,800000,820000" in csv_diffs
+    # Nested values should serialize deterministically as JSON strings.
+    assert '{""x"":1}' in csv_diffs
+
+
 def main(argv: list[str] | None = None) -> None:
     # Mortgage invariants
     _tt_mortgage_rate_and_payment()
@@ -876,6 +929,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_scenario_snapshot_hash_stable_roundtrip()
     _tt_scenario_snapshot_filters_allowed_keys()
     _tt_scenario_compare_delta_engine_zero_when_equal()
+    _tt_compare_export_helpers_schema_and_csv()
 
     # Rent control cadence
     _tt_rent_control_cadence_every3()

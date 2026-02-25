@@ -49,12 +49,149 @@ from rbv.ui.defaults import PRESETS, build_session_defaults
 from rbv.core.scenario_snapshots import (
     build_scenario_config,
     build_scenario_snapshot,
-    compare_metric_rows,
-    extract_terminal_metrics,
     parse_scenario_payload,
     scenario_hash_from_state,
-    scenario_state_diff_rows,
 )
+
+# PR10/PR11 compatibility shim: if a deployment picks up app.py before compare/export helper
+# symbols are available in rbv.core.scenario_snapshots, keep app import working and fall back
+# to local equivalents. Canonical implementations still live in scenario_snapshots.py when present.
+try:
+    from rbv.core.scenario_snapshots import (
+        build_compare_export_payload,
+        compare_metric_rows,
+        compare_metric_rows_to_csv_text,
+        extract_terminal_metrics,
+        scenario_state_diff_rows,
+        scenario_state_diff_rows_to_csv_text,
+    )
+except ImportError:
+    from rbv.core import scenario_snapshots as _rbv_snap_mod
+
+    def _rbv__to_float_or_none(v):
+        try:
+            x = float(v)
+        except Exception:
+            return None
+        if not math.isfinite(x):
+            return None
+        return x
+
+    def extract_terminal_metrics(df, *, close_cash=None, monthly_payment=None, win_pct=None):
+        out = {
+            "buyer_nw_final": None,
+            "renter_nw_final": None,
+            "advantage_final": None,
+            "buyer_pv_nw_final": None,
+            "renter_pv_nw_final": None,
+            "pv_advantage_final": None,
+            "buyer_unrecoverable_final": None,
+            "renter_unrecoverable_final": None,
+            "close_cash": _rbv__to_float_or_none(close_cash),
+            "monthly_payment": _rbv__to_float_or_none(monthly_payment),
+            "win_pct": _rbv__to_float_or_none(win_pct),
+        }
+        try:
+            if df is None or len(df) == 0:
+                return out
+            row = df.iloc[-1]
+        except Exception:
+            return out
+
+        def _row(col):
+            try:
+                return _rbv__to_float_or_none(row.get(col))
+            except Exception:
+                try:
+                    return _rbv__to_float_or_none(row[col])
+                except Exception:
+                    return None
+
+        out["buyer_nw_final"] = _row("Buyer Net Worth")
+        out["renter_nw_final"] = _row("Renter Net Worth")
+        if (out["buyer_nw_final"] is not None) and (out["renter_nw_final"] is not None):
+            out["advantage_final"] = float(out["buyer_nw_final"] - out["renter_nw_final"])
+        out["buyer_pv_nw_final"] = _row("Buyer PV NW")
+        out["renter_pv_nw_final"] = _row("Renter PV NW")
+        if (out["buyer_pv_nw_final"] is not None) and (out["renter_pv_nw_final"] is not None):
+            out["pv_advantage_final"] = float(out["buyer_pv_nw_final"] - out["renter_pv_nw_final"])
+        out["buyer_unrecoverable_final"] = _row("Buyer Unrecoverable")
+        out["renter_unrecoverable_final"] = _row("Renter Unrecoverable")
+        return out
+
+    def compare_metric_rows(metrics_a, metrics_b, *, atol=1e-9):
+        a = dict(metrics_a or {})
+        b = dict(metrics_b or {})
+        specs = [
+            ("Final Buyer Net Worth", "buyer_nw_final"),
+            ("Final Renter Net Worth", "renter_nw_final"),
+            ("Final Net Advantage", "advantage_final"),
+            ("Final Buyer PV NW", "buyer_pv_nw_final"),
+            ("Final Renter PV NW", "renter_pv_nw_final"),
+            ("Final PV Advantage", "pv_advantage_final"),
+            ("Final Buyer Unrecoverable", "buyer_unrecoverable_final"),
+            ("Final Renter Unrecoverable", "renter_unrecoverable_final"),
+            ("Cash to Close", "close_cash"),
+            ("Monthly Payment", "monthly_payment"),
+            ("Win %", "win_pct"),
+        ]
+        rows = []
+        for label, key in specs:
+            va = _rbv__to_float_or_none(a.get(key))
+            vb = _rbv__to_float_or_none(b.get(key))
+            delta = None
+            pct_delta = None
+            if (va is not None) and (vb is not None):
+                d = float(vb - va)
+                if abs(d) <= float(atol):
+                    d = 0.0
+                delta = d
+                if abs(va) > float(atol):
+                    pct_delta = (d / abs(va)) * 100.0
+                elif abs(d) <= float(atol):
+                    pct_delta = 0.0
+            rows.append({"metric": label, "a": va, "b": vb, "delta": delta, "pct_delta": pct_delta})
+        return rows
+
+    def scenario_state_diff_rows(state_a, state_b, *, atol=1e-9):
+        canonicalize = getattr(_rbv_snap_mod, "canonicalize_jsonish", lambda x: x)
+        a = canonicalize(state_a or {})
+        b = canonicalize(state_b or {})
+        rows = []
+        for k in sorted(set(a.keys()) | set(b.keys())):
+            va = a.get(k)
+            vb = b.get(k)
+            if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+                try:
+                    if math.isfinite(float(va)) and math.isfinite(float(vb)) and abs(float(va) - float(vb)) <= float(atol):
+                        continue
+                except Exception:
+                    pass
+            if va != vb:
+                rows.append({"key": str(k), "a": va, "b": vb})
+        return rows
+
+    def compare_metric_rows_to_csv_text(rows):
+        try:
+            return pd.DataFrame(list(rows or []), columns=["metric", "a", "b", "delta", "pct_delta"]).to_csv(index=False)
+        except Exception:
+            return "metric,a,b,delta,pct_delta\n"
+
+    def scenario_state_diff_rows_to_csv_text(rows):
+        try:
+            return pd.DataFrame(list(rows or []), columns=["key", "a", "b"]).to_csv(index=False)
+        except Exception:
+            return "key,a,b\n"
+
+    def build_compare_export_payload(*, payload_a=None, payload_b=None, metric_rows=None, state_diff_rows=None, meta=None):
+        canonicalize = getattr(_rbv_snap_mod, "canonicalize_jsonish", lambda x: x)
+        return {
+            "schema": "rbv.compare_export.v1",
+            "meta": canonicalize(meta or {}),
+            "snapshots": {"A": canonicalize(payload_a or {}), "B": canonicalize(payload_b or {})},
+            "metrics": [canonicalize(r) for r in (metric_rows or [])],
+            "state_diffs": [canonicalize(r) for r in (state_diff_rows or [])],
+        }
 # --- Cross-session caching for simulation runs ---
 # Streamlit reruns the script on every interaction; Monte Carlo runs can be expensive.
 # st.session_state caches are per-user; st.cache_data provides shared caching across sessions.
@@ -1199,23 +1336,27 @@ def _rbv_render_compare_preview() -> None:
         st.caption(_rbv_compare_slot_summary("B"))
 
         if not isinstance(payload_a, dict) or not isinstance(payload_b, dict):
+            st.session_state.pop("_rbv_compare_last_export", None)
             st.info("Save snapshots into both **A** and **B** in the sidebar to render the PR10 compare preview.")
             return
 
         cmp_a = _rbv_compare_run_from_payload(payload_a)
         cmp_b = _rbv_compare_run_from_payload(payload_b)
         if not isinstance(cmp_a, dict) or not isinstance(cmp_b, dict):
+            st.session_state.pop("_rbv_compare_last_export", None)
             st.warning("Unable to compute one or both compare snapshots. Re-save A/B from the current version and try again.")
             return
 
         dfa = cmp_a.get("df")
         dfb = cmp_b.get("df")
         if dfa is None or dfb is None:
+            st.session_state.pop("_rbv_compare_last_export", None)
             st.warning("Compare preview dataframes are unavailable.")
             return
 
         # Summary metrics (terminal deltas B − A)
         rows = compare_metric_rows(cmp_a.get("metrics"), cmp_b.get("metrics"), atol=1e-9)
+        diff_rows_for_export = []
         by_metric = {str(r.get("metric")): r for r in rows}
 
         row_adv = by_metric.get("Final Net Advantage", {})
@@ -1301,6 +1442,7 @@ def _rbv_render_compare_preview() -> None:
         # State diff table for explainability.
         try:
             diff_rows = scenario_state_diff_rows(cmp_a.get("state"), cmp_b.get("state"), atol=1e-9)
+            diff_rows_for_export = list(diff_rows or [])
             if diff_rows:
                 view_rows = []
                 for r in diff_rows[:30]:
@@ -1316,6 +1458,25 @@ def _rbv_render_compare_preview() -> None:
         except Exception:
             pass
 
+        # PR11 export cache: capture latest compare preview outputs for Export / Share downloads.
+        try:
+            st.session_state["_rbv_compare_last_export"] = {
+                "schema": "rbv.compare_preview_cache.v1",
+                "payload_a": payload_a,
+                "payload_b": payload_b,
+                "metrics_rows": rows,
+                "state_diff_rows": diff_rows_for_export,
+                "a_timeseries_csv": dfa.to_csv(index=False) if isinstance(dfa, pd.DataFrame) else None,
+                "b_timeseries_csv": dfb.to_csv(index=False) if isinstance(dfb, pd.DataFrame) else None,
+                "meta": {
+                    "a_slot_summary": _rbv_compare_slot_summary("A"),
+                    "b_slot_summary": _rbv_compare_slot_summary("B"),
+                    "a_hash": str((cmp_a.get("meta") or {}).get("scenario_hash") or ""),
+                    "b_hash": str((cmp_b.get("meta") or {}).get("scenario_hash") or ""),
+                },
+            }
+        except Exception:
+            st.session_state.pop("_rbv_compare_last_export", None)
 
 
 
@@ -7887,21 +8048,110 @@ try:
             _json = json.dumps(_payload, indent=2, default=str)
             try:
                 st.download_button(
-                    "Download scenario (.json)",
+                    "Download active snapshot (.json)",
                     data=_json,
-                    file_name="rbv_scenario.json",
+                    file_name="rbv_scenario_active.json",
                     mime="application/json",
                     use_container_width=True,
                     type="primary",
                 )
             except TypeError:
                 st.download_button(
-                    "Download scenario (.json)",
+                    "Download active snapshot (.json)",
                     data=_json,
-                    file_name="rbv_scenario.json",
+                    file_name="rbv_scenario_active.json",
                     mime="application/json",
                     use_container_width=True,
                 )
+
+            # PR11: explicit JSON snapshot exports for compare slots (A/B), if present.
+            for _slot in ("A", "B"):
+                _slot_payload = st.session_state.get(_rbv_compare_slot_key(_slot))
+                if not isinstance(_slot_payload, dict):
+                    continue
+                _slot_json = json.dumps(_slot_payload, indent=2, default=str)
+                st.download_button(
+                    f"Download Scenario {_slot} snapshot (.json)",
+                    data=_slot_json,
+                    file_name=f"rbv_scenario_{_slot}.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+        except Exception:
+            pass
+
+        # PR11: explicit CSV outputs export (not only inside the ZIP bundle).
+        try:
+            if isinstance(df, pd.DataFrame) and len(df) > 0:
+                st.download_button(
+                    "Download core outputs (.csv)",
+                    data=df.to_csv(index=False),
+                    file_name="rbv_core_outputs.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        except Exception:
+            pass
+
+        # PR11: compare export bundle + CSVs (available after rendering the A/B compare preview once).
+        try:
+            _cmp = st.session_state.get("_rbv_compare_last_export")
+            if isinstance(_cmp, dict):
+                _metrics_rows = list(_cmp.get("metrics_rows") or [])
+                _diff_rows = list(_cmp.get("state_diff_rows") or [])
+                _payload_a = _cmp.get("payload_a") if isinstance(_cmp.get("payload_a"), dict) else None
+                _payload_b = _cmp.get("payload_b") if isinstance(_cmp.get("payload_b"), dict) else None
+                _cmp_meta = dict(_cmp.get("meta") or {})
+
+                _cmp_json = json.dumps(
+                    build_compare_export_payload(
+                        payload_a=_payload_a,
+                        payload_b=_payload_b,
+                        metric_rows=_metrics_rows,
+                        state_diff_rows=_diff_rows,
+                        meta=_cmp_meta,
+                    ),
+                    indent=2,
+                    default=str,
+                )
+                st.download_button(
+                    "Download compare export (.json)",
+                    data=_cmp_json,
+                    file_name="rbv_compare_export.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+                st.download_button(
+                    "Download compare terminal metrics (.csv)",
+                    data=compare_metric_rows_to_csv_text(_metrics_rows),
+                    file_name="rbv_compare_terminal_metrics.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+                st.download_button(
+                    "Download compare changed inputs (.csv)",
+                    data=scenario_state_diff_rows_to_csv_text(_diff_rows),
+                    file_name="rbv_compare_changed_inputs.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+                if isinstance(_cmp.get("a_timeseries_csv"), str):
+                    st.download_button(
+                        "Download Scenario A compare timeseries (.csv)",
+                        data=_cmp.get("a_timeseries_csv"),
+                        file_name="rbv_compare_A_timeseries.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+                if isinstance(_cmp.get("b_timeseries_csv"), str):
+                    st.download_button(
+                        "Download Scenario B compare timeseries (.csv)",
+                        data=_cmp.get("b_timeseries_csv"),
+                        file_name="rbv_compare_B_timeseries.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+                st.caption("Compare exports are generated from the latest rendered A/B preview on this session.")
         except Exception:
             pass
 
