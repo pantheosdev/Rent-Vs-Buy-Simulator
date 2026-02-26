@@ -570,6 +570,60 @@ def build_city_preset_change_summary(changes: List[Dict[str, Any]], *, max_items
     return out
 
 
+def city_preset_identity(name: str | None) -> Dict[str, Any] | None:
+    """Return stable identity metadata for a preset (or None for Custom/unknown)."""
+    vals = city_preset_values(name)
+    if not vals:
+        return None
+    meta = city_preset_metadata(name)
+    return {
+        "id": meta.get("id"),
+        "name": meta.get("name"),
+        "version": meta.get("version"),
+        "region": meta.get("region"),
+        "province": meta.get("province"),
+        "province_code": meta.get("province_code"),
+        "home_type": meta.get("home_type") or meta.get("housing_type"),
+        "is_toronto": bool(meta.get("is_toronto")),
+    }
+
+
+def city_preset_patch_values(name: str | None) -> Dict[str, Any] | None:
+    """Return the values that a preset would apply (excluding catalog metadata keys)."""
+    vals = city_preset_values(name)
+    if not vals:
+        return None
+    patch = {k: v for k, v in dict(vals).items() if str(k) not in _CITY_PRESET_META_KEYS}
+    patch["city_preset"] = str(name or CITY_PRESET_CUSTOM)
+    # Guardrail: Toronto MLTT is Ontario-only.
+    if str(patch.get("province", "") or "") != "Ontario":
+        patch["toronto"] = False
+    return patch
+
+
+def city_preset_overrides_from_state(state: MutableMapping[str, Any] | None, preset_name: str | None) -> Dict[str, Any]:
+    """Return {key: current_value} for preset-controlled keys that differ from the preset."""
+    if not isinstance(state, dict):
+        try:
+            state = dict(state or {})
+        except Exception:
+            return {}
+    patch = city_preset_patch_values(preset_name)
+    if not patch:
+        return {}
+    overrides: Dict[str, Any] = {}
+    for k, v_preset in patch.items():
+        if str(k) == "city_preset":
+            continue
+        try:
+            v_cur = state.get(k)
+        except Exception:
+            v_cur = None
+        if not _city_preset_values_equal(v_cur, v_preset):
+            overrides[str(k)] = v_cur
+    return overrides
+
+
 def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
     """Return first-load session_state defaults.
 

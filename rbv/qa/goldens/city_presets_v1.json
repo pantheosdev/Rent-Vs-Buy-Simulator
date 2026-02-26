@@ -1,0 +1,261 @@
+{
+  "generated_at": "2026-02-26T04:58:51",
+  "presets": {
+    "calgary_ab_condo": {
+      "name": "Calgary (AB) \u00b7 Condo",
+      "patch": {
+        "condo": 420,
+        "down": 76000,
+        "o_util": 170,
+        "p_tax_rate_pct": 0.75,
+        "price": 380000,
+        "province": "Alberta",
+        "r_util": 125,
+        "rent": 1900,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "calgary_ab_detached": {
+      "name": "Calgary (AB) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 130000,
+        "o_util": 240,
+        "p_tax_rate_pct": 0.75,
+        "price": 650000,
+        "province": "Alberta",
+        "r_util": 130,
+        "rent": 2550,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "edmonton_ab_detached": {
+      "name": "Edmonton (AB) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 100000,
+        "o_util": 230,
+        "p_tax_rate_pct": 0.9,
+        "price": 500000,
+        "province": "Alberta",
+        "r_util": 135,
+        "rent": 2200,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "fredericton_nb_detached": {
+      "name": "Fredericton (NB) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 70000,
+        "o_util": 230,
+        "p_tax_rate_pct": 1.1,
+        "price": 350000,
+        "province": "New Brunswick",
+        "r_util": 135,
+        "rent": 1800,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "halifax_ns_condo": {
+      "name": "Halifax (NS) \u00b7 Condo",
+      "patch": {
+        "condo": 420,
+        "down": 90000,
+        "o_util": 170,
+        "p_tax_rate_pct": 1.2,
+        "price": 450000,
+        "province": "Nova Scotia",
+        "r_util": 125,
+        "rent": 2100,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "halifax_ns_detached": {
+      "name": "Halifax (NS) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 130000,
+        "o_util": 240,
+        "p_tax_rate_pct": 1.2,
+        "price": 650000,
+        "province": "Nova Scotia",
+        "r_util": 140,
+        "rent": 2800,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "hamilton_on_detached": {
+      "name": "Hamilton (ON) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 180000,
+        "o_util": 250,
+        "p_tax_rate_pct": 1.05,
+        "price": 900000,
+        "province": "Ontario",
+        "r_util": 145,
+        "rent": 3200,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "mississauga_on_condo": {
+      "name": "Mississauga (ON) \u00b7 Condo",
+      "patch": {
+        "condo": 600,
+        "down": 150000,
+        "o_util": 150,
+        "p_tax_rate_pct": 0.75,
+        "price": 750000,
+        "province": "Ontario",
+        "r_util": 120,
+        "rent": 2800,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "montreal_qc_condo": {
+      "name": "Montreal (QC) \u00b7 Condo",
+      "patch": {
+        "condo": 400,
+        "down": 120000,
+        "o_util": 140,
+        "p_tax_rate_pct": 0.7,
+        "price": 600000,
+        "province": "Quebec",
+        "r_util": 110,
+        "rent": 2350,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "montreal_qc_detached": {
+      "name": "Montreal (QC) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 170000,
+        "o_util": 240,
+        "p_tax_rate_pct": 0.7,
+        "price": 850000,
+        "province": "Quebec",
+        "r_util": 140,
+        "rent": 3300,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "ottawa_on_condo": {
+      "name": "Ottawa (ON) \u00b7 Condo",
+      "patch": {
+        "condo": 480,
+        "down": 110000,
+        "o_util": 150,
+        "p_tax_rate_pct": 1.05,
+        "price": 550000,
+        "province": "Ontario",
+        "r_util": 120,
+        "rent": 2200,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "ottawa_on_detached": {
+      "name": "Ottawa (ON) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 165000,
+        "o_util": 240,
+        "p_tax_rate_pct": 1.05,
+        "price": 825000,
+        "province": "Ontario",
+        "r_util": 140,
+        "rent": 3000,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "toronto_on_condo": {
+      "name": "Toronto (ON) \u00b7 Condo",
+      "patch": {
+        "condo": 650,
+        "down": 170000,
+        "o_util": 150,
+        "p_tax_rate_pct": 0.66,
+        "price": 850000,
+        "province": "Ontario",
+        "r_util": 120,
+        "rent": 3200,
+        "toronto": true
+      },
+      "version": 1
+    },
+    "toronto_on_detached": {
+      "name": "Toronto (ON) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 250000,
+        "o_util": 260,
+        "p_tax_rate_pct": 0.66,
+        "price": 1250000,
+        "province": "Ontario",
+        "r_util": 150,
+        "rent": 4100,
+        "toronto": true
+      },
+      "version": 1
+    },
+    "vancouver_bc_condo": {
+      "name": "Vancouver (BC) \u00b7 Condo",
+      "patch": {
+        "condo": 575,
+        "down": 180000,
+        "o_util": 140,
+        "p_tax_rate_pct": 0.3,
+        "price": 900000,
+        "province": "British Columbia",
+        "r_util": 110,
+        "rent": 3100,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "vancouver_bc_detached": {
+      "name": "Vancouver (BC) \u00b7 Detached",
+      "patch": {
+        "condo": 0,
+        "down": 330000,
+        "o_util": 260,
+        "p_tax_rate_pct": 0.3,
+        "price": 1650000,
+        "province": "British Columbia",
+        "r_util": 150,
+        "rent": 5200,
+        "toronto": false
+      },
+      "version": 1
+    },
+    "victoria_bc_condo": {
+      "name": "Victoria (BC) \u00b7 Condo",
+      "patch": {
+        "condo": 520,
+        "down": 140000,
+        "o_util": 140,
+        "p_tax_rate_pct": 0.35,
+        "price": 700000,
+        "province": "British Columbia",
+        "r_util": 110,
+        "rent": 2600,
+        "toronto": false
+      },
+      "version": 1
+    }
+  },
+  "schema": "rbv.city_presets_golden.v1"
+}

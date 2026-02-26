@@ -1068,13 +1068,41 @@ def _rbv_make_scenario_config():
 
 
 def _rbv_make_scenario_payload(*, slot: str = "active", label: str | None = None, extra_meta: dict | None = None) -> dict:
+    state = _rbv_capture_scenario_state()
+
+    meta = dict(extra_meta or {})
+    # Always include a small amount of UI context for explainability/debugging.
+    try:
+        meta.setdefault("scenario_select", state.get("scenario_select"))
+        meta.setdefault("province", state.get("province"))
+        meta.setdefault("city_preset", state.get("city_preset"))
+    except Exception:
+        pass
+
+    # Attach preset identity + overrides in meta (does not affect simulation math).
+    try:
+        from rbv.ui.defaults import city_preset_identity, city_preset_overrides_from_state, city_preset_patch_values
+
+        _cp = state.get("city_preset")
+        _ident = city_preset_identity(_cp)
+        if isinstance(_ident, dict) and _ident.get("id"):
+            meta["city_preset_identity"] = _ident
+            _patch = city_preset_patch_values(_cp) or {}
+            # Store only values (exclude the marker itself for clarity)
+            if isinstance(_patch, dict):
+                meta["city_preset_patch"] = {k: v for k, v in _patch.items() if str(k) != "city_preset"}
+            meta["city_preset_overrides"] = city_preset_overrides_from_state(state, _cp)
+    except Exception:
+        # best-effort only; never fail snapshot export because of extra metadata
+        pass
+
     snap = build_scenario_snapshot(
-        _rbv_capture_scenario_state(),
+        state,
         slot=slot,
         label=label,
         app="Rent vs Buy Simulator",
         version=_rbv_version_line(),
-        meta=(extra_meta or {}),
+        meta=meta,
         allowed_keys=_rbv_scenario_allowed_keys(),
     )
     return snap.to_dict()
