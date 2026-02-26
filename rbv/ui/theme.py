@@ -3,7 +3,7 @@ import re
 # Minimal UI theme helpers (modular split)
 
 # --- Theme constants (premium cyan + violet on deep navy surfaces) ---
-BUY_COLOR = "#39E7FF"
+BUY_COLOR = "#14D8FF"
 RENT_COLOR = "#C084FC"
 
 BG_BLACK = "#0B1020"
@@ -17,7 +17,7 @@ TEXT_MUTED = "#9FB0C9"
 # NOTE: This is intentionally kept as one ordered CSS string to reduce brittle
 # multiple-injection interactions with Streamlit/BaseWeb. Later rules override earlier ones.
 _RBV_GLOBAL_CSS_RAW = r""":root{
-  --rbv-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --rbv-font-sans: "Manrope", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --rbv-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --rbv-space-1: 8px;
   --rbv-space-2: 12px;
@@ -3047,7 +3047,7 @@ div[data-testid="stButton"] > button:hover,
 div[data-testid="stButton"] button:hover,
 .stButton > button:hover{
   background: var(--action-bg) !important;
-  border-color: rgba(52,194,107,0.42) !important;
+  border-color: rgba(var(--buy-rgb),0.42) !important;
 }
 
 div[data-testid="stDownloadButton"] button:focus,
@@ -3058,7 +3058,7 @@ div[data-testid="stDownloadButton"] button:focus-visible,
 div[data-testid="stButton"] > button:focus-visible,
 div[data-testid="stButton"] button:focus-visible,
 .stButton > button:focus-visible{
-  box-shadow: 0 0 0 2px rgba(52,194,107,0.20) !important;
+  box-shadow: 0 0 0 2px rgba(var(--buy-rgb),0.20) !important;
 }
 
 
@@ -3721,9 +3721,79 @@ div[data-testid="stDownloadButton"] button{
 div[data-testid="stButton"] button:hover,
 div[data-testid="stDownloadButton"] button:hover{
   transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(52,194,107,0.18) !important;
+  box-shadow: 0 8px 22px rgba(var(--buy-rgb),0.18) !important;
 }
 
+/* City preset panel polish: alignment, helper note, and consistent action button accents. */
+.rbv-city-preset-help-note{
+  margin: 0.15rem 0 0.7rem 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+  color: rgba(241,241,243,0.76);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+.rbv-label-row.rbv-label-row-spacer{
+  visibility: hidden;
+  pointer-events: none;
+}
+.st-key-rbv_apply_city_preset div[data-testid="stButton"] button,
+.st-key-rbv_apply_city_preset button{
+  background: linear-gradient(180deg, rgba(var(--buy-rgb),0.22), rgba(var(--buy-rgb),0.14)) !important;
+  border: 1px solid rgba(var(--buy-rgb),0.42) !important;
+  color: rgba(248,250,255,0.98) !important;
+  box-shadow: 0 8px 24px rgba(var(--buy-rgb),0.14) !important;
+}
+.st-key-rbv_apply_city_preset div[data-testid="stButton"] button:hover,
+.st-key-rbv_apply_city_preset button:hover{
+  background: linear-gradient(180deg, rgba(var(--buy-rgb),0.28), rgba(var(--buy-rgb),0.18)) !important;
+  border-color: rgba(var(--buy-rgb),0.55) !important;
+  box-shadow: 0 10px 26px rgba(var(--buy-rgb),0.20) !important;
+}
+.st-key-rbv_reset_city_preset div[data-testid="stButton"] button,
+.st-key-rbv_reset_city_preset button{
+  background: linear-gradient(180deg, rgba(var(--rent-rgb),0.19), rgba(var(--rent-rgb),0.12)) !important;
+  border: 1px solid rgba(var(--rent-rgb),0.38) !important;
+  color: rgba(248,250,255,0.98) !important;
+  box-shadow: 0 8px 24px rgba(var(--rent-rgb),0.12) !important;
+}
+.st-key-rbv_reset_city_preset div[data-testid="stButton"] button:hover,
+.st-key-rbv_reset_city_preset button:hover{
+  background: linear-gradient(180deg, rgba(var(--rent-rgb),0.24), rgba(var(--rent-rgb),0.15)) !important;
+  border-color: rgba(var(--rent-rgb),0.52) !important;
+  box-shadow: 0 10px 26px rgba(var(--rent-rgb),0.18) !important;
+}
+
+/* Table corner + sticky-column cleanup: remove residual accent tints and inner square seams. */
+.fin-table-wrap .fin-table-scroll{
+  border-radius: inherit !important;
+  background: #141417 !important;
+}
+.fin-table-wrap .fin-table thead th,
+.fin-table-wrap .fin-table tbody td{
+  background-clip: padding-box !important;
+  background-image: none !important;
+}
+.fin-table-wrap .fin-table thead th:first-child,
+.fin-table-wrap .fin-table tbody td:first-child{
+  background-image: none !important;
+  filter: none !important;
+}
+.fin-table-wrap .fin-table thead th:first-child{
+  background-color: #141417 !important;
+  box-shadow: 1px 0 0 rgba(255,255,255,0.05) inset, 0 6px 14px -14px rgba(0,0,0,0.9) !important;
+}
+.fin-table-wrap .fin-table tbody tr:nth-child(odd) td:first-child{
+  background-color: #141417 !important;
+}
+.fin-table-wrap .fin-table tbody tr:nth-child(even) td:first-child{
+  background-color: #191b20 !important;
+}
+.fin-table-wrap .fin-table tbody tr:hover td:first-child{
+  background-color: #1d2026 !important;
+}
 /* Accessibility and perceived quality: smooth defaults + reduced motion support. */
 html:focus-within{ scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce){

@@ -45,7 +45,21 @@ from rbv.core.policy_canada import (
 )
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
-from rbv.ui.defaults import PRESETS, build_session_defaults
+from rbv.ui.defaults import (
+    PRESETS,
+    CITY_PRESETS,
+    CITY_PRESET_CUSTOM,
+    apply_city_preset_values,
+    build_city_preset_change_summary,
+    build_session_defaults,
+    city_preset_filter_region_options,
+    city_preset_filter_type_options,
+    city_preset_filtered_options,
+    city_preset_metadata,
+    city_preset_options,
+    city_preset_preview_summary_lines,
+    city_preset_values,
+)
 from rbv.core.scenario_snapshots import (
     build_scenario_config,
     build_scenario_snapshot,
@@ -885,6 +899,46 @@ try:
 except Exception:
     pass
 
+# Streamlit/BaseWeb selectboxes can remain open when users click the chevron again.
+# Add a safe DOM-level helper so clicking the right-edge toggle area on an open select
+# dispatches Escape and closes the menu without forcing a selection.
+try:
+    components.html(
+        """<script>
+(function(){
+  const doc = (window.parent && window.parent.document) ? window.parent.document : document;
+  if (!doc || doc.__rbvSelectArrowCloseInstalled) return;
+  doc.__rbvSelectArrowCloseInstalled = true;
+
+  function findTrigger(target){
+    try{
+      if (!target || !target.closest) return null;
+      return target.closest('[data-baseweb=\"select\"] [role=\"combobox\"], [data-baseweb=\"select\"] [role=\"button\"]');
+    } catch(e){ return null; }
+  }
+
+  doc.addEventListener('click', function(e){
+    const trigger = findTrigger(e.target);
+    if (!trigger) return;
+    const expanded = String(trigger.getAttribute('aria-expanded') || '').toLowerCase() === 'true';
+    if (!expanded) return;
+    let r = null;
+    try { r = trigger.getBoundingClientRect(); } catch(err) {}
+    if (!r || !r.width) return;
+    const toggleZone = Math.min(44, Math.max(30, r.width * 0.22));
+    if ((e.clientX || 0) < (r.right - toggleZone)) return;
+    try { e.preventDefault(); e.stopPropagation(); } catch(err) {}
+    try {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', code:'Escape', keyCode:27, which:27, bubbles:true}));
+    } catch(err) {}
+    try { trigger.blur(); } catch(err) {}
+  }, true);
+})();
+</script>""",
+        height=0,
+    )
+except Exception:
+    pass
 
 
 # --- 2. PRESETS & SESSION STATE ---
@@ -1639,6 +1693,53 @@ def check_custom():
     if not match_found:
         if st.session_state.scenario_select != "Custom":
             st.session_state.scenario_select = "Custom"
+
+
+def _rbv_fmt_short_value(v):
+    if isinstance(v, bool):
+        return "ON" if v else "OFF"
+    try:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            x = float(v)
+            if abs(x) >= 1000.0:
+                return f"{x:,.0f}"
+            if abs(x).is_integer():
+                return f"{x:.0f}"
+            return f"{x:.2f}".rstrip("0").rstrip(".")
+    except Exception:
+        pass
+    if v is None:
+        return "—"
+    return str(v)
+
+
+def apply_city_preset() -> None:
+    """Apply selected city preset to session state (R3 preview)."""
+    selection = str(st.session_state.get("city_preset", CITY_PRESET_CUSTOM) or CITY_PRESET_CUSTOM)
+    changes = apply_city_preset_values(st.session_state, selection)
+    st.session_state["_rbv_city_preset_last_name"] = selection
+    if selection == CITY_PRESET_CUSTOM:
+        st.session_state["_rbv_city_preset_last_summary_lines"] = []
+        st.session_state["_rbv_city_preset_last_banner"] = "City preset cleared (Custom). Manual values are unchanged."
+        return
+
+    lines = build_city_preset_change_summary(changes, max_items=8)
+    st.session_state["_rbv_city_preset_last_summary_lines"] = lines
+    if changes:
+        st.session_state["_rbv_city_preset_last_banner"] = f"Applied {selection}: {len(changes)} field{'s' if len(changes) != 1 else ''} updated."
+    else:
+        st.session_state["_rbv_city_preset_last_banner"] = f"{selection} already matches current inputs."
+
+
+def _render_city_preset_summary_sidebar() -> None:
+    banner = str(st.session_state.get("_rbv_city_preset_last_banner", "") or "").strip()
+    if banner:
+        sidebar_hint(banner)
+    lines = st.session_state.get("_rbv_city_preset_last_summary_lines", [])
+    if isinstance(lines, list) and lines:
+        safe_items = "".join([f"<li>{html.escape(str(x))}</li>" for x in lines if str(x).strip()])
+        if safe_items:
+            st.markdown(f"<ul class='rbv-hint' style='margin:4px 0 8px 16px; padding-left:10px;'>{safe_items}</ul>", unsafe_allow_html=True)
 
 # --- 3. DARK FINTECH THEME (CSS) ---
 # --- UI override: sidebar inputs + tooltip styling + help-icon alignment (robust) ---
@@ -2744,6 +2845,96 @@ if "down_payment_source" not in st.session_state:
     st.session_state["down_payment_source"] = "Traditional"
 
 # Layout goal: 4-up grid with sliders grouped together for a clean/consistent look.
+st.markdown('<div class="rbv-input-subhead">City preset (optional)</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="rbv-city-preset-help-note"><b>What this does:</b> City presets are optional quick-starts that prefill city/province context (including transfer-tax toggles where relevant) and common baseline assumptions. After applying, every field remains fully editable.</div>',
+    unsafe_allow_html=True,
+)
+_city_region_opts = city_preset_filter_region_options()
+_city_type_opts = city_preset_filter_type_options()
+_city_filter_region = str(st.session_state.get("city_preset_filter_region", _city_region_opts[0]) or _city_region_opts[0])
+if _city_filter_region not in _city_region_opts:
+    _city_filter_region = _city_region_opts[0]
+    st.session_state["city_preset_filter_region"] = _city_filter_region
+_city_filter_type = str(st.session_state.get("city_preset_filter_type", _city_type_opts[0]) or _city_type_opts[0])
+if _city_filter_type not in _city_type_opts:
+    _city_filter_type = _city_type_opts[0]
+    st.session_state["city_preset_filter_type"] = _city_filter_type
+_city_filter_cols = st.columns([1.15, 1.0, 1.2])
+with _city_filter_cols[0]:
+    rbv_selectbox("Preset region", options=_city_region_opts, index=_city_region_opts.index(_city_filter_region), key="city_preset_filter_region")
+with _city_filter_cols[1]:
+    rbv_selectbox("Home type", options=_city_type_opts, index=_city_type_opts.index(_city_filter_type), key="city_preset_filter_type")
+with _city_filter_cols[2]:
+    st.text_input("Find preset", key="city_preset_filter_query", placeholder="Search city/province")
+
+_city_opts = city_preset_filtered_options(
+    region=st.session_state.get("city_preset_filter_region"),
+    home_type=st.session_state.get("city_preset_filter_type"),
+    query=st.session_state.get("city_preset_filter_query"),
+)
+if not _city_opts:
+    _city_opts = city_preset_options()
+_city_cur = str(st.session_state.get("city_preset", CITY_PRESET_CUSTOM) or CITY_PRESET_CUSTOM)
+if _city_cur not in _city_opts:
+    if _city_cur != CITY_PRESET_CUSTOM and _city_cur in city_preset_options():
+        _city_opts = [*_city_opts, _city_cur]
+    else:
+        _city_cur = CITY_PRESET_CUSTOM
+        st.session_state["city_preset"] = CITY_PRESET_CUSTOM
+
+_city_cols = st.columns([2.1, 0.95, 0.95])
+with _city_cols[0]:
+    rbv_selectbox(
+        "City preset",
+        options=_city_opts,
+        index=_city_opts.index(_city_cur),
+        key="city_preset",
+        tooltip="Optional starter values for province, Toronto MLTT toggle, and typical cost anchors. Values remain fully editable after apply.",
+    )
+with _city_cols[1]:
+    st.markdown('<div class="rbv-label-row rbv-label-row-spacer"><div class="rbv-label-text">&nbsp;</div></div>', unsafe_allow_html=True)
+    if st.button("Apply preset", key="rbv_apply_city_preset", use_container_width=True):
+        apply_city_preset()
+with _city_cols[2]:
+    st.markdown('<div class="rbv-label-row rbv-label-row-spacer"><div class="rbv-label-text">&nbsp;</div></div>', unsafe_allow_html=True)
+    if st.button("Reset", key="rbv_reset_city_preset", use_container_width=True):
+        st.session_state["city_preset"] = CITY_PRESET_CUSTOM
+        st.session_state["_rbv_city_preset_last_name"] = CITY_PRESET_CUSTOM
+        st.session_state["_rbv_city_preset_last_summary_lines"] = []
+        st.session_state["_rbv_city_preset_last_banner"] = "City preset cleared (Custom). Manual values are unchanged."
+
+st.caption("Use presets as a starting point only. You can tweak every input after Apply. Tip: you can now click a dropdown chevron again (or press Esc) to close without selecting.")
+
+_city_preview_name = st.session_state.get("city_preset")
+_city_preview = city_preset_values(_city_preview_name)
+if isinstance(_city_preview, dict):
+    _meta_prev = city_preset_metadata(_city_preview_name)
+    _prov_prev = str(_city_preview.get("province", "") or "")
+    _mltt_prev = "MLTT on" if bool(_city_preview.get("toronto", False)) else "MLTT off"
+    _price_prev = _rbv_fmt_short_value(_city_preview.get("price"))
+    _rent_prev = _rbv_fmt_short_value(_city_preview.get("rent"))
+    sidebar_hint(f"Preview: {_prov_prev} · {_mltt_prev} · Price ${_price_prev} · Rent ${_rent_prev}/mo")
+    sidebar_hint(f"Preset meta: {str(_meta_prev.get('housing_type',''))} · {str(_meta_prev.get('province_code','') or _meta_prev.get('province',''))}")
+    for _line in city_preset_preview_summary_lines(_city_preview_name, max_items=4):
+        sidebar_hint(_line)
+    if bool(_city_preview.get("toronto", False)):
+        sidebar_hint("Toronto presets auto-enable the Toronto Municipal Land Transfer Tax toggle.")
+
+    try:
+        _tmp_state = dict(st.session_state)
+        _pending_changes = apply_city_preset_values(_tmp_state, _city_preview_name)
+    except Exception:
+        _pending_changes = []
+    _pending_lines = build_city_preset_change_summary(_pending_changes, max_items=5)
+    if _pending_lines:
+        _safe_items = "".join([f"<li>{html.escape(str(x))}</li>" for x in _pending_lines if str(x).strip()])
+        if _safe_items:
+            st.markdown(f"<div class='rbv-hint' style='margin:2px 0 4px 0;'>If applied now, this preset would update:</div><ul class='rbv-hint' style='margin:0 0 8px 16px; padding-left:10px;'>{_safe_items}</ul>", unsafe_allow_html=True)
+elif len(_city_opts) == 1:
+    sidebar_hint("No presets match the current filters. Adjust region/type/search filters to see more options.")
+_render_city_preset_summary_sidebar()
+
 st.markdown('<div class="rbv-input-subhead">Purchase & Mortgage</div>', unsafe_allow_html=True)
 
 vals = st.session_state  # fallback source for initial widget values
@@ -6448,6 +6639,12 @@ elif tab == _TAB_ASSUM:
         st.markdown(
             f"""<div class="note-box"><b>Tax schedule date</b><br>
             Transfer-tax schedules are evaluated as of <code>{_tax_asof.isoformat()}</code>. You can change this in the sidebar (<i>Tax rules as of</i>) to control date-dependent rules (e.g., Toronto MLTT luxury brackets for &gt;$3M).</div>""",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            """<div class="note-box"><b>City presets (optional quick-start)</b><br>
+            City presets are convenience starters for common markets. They speed up setup by prefilling city/province context and baseline assumptions, but they are not recommendations and do not lock your inputs. Always review and edit values for your own scenario.</div>""",
             unsafe_allow_html=True,
         )
 
