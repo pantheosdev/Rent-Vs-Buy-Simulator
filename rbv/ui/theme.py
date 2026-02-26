@@ -1,3 +1,4 @@
+import hashlib
 import re
 
 # Minimal UI theme helpers (modular split)
@@ -24,13 +25,24 @@ _RBV_GLOBAL_CSS_RAW = r""":root{
   --rbv-space-3: 16px;
   --rbv-space-4: 24px;
   --rbv-space-5: 32px;
+  --rbv-radius-sm: 10px;
+  --rbv-radius-md: 14px;
+  --rbv-radius-lg: 18px;
+  --rbv-text-1: rgba(248,250,252,0.96);
+  --rbv-text-2: rgba(241,241,243,0.88);
+  --rbv-text-3: rgba(159,176,201,0.92);
+  --rbv-font-size-base: clamp(14px, 0.84rem + 0.15vw, 15px);
+  --rbv-line-height-base: 1.45;
+  --rbv-shadow-1: 0 8px 20px rgba(0,0,0,0.35);
+  --rbv-shadow-2: 0 14px 30px rgba(0,0,0,0.45);
+  --rbv-shadow-3: 0 18px 44px rgba(0,0,0,0.55);
 }
 
 /* --- Global typography (Sprint 1) --- */
 html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"]{
   font-family: var(--rbv-font) !important;
-  font-size: 13px !important;
-  line-height: 1.35 !important;
+  font-size: var(--rbv-font-size-base) !important;
+  line-height: var(--rbv-line-height-base) !important;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -48,18 +60,18 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
   justify-content: center !important;
   overflow-x: auto !important;
   scrollbar-width: none; /* Firefox */
-  gap: 10px !important;
-  padding: 6px 8px !important;
+  gap: var(--rbv-space-2) !important;
+  padding: 6px var(--rbv-space-1) !important;
   background: rgba(255,255,255,0.03) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  border-radius: 14px !important;
+  border-radius: var(--rbv-radius-md) !important;
 }
 .st-key-rbv_tab_nav div[role="radiogroup"]::-webkit-scrollbar{ display:none; height:0; }
 .st-key-rbv_tab_nav div[data-baseweb="radio"]{ margin: 0 !important; }
 .st-key-rbv_tab_nav input{ display:none !important; }
 .st-key-rbv_tab_nav label{
-  padding: 7px 10px !important;
-  border-radius: 12px !important;
+  padding: 7px var(--rbv-space-2) !important;
+  border-radius: var(--rbv-radius-sm) !important;
   border: 1px solid rgba(255,255,255,0.00) !important;
   background: transparent !important;
   color: rgba(241,241,243,0.78) !important;
@@ -89,7 +101,7 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
 .rbv-label-text{
   font-weight: 500;
   font-size: 0.95rem;
-  color: rgba(241,241,243,0.92);
+  color: var(--rbv-text-2);
   line-height: 1.2;
 }
 .rbv-help{ position:relative; display:inline-flex; align-items:center; justify-content:center; overflow: visible; z-index: 1000000; }
@@ -142,7 +154,7 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
   color: #E6EDF7;
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: var(--rbv-space-2) var(--rbv-space-2);
   font-size: 12px;
   line-height: 1.35;
   width: 260px;
@@ -215,9 +227,9 @@ body div[data-baseweb="popover"] div[role="tooltip"] > div{
   opacity: 1 !important;
   color: #E6EDF7 !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 14px 16px !important;
-  line-height: 1.35 !important;
+  line-height: var(--rbv-line-height-base) !important;
   max-width: min(320px, 86vw) !important;
   box-shadow: 0 16px 40px rgba(0,0,0,0.70) !important;
   backdrop-filter: none !important;
@@ -310,10 +322,10 @@ div[data-baseweb="popover"] div[role="tooltip"] > div{
   background: #0F1728 !important; /* fully opaque */
   color: #E6EDF7 !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 12px 14px !important; /* keep text away from corners */
   max-width: 280px !important;   /* smaller than sidebar */
-  line-height: 1.35 !important;
+  line-height: var(--rbv-line-height-base) !important;
   box-shadow: 0 16px 40px rgba(0,0,0,0.65) !important;
   overflow-wrap: break-word !important;
   word-break: normal !important;
@@ -370,20 +382,20 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
     text-align: center;
     padding: 18px 16px;
     margin: 14px 0 18px 0;
-    border-radius: 18px;
+    border-radius: var(--rbv-radius-lg);
     font-weight: 900;
     letter-spacing: 0.03em;
     font-size: 1.55rem;
-    color: #F7FAFF;
+    color: var(--rbv-text-1);
     background:
         linear-gradient(90deg, rgba(61,155,255,0.18) 0%, rgba(230,184,0,0.14) 100%),
         radial-gradient(80% 120% at 50% 0%, rgba(61,155,255,0.18) 0%, rgba(0,0,0,0.0) 70%),
         linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
     border: 1px solid rgba(255,255,255,0.14);
-    box-shadow: 0 18px 44px rgba(0,0,0,0.55);
+    box-shadow: var(--rbv-shadow-3);
 }
 @media (max-width: 768px){
-    .title-banner{ font-size: 1.25rem; padding: 14px 12px; border-radius: 16px; }
+    .title-banner{ font-size: 1.25rem; padding: 14px 12px; border-radius: var(--rbv-radius-md); }
 }
 
 
@@ -392,9 +404,9 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
   display:flex;
   align-items:flex-start;
   gap:12px;
-  padding: 12px 14px;
+  padding: var(--rbv-space-2) var(--rbv-space-2);
   margin: 0 0 14px 0;
-  border-radius: 16px;
+  border-radius: var(--rbv-radius-md);
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.12);
   box-shadow: 0 16px 36px rgba(0,0,0,0.50);
@@ -559,7 +571,7 @@ div[data-baseweb="popover"] div[data-baseweb="menu"] {
     background: #0F1728 !important;
     color: #E6EDF7 !important;
     border: 1px solid rgba(255,255,255,0.10) !important;
-    border-radius: 12px !important;
+    border-radius: var(--rbv-radius-sm) !important;
     overflow: hidden !important;
 }
 
@@ -630,7 +642,7 @@ ul[role="listbox"],
 div[role="listbox"]{
     background: rgba(16, 16, 18, 0.98) !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
-    border-radius: 12px !important;
+    border-radius: var(--rbv-radius-sm) !important;
 }
 
 [role="listbox"] [role="option"]{
@@ -654,7 +666,7 @@ div[data-baseweb="menu"] > div,
 div[role="dialog"]{
     background: rgba(16, 16, 18, 0.98) !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
-    border-radius: 12px !important;
+    border-radius: var(--rbv-radius-sm) !important;
 }
 div[data-baseweb="menu"] *{ color: #E6EDF7 !important; }
 
@@ -680,7 +692,7 @@ div[data-baseweb="popover"] * {
     /* Sidebar expanders get a subtle "settings console" card feel */
     section[data-testid="stSidebar"] div[data-testid="stExpander"]{
         border: 1px solid rgba(255,255,255,0.08) !important;
-        border-radius: 14px !important;
+        border-radius: var(--rbv-radius-md) !important;
         background: rgba(255,255,255,0.02) !important;
         /* Tooltips are absolutely-positioned; overflow:hidden clips them inside the sidebar. */
         overflow: visible !important;
@@ -861,7 +873,7 @@ div[data-testid="stDownloadButton"] button:active {
   border: 1px solid rgba(148,163,184,0.18);
   color: #CBD5E1;
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: var(--rbv-space-2) var(--rbv-space-2);
   font-size: 13px;
   line-height: 1.35;
   box-shadow: 0 10px 25px rgba(0,0,0,0.35);
@@ -917,7 +929,7 @@ div[data-testid="stTabs"]{
 [data-testid="stDataFrame"]{
     background-color: var(--rbv-input) !important;
     border: 1px solid #1F2937 !important;
-    border-radius: 14px !important;
+    border-radius: var(--rbv-radius-md) !important;
     overflow: hidden !important;
     font-family: var(--rbv-font) !important;
 }
@@ -935,7 +947,7 @@ div[data-testid="stTabs"]{
     background-color: var(--rbv-input) !important;
     color: #E2E8F0 !important;
     font-weight: 600 !important;
-    font-size: 13px !important;
+    font-size: var(--rbv-font-size-base) !important;
     letter-spacing: 0.3px !important;
     border-bottom: 1px solid #1F2937 !important;
     border-right: 1px solid #1F2937 !important;
@@ -949,7 +961,7 @@ div[data-testid="stTabs"]{
 [data-testid="stDataFrame"] tbody td{
     background-color: var(--rbv-input) !important;
     color: #F1F5F9 !important;
-    font-size: 13px !important;
+    font-size: var(--rbv-font-size-base) !important;
     border-bottom: 1px solid #1F2937 !important;
     border-right: 1px solid #1F2937 !important;
     padding: 8px 12px !important;
@@ -1152,7 +1164,7 @@ div[data-testid="stButton"] > button, div[data-testid="stButton"] button, .stBut
         background: linear-gradient(180deg, rgba(48,93,196,0.95), rgba(32,67,150,0.95)) !important;
         color: #EAF1FF !important;
         border: 1px solid rgba(155,190,255,0.42) !important;
-        border-radius: 12px !important;
+        border-radius: var(--rbv-radius-sm) !important;
         font-weight: 700 !important;
         box-shadow: 0 10px 24px -16px rgba(34,84,195,0.85), inset 0 1px 0 rgba(255,255,255,0.16) !important;
         transition: background 0.14s ease, border-color 0.14s ease, transform 0.08s ease;
@@ -1277,7 +1289,7 @@ div[data-testid="stNumberInput"] input{
     radial-gradient(130% 90% at 6% -20%, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.00) 55%),
     linear-gradient(160deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 45%, rgba(255,255,255,0.02) 100%);
   border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 16px;
+  border-radius: var(--rbv-radius-md);
   padding: 13px 15px;
   position: relative;
   /* Tooltips must be able to escape the card bounds */
@@ -1406,7 +1418,7 @@ section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] button div{
   margin-left:8px;
   transform:translateY(-1px);
 }
-.kpi-help:hover{ border-color: rgba(255,255,255,0.26); color: rgba(241,241,243,0.92); background:rgba(255,255,255,0.08); }
+.kpi-help:hover{ border-color: rgba(255,255,255,0.26); color: var(--rbv-text-2); background:rgba(255,255,255,0.08); }
 .kpi-help[data-tip]:hover::after{
   content: attr(data-tip);
   position:absolute;
@@ -1579,7 +1591,7 @@ div[data-testid="stSidebar"] div[data-baseweb="tooltip"] > div[role="tooltip"]{
   overflow: visible !important;
 }
 div[data-testid="stSidebar"] div[data-baseweb="tooltip"] > div[role="tooltip"] > div{
-  padding: 7px 10px !important;
+  padding: 7px var(--rbv-space-2) !important;
   font-size: 11px !important;
   max-width: 280px !important;
   box-sizing: border-box !important;
@@ -1640,14 +1652,14 @@ div[data-testid="stSidebar"] div[data-baseweb="tooltip"] [data-baseweb="arrow"]{
     div[data-baseweb="menu"]{
         background: #1A1A1A !important;
         border: 1px solid rgba(255,255,255,0.14) !important;
-        border-radius: 12px !important;
+        border-radius: var(--rbv-radius-sm) !important;
         box-shadow: 0 14px 40px rgba(0,0,0,0.55) !important;
         overflow: hidden !important;
     }
     div[data-baseweb="menu"] [role="option"]{
         color: #E6EDF7 !important;
         background: transparent !important;
-        font-size: 13px !important;
+        font-size: var(--rbv-font-size-base) !important;
         line-height: 1.25 !important;
     }
     div[data-baseweb="menu"] [role="option"]:hover{
@@ -1663,7 +1675,7 @@ div[data-testid="stSidebar"] div[data-baseweb="tooltip"] [data-baseweb="arrow"]{
         color: #E6EDF7 !important;
         border: 1px solid rgba(255,255,255,0.14) !important;
         box-shadow: 0 14px 40px rgba(0,0,0,0.55) !important;
-        border-radius: 12px !important;
+        border-radius: var(--rbv-radius-sm) !important;
         padding: 10px 12px !important;
         font-size: 12px !important;
         line-height: 1.25 !important;
@@ -1772,13 +1784,13 @@ button[data-testid="stTooltipIcon"]:hover svg{
 *[role="listbox"] {
   background: var(--rbv-panel, #1A1A1A) !important;
   border: 1px solid rgba(255,255,255,0.14) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   box-shadow: 0 18px 60px rgba(0,0,0,0.55) !important;
 }
 *[role="option"] {
   background: transparent !important;
   color: rgba(235,242,255,0.92) !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
 }
 *[role="option"]:hover {
   background: rgba(255,255,255,0.12) !important;
@@ -1846,7 +1858,7 @@ div[data-baseweb="popover"] div[role="tooltip"] > div{
   border: 1px solid rgba(255,255,255,0.10) !important;
   color: #E6EDF7 !important;
   padding: 16px 20px !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   box-shadow: 0 16px 40px rgba(0,0,0,0.65) !important;
   font-size: 12px !important;
   line-height: 1.40 !important;
@@ -1895,7 +1907,7 @@ div[data-baseweb="popover"] [data-baseweb="arrow"]{
       background: rgba(13, 20, 35, 0.98) !important;
       border: 1px solid rgba(255,255,255,0.14) !important;
       color: rgba(235,242,255,0.94) !important;
-      border-radius: 12px !important;
+      border-radius: var(--rbv-radius-sm) !important;
 padding: 14px 18px !important;
       box-shadow: 0 12px 35px rgba(0,0,0,0.55) !important;
       font-size: 12px !important;
@@ -1929,7 +1941,7 @@ div[data-baseweb="popover"] div[role="tooltip"]{
   background: rgba(13, 20, 35, 0.98) !important;
   color: #EAF2FF !important;
   border: 1px solid rgba(255,255,255,0.14) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   box-shadow: 0 12px 35px rgba(0,0,0,0.55) !important;
   padding: 14px 18px !important;
   line-height: 1.25 !important;
@@ -1984,11 +1996,11 @@ div[role="tooltip"] > div{
   background: rgba(13, 20, 35, 0.98) !important;
   color: rgba(235,242,255,0.96) !important;
   border: 1px solid rgba(255,255,255,0.14) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 14px 18px !important;
   box-shadow: 0 14px 40px rgba(0,0,0,0.55) !important;
   box-sizing: border-box !important;
-  line-height: 1.35 !important;
+  line-height: var(--rbv-line-height-base) !important;
   font-size: 0.88rem !important;
   max-width: 340px !important;
 }
@@ -2007,7 +2019,7 @@ div[role="tooltip"] > div p{ margin: 0 !important; }
       background: #0F1728 !important;
       color: #E6EDF7 !important;
       border: 1px solid rgba(255,255,255,0.12) !important;
-      border-radius: 12px !important;
+      border-radius: var(--rbv-radius-sm) !important;
       padding: 16px 20px !important;
       max-width: 460px !important;
       line-height: 1.4 !important;
@@ -2041,7 +2053,7 @@ div[data-testid="stSidebar"] div[data-baseweb="popover"] div[role="tooltip"] > d
   background: #0F1728 !important;      /* fully opaque */
   color: #E6EDF7 !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 18px 22px !important;       /* more breathing room to avoid corner clipping */
   max-width: 440px !important;
   line-height: 1.45 !important;
@@ -2142,7 +2154,7 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
   background: #0F1728 !important;
   color: #e7eefc !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 10px 12px !important;
   box-shadow: 0 14px 34px rgba(0,0,0,0.55) !important;
   font-size: 12px !important;
@@ -2176,7 +2188,7 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
 }
 .verdict-banner .verdict-tag{
   font-weight: 900 !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
   letter-spacing: 0.08em !important;
   opacity: 0.88 !important;
   margin-bottom: 6px !important;
@@ -2237,7 +2249,7 @@ div[data-baseweb="tooltip"] > div{
   background: var(--tt-bg) !important;
   border: 1px solid var(--tt-border) !important;
   color: var(--tt-text) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 12px 14px !important;
   box-sizing: border-box !important;
   overflow: visible !important;
@@ -2322,7 +2334,7 @@ body > div[data-baseweb="portal"] ul[role="listbox"]{
   background: var(--rbv-panel) !important;
   color: rgba(235,242,255,0.94) !important;
   border: 1px solid rgba(255,255,255,0.14) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   box-shadow: 0 18px 60px rgba(0,0,0,0.55) !important;
 }
 body > div[data-baseweb="portal"] [role="option"],
@@ -2434,7 +2446,7 @@ body .stApp div[data-baseweb="select"] input{
   color: var(--rbv-input-text) !important;
   -webkit-text-fill-color: var(--rbv-input-text) !important;
   font-weight: 550 !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
   padding: 0 12px !important;
   border-radius: var(--rbv-input-radius) !important;
 }
@@ -2452,7 +2464,7 @@ body .stApp div[data-baseweb="textarea"] textarea{
   color: var(--rbv-input-text) !important;
   -webkit-text-fill-color: var(--rbv-input-text) !important;
   font-weight: 520 !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
   padding: 10px 12px !important;
   border-radius: var(--rbv-input-radius) !important;
 }
@@ -2526,7 +2538,7 @@ div[data-baseweb="popover"] div[role="tooltip"] > div{
   background: rgba(16, 16, 18, 0.98) !important;
   color: rgba(241,241,243,0.92) !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   padding: 14px 18px !important;
   box-shadow: 0 12px 35px rgba(0,0,0,0.55) !important;
   box-sizing: border-box !important;
@@ -2601,7 +2613,7 @@ div[data-baseweb="popover"] [data-baseweb="arrow"]{
           letter-spacing: normal !important;
           font-size: 11px !important;
           font-weight: 500 !important;
-          line-height: 1.35 !important;
+          line-height: var(--rbv-line-height-base) !important;
         }
         .bias-pill .s{
           margin-top: 3px;
@@ -2630,7 +2642,7 @@ div[data-baseweb="popover"] [data-baseweb="arrow"]{
         /* Dataframes: keep dark + readable */
         div[data-testid="stDataFrame"]{
           border: 1px solid rgba(255,255,255,0.12) !important;
-          border-radius: 14px !important;
+          border-radius: var(--rbv-radius-md) !important;
           background: rgba(255,255,255,0.03) !important;
           overflow: hidden !important;
         }
@@ -2658,7 +2670,7 @@ div[data-baseweb="popover"] [data-baseweb="arrow"]{
           background: rgba(16, 16, 18, 0.98) !important;     /* fully opaque */
           color: rgba(241,241,243,0.92) !important;
           border: 1px solid rgba(255,255,255,0.12) !important;
-          border-radius: 14px !important;
+          border-radius: var(--rbv-radius-md) !important;
           padding: 18px 22px !important;     /* extra padding fixes corner clipping */
           max-width: 440px !important;
           line-height: 1.45 !important;
@@ -2765,7 +2777,7 @@ div[data-baseweb="popover"] [data-baseweb="arrow"]{
           padding: 0.70rem 0.95rem;
           background: rgba(255,255,255,0.03);
           border: 1px solid rgba(255,255,255,0.10);
-          border-radius: 16px;
+          border-radius: var(--rbv-radius-md);
           box-shadow: 0 10px 24px rgba(0,0,0,0.45);
         }
 
@@ -2864,7 +2876,7 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
     radial-gradient(70% 120% at 50% 0%, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 45%, rgba(0,0,0,0.0) 100%),
     linear-gradient(180deg, rgba(255,255,255,0.028) 0%, rgba(255,255,255,0.016) 100%);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 18px;
+  border-radius: var(--rbv-radius-lg);
   padding: 10px 14px 10px 14px;
   margin: 6px 0 18px 0;
   box-shadow: 0 14px 34px rgba(0,0,0,0.38);
@@ -2950,7 +2962,7 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
 .stApp div[data-baseweb="textarea"] > div > div,
 .stApp div[data-testid="stNumberInput"] div[data-baseweb="input"] > div,
 .stApp div[data-testid="stNumberInput"] div[data-baseweb="input"] > div > div{
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   overflow: hidden !important;
 }
 
@@ -2961,7 +2973,7 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
 .stApp div[data-testid="stNumberInput"] div[data-baseweb="input"] > div:focus-within{
   border-color: rgba(255,255,255,0.28) !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.16) !important;
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
 }
 
 /* ================= Phase 3C: Responsive columns (4→2→1) =================
@@ -3333,7 +3345,7 @@ body .stApp :is(
   color: var(--rbv-input-text) !important;
   -webkit-text-fill-color: var(--rbv-input-text) !important;
   font-weight: 600 !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
   border-radius: 0 !important;
 }
 body .stApp div[data-testid="stTextArea"] textarea{
@@ -3344,7 +3356,7 @@ body .stApp div[data-testid="stTextArea"] textarea{
   color: var(--rbv-input-text) !important;
   -webkit-text-fill-color: var(--rbv-input-text) !important;
   font-weight: 560 !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
   padding: 10px 12px !important;
 }
 body .stApp :is(
@@ -3364,7 +3376,7 @@ body .stApp div[data-testid="stSelectbox"] div[data-baseweb="select"] > div{
 body .stApp div[data-testid="stSelectbox"] div[data-baseweb="select"] span{
   color: var(--rbv-input-text) !important;
   font-weight: 600 !important;
-  font-size: 13px !important;
+  font-size: var(--rbv-font-size-base) !important;
   line-height: 1.2 !important;
 }
 body .stApp div[data-testid="stSelectbox"] svg{
@@ -3422,7 +3434,7 @@ _RBV_ACTION_BUTTONS_CSS = r"""
 div[data-testid="stButton"] button,
 div[data-testid="stDownloadButton"] button,
 button[data-testid^="baseButton-"]{
-  border-radius: 14px !important;
+  border-radius: var(--rbv-radius-md) !important;
   letter-spacing: 0.01em !important;
   transition: transform 120ms ease, box-shadow 140ms ease, filter 140ms ease, border-color 140ms ease !important;
 }
@@ -3526,7 +3538,7 @@ button[data-testid="baseButton-secondary"]:focus-visible{
   margin: 6px 0;
 }
 .rbv-kv-key{
-  color: rgba(241,241,243,0.92);
+  color: var(--rbv-text-2);
   font-weight: 560;
 }
 .rbv-kv-val{
@@ -3578,14 +3590,14 @@ h1{ font-size: clamp(1.65rem, 2.7vw, 2.15rem) !important; margin-bottom: 18px !i
   background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015)) !important;
   border: 1px solid rgba(255,255,255,0.13) !important;
   box-shadow: 0 14px 30px rgba(0,0,0,0.30) !important;
-  border-radius: 14px !important;
+  border-radius: var(--rbv-radius-md) !important;
 }
 
 /* Inputs were visually flat; add clear focus and hover affordances. */
 div[data-baseweb="input"] > div,
 div[data-baseweb="select"] > div,
 div[data-baseweb="textarea"] > div{
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   border-color: rgba(255,255,255,0.16) !important;
   background: rgba(255,255,255,0.04) !important;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
@@ -3676,7 +3688,7 @@ div[data-testid="stMainBlockContainer"] .block-container{
     linear-gradient(115deg, rgba(61,155,255,0.18) 0%, rgba(230,184,0,0.14) 56%, rgba(255,255,255,0.02) 100%) !important;
 }
 .rbv-disclaimer{
-  border-radius: 14px !important;
+  border-radius: var(--rbv-radius-md) !important;
   background: linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.02) 100%) !important;
 }
 
@@ -3714,7 +3726,7 @@ div[data-testid="stMainBlockContainer"] .block-container{
 /* Buttons: clearer hierarchy and less "default Streamlit" appearance. */
 div[data-testid="stButton"] button,
 div[data-testid="stDownloadButton"] button{
-  border-radius: 12px !important;
+  border-radius: var(--rbv-radius-sm) !important;
   font-weight: 640 !important;
   transition: transform .12s ease, box-shadow .18s ease, background-color .18s ease !important;
 }
@@ -3835,6 +3847,12 @@ def _dynamic_palette_vars_css(buy_color: str, rent_color: str) -> str:
   --rbv-surface-2: {SURFACE_INPUT};
   --rbv-border: {BORDER};
   --rbv-muted: {TEXT_MUTED};
+  --rbv-text-strong: rgba(248,250,252,0.96);
+  --rbv-text-body: rgba(241,241,243,0.88);
+  --rbv-text-muted: rgba(159,176,201,0.92);
+  --rbv-elev-1: 0 8px 20px rgba(0,0,0,0.35);
+  --rbv-elev-2: 0 14px 30px rgba(0,0,0,0.45);
+  --rbv-elev-3: 0 18px 44px rgba(0,0,0,0.55);
 }}
 
 /* Force key areas to consume the canonical palette variables (wins over older style blocks). */
@@ -3861,8 +3879,6 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
     css = re.sub(r"(?i)#2f8bff", buy_color, css)
     css = re.sub(r"(?i)#3d9bff", buy_color, css)
     css = re.sub(r"(?i)#66c2ff", buy_color, css)  # transitional PR10 cyan
-    css = re.sub(r"(?i)#4fd1c5", buy_color, css)  # stale teal from v2_60 overrides
-    css = re.sub(r"(?i)#34c26b", buy_color, css)  # action green -> buy accent for neutrality
     css = re.sub(r"(?i)#e6b800", rent_color, css)
 
     br, bg, bb = _hex_to_rgb(buy_color)
@@ -3873,12 +3889,8 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
     css = re.sub(r"rgba\(\s*61\s*,\s*155\s*,\s*255\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
     css = re.sub(r"rgb\(\s*47\s*,\s*139\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
     css = re.sub(r"rgb\(\s*61\s*,\s*155\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
-    css = re.sub(r"rgba\(\s*79\s*,\s*209\s*,\s*197\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
-    css = re.sub(r"rgb\(\s*79\s*,\s*209\s*,\s*197\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
     css = re.sub(r"rgba\(\s*102\s*,\s*194\s*,\s*255\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
     css = re.sub(r"rgb\(\s*102\s*,\s*194\s*,\s*255\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
-    css = re.sub(r"rgba\(\s*52\s*,\s*194\s*,\s*107\s*,", f"rgba({br},{bg},{bb},", css, flags=re.IGNORECASE)
-    css = re.sub(r"rgb\(\s*52\s*,\s*194\s*,\s*107\s*\)", f"rgb({br},{bg},{bb})", css, flags=re.IGNORECASE)
 
     # Legacy rent gold.
     css = re.sub(r"rgba\(\s*230\s*,\s*184\s*,\s*0\s*,", f"rgba({rr},{rg},{rb},", css, flags=re.IGNORECASE)
@@ -3890,14 +3902,10 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
 def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_COLOR) -> None:
     """Inject the RBV global stylesheet.
 
-    NOTE:
-    Streamlit reruns can recreate the page DOM and drop previously injected <style> tags.
-    If we inject CSS only "once" using a session_state flag, the app can enter a
-    "missing CSS" state after reruns (e.g., toggling Fast↔Quality), which makes
-    tooltip bubbles render inline and layouts appear broken.
-
-    Therefore we intentionally inject on *every* run. Duplicate CSS blocks are
-    harmless and are preferable to intermittent styling loss.
+    Phase 1 performance hardening:
+    - Avoid reinjecting identical CSS on every rerun (reduces style recalculation churn).
+    - Periodically refresh the style block as a safety net for rare DOM rebuilds that can
+      drop previously injected tags during Streamlit reruns.
     """
 
     css = _dynamic_palette_vars_css(buy_color, rent_color) + _apply_palette(
@@ -3906,12 +3914,24 @@ def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_
         rent_color,
     )
 
-    st.markdown(
-        "<style>\n" + css + "\n</style>",
-        unsafe_allow_html=True,
+    css_hash = hashlib.sha256(css.encode("utf-8")).hexdigest()
+    state = st.session_state
+    counter_key = "_rbv_css_inject_counter"
+    hash_key = "_rbv_css_last_hash"
+    state[counter_key] = int(state.get(counter_key, 0)) + 1
+
+    should_inject = (
+        state.get(hash_key) != css_hash
+        or state[counter_key] <= 2
+        or (state[counter_key] % 25 == 0)
     )
 
-    # Intentionally do not gate on a session_state "injected" flag.
+    if should_inject:
+        st.markdown(
+            "<style id=\"rbv-global-css\">\n" + css + "\n</style>",
+            unsafe_allow_html=True,
+        )
+        state[hash_key] = css_hash
 
 
 # Backwards-compatible alias (older app.py variants called this)
