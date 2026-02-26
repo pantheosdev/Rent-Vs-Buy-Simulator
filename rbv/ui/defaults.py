@@ -42,8 +42,14 @@ CITY_PRESET_CUSTOM = "Custom"
 # City presets (R3 preview): optional starting values for location-specific scenarios.
 # These are intentionally conservative starter defaults and are fully user-editable after apply.
 CITY_PRESETS: Dict[str, Dict[str, Any]] = {
+    # Ontario
     "Toronto (ON) · Condo": {
+        "id": "toronto_on_condo",
+        "version": 1,
+        "region": "Ontario",
+        "home_type": "Condo",
         "province": "Ontario",
+        "province_code": "ON",
         "toronto": True,
         "price": 850000.0,
         "down": 170000.0,
@@ -54,7 +60,12 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "r_util": 120.0,
     },
     "Toronto (ON) · Detached": {
+        "id": "toronto_on_detached",
+        "version": 1,
+        "region": "Ontario",
+        "home_type": "Detached",
         "province": "Ontario",
+        "province_code": "ON",
         "toronto": True,
         "price": 1250000.0,
         "down": 250000.0,
@@ -64,8 +75,79 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 260.0,
         "r_util": 150.0,
     },
+    "Ottawa (ON) · Condo": {
+        "id": "ottawa_on_condo",
+        "version": 1,
+        "region": "Ontario",
+        "home_type": "Condo",
+        "province": "Ontario",
+        "province_code": "ON",
+        "toronto": False,
+        "price": 550000.0,
+        "down": 110000.0,
+        "rent": 2200.0,
+        "p_tax_rate_pct": 1.05,
+        "condo": 480.0,
+        "o_util": 150.0,
+        "r_util": 120.0,
+    },
+    "Ottawa (ON) · Detached": {
+        "id": "ottawa_on_detached",
+        "version": 1,
+        "region": "Ontario",
+        "home_type": "Detached",
+        "province": "Ontario",
+        "province_code": "ON",
+        "toronto": False,
+        "price": 825000.0,
+        "down": 165000.0,
+        "rent": 3000.0,
+        "p_tax_rate_pct": 1.05,
+        "condo": 0.0,
+        "o_util": 240.0,
+        "r_util": 140.0,
+    },
+    "Mississauga (ON) · Condo": {
+        "id": "mississauga_on_condo",
+        "version": 1,
+        "region": "Ontario",
+        "home_type": "Condo",
+        "province": "Ontario",
+        "province_code": "ON",
+        "toronto": False,
+        "price": 750000.0,
+        "down": 150000.0,
+        "rent": 2800.0,
+        "p_tax_rate_pct": 0.75,
+        "condo": 600.0,
+        "o_util": 150.0,
+        "r_util": 120.0,
+    },
+    "Hamilton (ON) · Detached": {
+        "id": "hamilton_on_detached",
+        "version": 1,
+        "region": "Ontario",
+        "home_type": "Detached",
+        "province": "Ontario",
+        "province_code": "ON",
+        "toronto": False,
+        "price": 900000.0,
+        "down": 180000.0,
+        "rent": 3200.0,
+        "p_tax_rate_pct": 1.05,
+        "condo": 0.0,
+        "o_util": 250.0,
+        "r_util": 145.0,
+    },
+
+    # West (BC/AB)
     "Vancouver (BC) · Condo": {
+        "id": "vancouver_bc_condo",
+        "version": 1,
+        "region": "West (BC/AB)",
+        "home_type": "Condo",
         "province": "British Columbia",
+        "province_code": "BC",
         "toronto": False,
         "price": 900000.0,
         "down": 180000.0,
@@ -75,8 +157,45 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 140.0,
         "r_util": 110.0,
     },
+    "Vancouver (BC) · Detached": {
+        "id": "vancouver_bc_detached",
+        "version": 1,
+        "region": "West (BC/AB)",
+        "home_type": "Detached",
+        "province": "British Columbia",
+        "province_code": "BC",
+        "toronto": False,
+        "price": 1650000.0,
+        "down": 330000.0,
+        "rent": 5200.0,
+        "p_tax_rate_pct": 0.30,
+        "condo": 0.0,
+        "o_util": 260.0,
+        "r_util": 150.0,
+    },
+    "Victoria (BC) · Condo": {
+        "id": "victoria_bc_condo",
+        "version": 1,
+        "region": "West (BC/AB)",
+        "home_type": "Condo",
+        "province": "British Columbia",
+        "province_code": "BC",
+        "toronto": False,
+        "price": 700000.0,
+        "down": 140000.0,
+        "rent": 2600.0,
+        "p_tax_rate_pct": 0.35,
+        "condo": 520.0,
+        "o_util": 140.0,
+        "r_util": 110.0,
+    },
     "Calgary (AB) · Detached": {
+        "id": "calgary_ab_detached",
+        "version": 1,
+        "region": "West (BC/AB)",
+        "home_type": "Detached",
         "province": "Alberta",
+        "province_code": "AB",
         "toronto": False,
         "price": 650000.0,
         "down": 130000.0,
@@ -86,8 +205,47 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 240.0,
         "r_util": 130.0,
     },
+    "Calgary (AB) · Condo": {
+        "id": "calgary_ab_condo",
+        "version": 1,
+        "region": "West (BC/AB)",
+        "home_type": "Condo",
+        "province": "Alberta",
+        "province_code": "AB",
+        "toronto": False,
+        "price": 380000.0,
+        "down": 76000.0,
+        "rent": 1900.0,
+        "p_tax_rate_pct": 0.75,
+        "condo": 420.0,
+        "o_util": 170.0,
+        "r_util": 125.0,
+    },
+    "Edmonton (AB) · Detached": {
+        "id": "edmonton_ab_detached",
+        "version": 1,
+        "region": "West (BC/AB)",
+        "home_type": "Detached",
+        "province": "Alberta",
+        "province_code": "AB",
+        "toronto": False,
+        "price": 500000.0,
+        "down": 100000.0,
+        "rent": 2200.0,
+        "p_tax_rate_pct": 0.90,
+        "condo": 0.0,
+        "o_util": 230.0,
+        "r_util": 135.0,
+    },
+
+    # Quebec
     "Montreal (QC) · Condo": {
+        "id": "montreal_qc_condo",
+        "version": 1,
+        "region": "Quebec",
+        "home_type": "Condo",
         "province": "Quebec",
+        "province_code": "QC",
         "toronto": False,
         "price": 600000.0,
         "down": 120000.0,
@@ -97,7 +255,77 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 140.0,
         "r_util": 110.0,
     },
+    "Montreal (QC) · Detached": {
+        "id": "montreal_qc_detached",
+        "version": 1,
+        "region": "Quebec",
+        "home_type": "Detached",
+        "province": "Quebec",
+        "province_code": "QC",
+        "toronto": False,
+        "price": 850000.0,
+        "down": 170000.0,
+        "rent": 3300.0,
+        "p_tax_rate_pct": 0.70,
+        "condo": 0.0,
+        "o_util": 240.0,
+        "r_util": 140.0,
+    },
+
+    # Atlantic
+    "Halifax (NS) · Condo": {
+        "id": "halifax_ns_condo",
+        "version": 1,
+        "region": "Atlantic (NS/NB/PE/NL)",
+        "home_type": "Condo",
+        "province": "Nova Scotia",
+        "province_code": "NS",
+        "toronto": False,
+        "price": 450000.0,
+        "down": 90000.0,
+        "rent": 2100.0,
+        "p_tax_rate_pct": 1.20,
+        "condo": 420.0,
+        "o_util": 170.0,
+        "r_util": 125.0,
+    },
+    "Halifax (NS) · Detached": {
+        "id": "halifax_ns_detached",
+        "version": 1,
+        "region": "Atlantic (NS/NB/PE/NL)",
+        "home_type": "Detached",
+        "province": "Nova Scotia",
+        "province_code": "NS",
+        "toronto": False,
+        "price": 650000.0,
+        "down": 130000.0,
+        "rent": 2800.0,
+        "p_tax_rate_pct": 1.20,
+        "condo": 0.0,
+        "o_util": 240.0,
+        "r_util": 140.0,
+    },
+    "Fredericton (NB) · Detached": {
+        "id": "fredericton_nb_detached",
+        "version": 1,
+        "region": "Atlantic (NS/NB/PE/NL)",
+        "home_type": "Detached",
+        "province": "New Brunswick",
+        "province_code": "NB",
+        "toronto": False,
+        "price": 350000.0,
+        "down": 70000.0,
+        "rent": 1800.0,
+        "p_tax_rate_pct": 1.10,
+        "condo": 0.0,
+        "o_util": 230.0,
+        "r_util": 135.0,
+    },
 }
+
+
+_CITY_PRESET_META_KEYS = {"id", "version", "region", "home_type", "province_code"}
+
 
 
 def city_preset_options() -> List[str]:
@@ -105,22 +333,31 @@ def city_preset_options() -> List[str]:
 
 
 def city_preset_metadata(name: str | None) -> Dict[str, Any]:
-    """Parse a preset display name into metadata for filtering/polish UI."""
+    """Return metadata used for filtering and UI polish.
+
+    Prefer explicit preset metadata (id/version/region/home_type) when present,
+    but keep best-effort parsing for backwards compatibility with older presets.
+    """
     k = str(name or "").strip()
     vals = city_preset_values(k) or {}
-    left, sep, right = k.partition("·")
+
+    left, _, right = k.partition("·")
     left = left.strip()
     right = right.strip()
+
     city = left
-    prov_code = ""
-    prov_long = str(vals.get("province", "") or "")
+    prov_code_from_name = ""
     if "(" in left and ")" in left:
         try:
             city = left.split("(", 1)[0].strip()
-            prov_code = left.split("(", 1)[1].split(")", 1)[0].strip().upper()
+            prov_code_from_name = left.split("(", 1)[1].split(")", 1)[0].strip().upper()
         except Exception:
             pass
-    if not prov_code:
+
+    prov_long = str(vals.get("province", "") or "").strip()
+    prov_code = str(vals.get("province_code", "") or "").strip().upper() or prov_code_from_name
+
+    if not prov_code and prov_long:
         _map = {
             "Ontario": "ON",
             "British Columbia": "BC",
@@ -134,19 +371,53 @@ def city_preset_metadata(name: str | None) -> Dict[str, Any]:
             "Newfoundland and Labrador": "NL",
         }
         prov_code = _map.get(prov_long, "")
-    housing_type = right or ("Condo" if float(vals.get("condo", 0.0) or 0.0) > 0 else "Detached")
+
+    home_type = str(vals.get("home_type", "") or "").strip()
+    if not home_type:
+        home_type = right or ("Condo" if float(vals.get("condo", 0.0) or 0.0) > 0 else "Detached")
+
+    region = str(vals.get("region", "") or "").strip()
+    if not region:
+        # Back-compat inference if a preset doesn't declare region.
+        if prov_long == "Ontario":
+            region = "Ontario"
+        elif prov_long in {"British Columbia", "Alberta"}:
+            region = "West (BC/AB)"
+        elif prov_long == "Quebec":
+            region = "Quebec"
+        elif prov_long in {"Nova Scotia", "New Brunswick", "Prince Edward Island", "Newfoundland and Labrador"}:
+            region = "Atlantic (NS/NB/PE/NL)"
+
+    preset_id = str(vals.get("id", "") or "").strip()
+    try:
+        version = int(vals.get("version")) if vals.get("version") is not None else None
+    except Exception:
+        version = None
+
     return {
         "name": k,
+        "id": preset_id or None,
+        "version": version,
+        "region": region or None,
         "city": city,
         "province": prov_long,
         "province_code": prov_code,
-        "housing_type": housing_type,
+        "home_type": home_type,
+        # Back-compat key used by some UI callsites
+        "housing_type": home_type,
         "is_toronto": bool(vals.get("toronto", False)) or city.lower() == "toronto",
     }
 
 
 def city_preset_filter_region_options() -> List[str]:
-    return ["All regions", "Ontario", "West (BC/AB)", "Quebec", "Toronto only"]
+    return [
+        "All regions",
+        "Ontario",
+        "West (BC/AB)",
+        "Quebec",
+        "Atlantic (NS/NB/PE/NL)",
+        "Toronto only",
+    ]
 
 
 def city_preset_filter_type_options() -> List[str]:
@@ -161,28 +432,31 @@ def city_preset_filtered_options(*, region: str | None = None, home_type: str | 
     out: List[str] = [CITY_PRESET_CUSTOM]
     for name in CITY_PRESETS.keys():
         meta = city_preset_metadata(name)
-        if region == "Ontario" and str(meta.get("province")) != "Ontario":
+
+        if region != "All regions":
+            if region == "Toronto only":
+                if not bool(meta.get("is_toronto")):
+                    continue
+            else:
+                if str(meta.get("region") or "") != region:
+                    continue
+
+        if home_type != "All homes" and str(meta.get("housing_type")) != home_type:
             continue
-        if region == "West (BC/AB)" and str(meta.get("province")) not in {"British Columbia", "Alberta"}:
-            continue
-        if region == "Quebec" and str(meta.get("province")) != "Quebec":
-            continue
-        if region == "Toronto only" and not bool(meta.get("is_toronto")):
-            continue
-        if home_type == "Condo" and str(meta.get("housing_type")) != "Condo":
-            continue
-        if home_type == "Detached" and str(meta.get("housing_type")) != "Detached":
-            continue
+
         if q:
             hay = " ".join([
                 str(name),
+                str(meta.get("id", "") or ""),
                 str(meta.get("city", "")),
                 str(meta.get("province", "")),
                 str(meta.get("province_code", "")),
+                str(meta.get("region", "") or ""),
                 str(meta.get("housing_type", "")),
             ]).lower()
             if q not in hay:
                 continue
+
         out.append(str(name))
     return out
 
@@ -240,7 +514,7 @@ def apply_city_preset_values(state: MutableMapping[str, Any], preset_name: str |
             pass
         return []
 
-    patch = dict(vals)
+    patch = {k: v for k, v in dict(vals).items() if str(k) not in _CITY_PRESET_META_KEYS}
     patch["city_preset"] = name
     # Guardrail: Toronto MLTT toggle is Ontario-only.
     if str(patch.get("province", "") or "") != "Ontario":
