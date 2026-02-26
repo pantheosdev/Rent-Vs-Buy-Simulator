@@ -431,6 +431,31 @@ def _tt_rent_control_cadence_every3() -> None:
     _assert_close("TT-RC1 rent m37", rent_m37, 1000.0 * (1.02 ** 3), atol=1e-6)
 
 
+
+
+def _tt_moving_frequency_default_is_5_years() -> None:
+    """When moving_freq is omitted, engine should fall back to 5-year cadence."""
+    cfg_missing = _base_cfg()
+    cfg_missing.update({"years": 6, "rent": 2_000.0, "moving_cost": 2_500.0})
+    cfg_missing.pop("moving_freq", None)
+
+    df_missing, _, _, _ = _run_det(cfg_missing, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    if df_missing is None or len(df_missing) < 72:
+        _die("TT-MOVE-DEF: engine returned empty/short df for missing moving_freq")
+
+    moving_missing = float(df_missing["Moving"].sum())
+    _assert_close("TT-MOVE-DEF one move over 6 years", moving_missing, 2_500.0, atol=1e-9)
+
+    cfg_explicit = _base_cfg()
+    cfg_explicit.update({"years": 6, "rent": 2_000.0, "moving_cost": 2_500.0, "moving_freq": 5.0})
+
+    df_explicit, _, _, _ = _run_det(cfg_explicit, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    if df_explicit is None or len(df_explicit) < 72:
+        _die("TT-MOVE-DEF: engine returned empty/short df for explicit moving_freq")
+
+    moving_explicit = float(df_explicit["Moving"].sum())
+    _assert_close("TT-MOVE-DEF parity with explicit 5y", moving_missing, moving_explicit, atol=1e-9)
+
 def _tt_mc_seed_reproducible() -> None:
     cfg = _base_cfg()
     cfg.update({
@@ -612,6 +637,14 @@ def _tt_transfer_tax_examples_multi_province() -> None:
         float(calc_transfer_tax("Alberta", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
         450.0,
         atol=1e-6,
+    )
+
+    # Input normalization: province labels with different casing should map to same rule.
+    _assert_close(
+        "TT-TAX NL canonical-case parity",
+        float(calc_transfer_tax("newfoundland and labrador", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        float(calc_transfer_tax("Newfoundland and Labrador", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        atol=1e-9,
     )
 
 
@@ -933,6 +966,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # Rent control cadence
     _tt_rent_control_cadence_every3()
+    _tt_moving_frequency_default_is_5_years()
 
     # MC determinism
     _tt_mc_seed_reproducible()
@@ -942,4 +976,3 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-

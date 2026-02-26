@@ -342,7 +342,8 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
 
     If override_amount > 0, it is used as the provincial component (and a note is added).
     """
-    province = (province or "Ontario").strip().title()
+    province = (province or "Ontario").strip()
+    province_key = " ".join(province.lower().split())
     price = round(max(0.0, _safe_float(price)), 2)
     prov = 0.0
     assessed_value = None if assessed_value is None else round(max(0.0, _safe_float(assessed_value)), 2)
@@ -357,7 +358,7 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
         note = "Using your 'Transfer Tax Override' amount for this province/municipality."
         return {"prov": prov, "muni": 0.0, "total": prov, "note": note}
 
-    if province == "Ontario":
+    if province_key == "ontario":
         raw = calc_ltt_ontario(price)
         # Ontario first-time buyer rebate up to $4,000 (simplified; eligibility not fully modeled)
         rebate = 4000.0 if first_time_buyer else 0.0
@@ -379,7 +380,7 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
                 note = f"Toronto MLTT luxury brackets (>$3M) use the {_sched} schedule as of {_d.isoformat()}."
 
 
-    elif province == "British Columbia":
+    elif province_key == "british columbia":
         raw = calc_ptt_bc(price)
         prov = raw
         note = "BC PTT excludes additional taxes (e.g., foreign buyer/speculation)."
@@ -400,28 +401,28 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
                     "Excludes additional taxes (e.g., foreign buyer/speculation)."
                 )
 
-    elif province == "Alberta":
+    elif province_key == "alberta":
         # Alberta has registration fees rather than a transfer tax; we estimate the transfer-of-land fee only.
         prov = calc_land_title_fee_alberta(price)
         note = "Alberta uses land title registration fees (transfer-of-land). Mortgage registration fees not included."
 
-    elif province == "Saskatchewan":
+    elif province_key == "saskatchewan":
         prov = calc_land_title_fee_saskatchewan(price)
         note = "Saskatchewan uses land title transfer fees (simplified). Mortgage registration fees not included."
 
-    elif province == "Manitoba":
+    elif province_key == "manitoba":
         prov = calc_land_transfer_tax_manitoba(price)
 
-    elif province == "Quebec":
+    elif province_key == "quebec":
         prov = calc_transfer_duty_quebec_baseline(price, asof_date=asof_date)
         note = "Quebec duties can vary by municipality (some apply higher rates in top brackets). Use override for precision."
 
-    elif province == "New Brunswick":
+    elif province_key == "new brunswick":
         basis = max(price, assessed_value) if assessed_value is not None else price
         prov = calc_property_transfer_tax_new_brunswick(basis)
         note = "NB property transfer tax is based on assessed value; using max(purchase price, assessed value)." if assessed_value is not None else "NB property transfer tax is based on assessed value; using purchase price as proxy. Provide assessed value for precision."
 
-    elif province == "Nova Scotia":
+    elif province_key == "nova scotia":
         _input_rate = _safe_float(ns_deed_transfer_rate, default=0.0) if ns_deed_transfer_rate is not None else 0.0
         _rate = _input_rate if _input_rate > 0 else 0.015
         prov = calc_deed_transfer_tax_nova_scotia_default(price, rate=_rate)
@@ -430,11 +431,11 @@ def calc_transfer_tax(province: str, price: float, first_time_buyer: bool, toron
         else:
             note = "Nova Scotia deed transfer tax is municipal; defaulting to 1.5%. Use the rate input or override for your municipality."
 
-    elif province == "Prince Edward Island":
+    elif province_key == "prince edward island":
         basis = max(price, assessed_value) if assessed_value is not None else price
         prov = calc_real_property_transfer_tax_pei(basis)
         note = "PEI transfer tax can include exemptions/eligibility rules; using max(purchase price, assessed value). Override if you have a local exemption."
-    elif province == "Newfoundland and Labrador":
+    elif province_key == "newfoundland and labrador":
         prov = calc_registration_fee_newfoundland(price)
         note = "NL uses registration fees; this estimates the deed registration portion only."
 
