@@ -1,3 +1,4 @@
+import hashlib
 import re
 
 # Minimal UI theme helpers (modular split)
@@ -3890,14 +3891,10 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
 def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_COLOR) -> None:
     """Inject the RBV global stylesheet.
 
-    NOTE:
-    Streamlit reruns can recreate the page DOM and drop previously injected <style> tags.
-    If we inject CSS only "once" using a session_state flag, the app can enter a
-    "missing CSS" state after reruns (e.g., toggling Fast↔Quality), which makes
-    tooltip bubbles render inline and layouts appear broken.
-
-    Therefore we intentionally inject on *every* run. Duplicate CSS blocks are
-    harmless and are preferable to intermittent styling loss.
+    Phase 1 performance hardening:
+    - Avoid reinjecting identical CSS on every rerun (reduces style recalculation churn).
+    - Periodically refresh the style block as a safety net for rare DOM rebuilds that can
+      drop previously injected tags during Streamlit reruns.
     """
 
     css = _dynamic_palette_vars_css(buy_color, rent_color) + _apply_palette(
@@ -3906,12 +3903,24 @@ def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_
         rent_color,
     )
 
-    st.markdown(
-        "<style>\n" + css + "\n</style>",
-        unsafe_allow_html=True,
+    css_hash = hashlib.sha256(css.encode("utf-8")).hexdigest()
+    state = st.session_state
+    counter_key = "_rbv_css_inject_counter"
+    hash_key = "_rbv_css_last_hash"
+    state[counter_key] = int(state.get(counter_key, 0)) + 1
+
+    should_inject = (
+        state.get(hash_key) != css_hash
+        or state[counter_key] <= 2
+        or (state[counter_key] % 25 == 0)
     )
 
-    # Intentionally do not gate on a session_state "injected" flag.
+    if should_inject:
+        st.markdown(
+            "<style id=\"rbv-global-css\">\n" + css + "\n</style>",
+            unsafe_allow_html=True,
+        )
+        state[hash_key] = css_hash
 
 
 # Backwards-compatible alias (older app.py variants called this)
