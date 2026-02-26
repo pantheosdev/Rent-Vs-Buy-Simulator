@@ -2903,13 +2903,13 @@ _city_filter_type = str(st.session_state.get("city_preset_filter_type", _city_ty
 if _city_filter_type not in _city_type_opts:
     _city_filter_type = _city_type_opts[0]
     st.session_state["city_preset_filter_type"] = _city_filter_type
-_city_filter_cols = st.columns([1.15, 1.0, 1.2])
+_city_filter_cols = st.columns([1.0, 1.0, 1.0])
 with _city_filter_cols[0]:
     rbv_selectbox("Preset region", options=_city_region_opts, index=_city_region_opts.index(_city_filter_region), key="city_preset_filter_region")
 with _city_filter_cols[1]:
     rbv_selectbox("Home type", options=_city_type_opts, index=_city_type_opts.index(_city_filter_type), key="city_preset_filter_type")
 with _city_filter_cols[2]:
-    st.text_input("Find preset", key="city_preset_filter_query", placeholder="Search city/province")
+    rbv_text_input("Find preset", key="city_preset_filter_query", placeholder="Search city/province")
 
 _city_opts = city_preset_filtered_options(
     region=st.session_state.get("city_preset_filter_region"),
@@ -2926,7 +2926,7 @@ if _city_cur not in _city_opts:
         _city_cur = CITY_PRESET_CUSTOM
         st.session_state["city_preset"] = CITY_PRESET_CUSTOM
 
-_city_cols = st.columns([2.1, 0.95, 0.95])
+_city_cols = st.columns([2.4, 1.0, 1.0])
 with _city_cols[0]:
     rbv_selectbox(
         "City preset",
@@ -2947,7 +2947,7 @@ with _city_cols[2]:
         st.session_state["_rbv_city_preset_last_summary_lines"] = []
         st.session_state["_rbv_city_preset_last_banner"] = "City preset cleared (Custom). Manual values are unchanged."
 
-st.caption("Use presets as a starting point only. You can tweak every input after Apply. Tip: you can now click a dropdown chevron again (or press Esc) to close without selecting.")
+st.caption("Use presets as a starting point only. You can tweak every input after Apply. Tip: press Esc or click outside to close dropdowns.")
 
 _city_preview_name = st.session_state.get("city_preset")
 _city_preview = city_preset_values(_city_preview_name)
