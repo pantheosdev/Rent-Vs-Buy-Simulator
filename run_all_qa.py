@@ -36,6 +36,8 @@ def _run_suite(name: str) -> int:
         from rbv.qa.qa_sensitivity import main as _main
     elif name == "golden":
         from rbv.qa.qa_golden import main as _main
+    elif name == "city_presets":
+        from rbv.qa.qa_city_presets import main as _main
     elif name == "truth_tables":
         from rbv.qa.qa_truth_tables import main as _main
     else:
@@ -64,7 +66,7 @@ def _run_suite(name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     _ensure_repo_root_on_syspath()
 
-    suites = ["smoke", "scenarios", "sensitivity", "golden", "truth_tables"]
+    suites = ["smoke", "scenarios", "sensitivity", "golden", "city_presets", "truth_tables"]
 
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("--list", action="store_true", help="List available suites and exit.")

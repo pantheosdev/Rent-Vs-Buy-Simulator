@@ -353,7 +353,7 @@ def scenario_state_diff_rows(
 def parse_scenario_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (state, metadata) from legacy or v1 snapshot payloads."""
     snap = ScenarioSnapshot.from_payload(payload)
-    meta = {
+    meta: dict[str, Any] = {
         "slot": snap.slot,
         "label": snap.label,
         "scenario_hash": snap.scenario_hash,
@@ -362,6 +362,17 @@ def parse_scenario_payload(payload: dict[str, Any] | None) -> tuple[dict[str, An
         "exported_at": snap.exported_at,
         "app": snap.app,
     }
+
+    # Preserve any payload-provided metadata (e.g., UI context such as city preset identity).
+    payload_meta = snap.meta if isinstance(snap.meta, dict) else {}
+    payload_meta_c = canonicalize_jsonish(payload_meta) if isinstance(payload_meta, dict) else {}
+    meta["payload_meta"] = payload_meta_c
+    # Also lift commonly useful keys to the top-level meta for convenience (without overriding core fields).
+    if isinstance(payload_meta_c, dict):
+        for k, v in payload_meta_c.items():
+            if str(k) not in meta:
+                meta[str(k)] = v
+
     return dict(snap.config.canonical_state), meta
 
 def rows_to_csv_text(rows: list[dict[str, Any]] | None, *, columns: list[str] | tuple[str, ...] | None = None) -> str:
