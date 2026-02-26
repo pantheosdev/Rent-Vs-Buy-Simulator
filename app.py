@@ -930,11 +930,51 @@ try:
     doc.documentElement.style.setProperty('--rbv-main-left', w + 'px');
     doc.documentElement.style.setProperty('--rbv-main-width', mainW + 'px');
   }
-  update();
+  let updateRaf = 0;
+  let mutationDebounce = 0;
+  function scheduleUpdate(){
+    if (updateRaf) return;
+    updateRaf = requestAnimationFrame(() => {
+      updateRaf = 0;
+      update();
+    });
+  }
+
+  function scheduleUpdateDebounced(ms){
+    if (mutationDebounce) clearTimeout(mutationDebounce);
+    mutationDebounce = setTimeout(() => {
+      mutationDebounce = 0;
+      scheduleUpdate();
+    }, ms || 80);
+  }
+
+  scheduleUpdate();
   _rbv_installTooltipAutoflip();
-  window.addEventListener('resize', update);
-  window.addEventListener('scroll', update, {passive:true});
-  setInterval(update, 500);
+
+  // Event-driven geometry updates (faster than polling setInterval every 500ms).
+  window.addEventListener('resize', scheduleUpdate, {passive:true});
+  window.addEventListener('scroll', scheduleUpdate, {passive:true});
+
+  // Observe structural changes that can move/resize the main block during Streamlit reruns.
+  try {
+    if (window.ResizeObserver){
+      const ro = new ResizeObserver(() => scheduleUpdate());
+      const mainNode = qs('section.main') || qs('section[data-testid="stMain"]') || qs('div[data-testid="stMain"]');
+      const sideNode = qs('[data-testid="stSidebar"]') || qs('section[data-testid="stSidebar"]') || qs('aside');
+      if (mainNode) ro.observe(mainNode);
+      if (sideNode) ro.observe(sideNode);
+      if (doc && doc.documentElement) ro.observe(doc.documentElement);
+    }
+  } catch(e) {}
+
+  // Mutation observer catches Streamlit DOM swaps/reflows after widget updates.
+  // Debounced + childList-focused to avoid excessive callback pressure.
+  try {
+    if (window.MutationObserver && doc && doc.body){
+      const mo = new MutationObserver(() => scheduleUpdateDebounced(100));
+      mo.observe(doc.body, {subtree:true, childList:true});
+    }
+  } catch(e) {}
 })();
 </script>""",
         height=0,
