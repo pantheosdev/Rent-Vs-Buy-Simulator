@@ -2026,21 +2026,29 @@ with st.sidebar:
     # --- HEADER 1: Settings (White) ---
     st.markdown('<div class="sidebar-header-gen">⚙️ Settings</div>', unsafe_allow_html=True)
     # Phase 3 UX simplification: basic vs advanced control density.
-    st.session_state.setdefault("ui_mode", "Basic")
+    st.session_state.setdefault("ui_mode", "Advanced")
     _ui_mode = st.radio(
         "Interface mode",
         ["Basic", "Advanced"],
         horizontal=True,
-        index=(0 if str(st.session_state.get("ui_mode", "Basic")) == "Basic" else 1),
+        index=(0 if str(st.session_state.get("ui_mode", "Advanced")) == "Basic" else 1),
         key="ui_mode",
     )
     _show_advanced_controls = (_ui_mode == "Advanced")
+    _prev_ui_mode = st.session_state.get("_rbv_ui_mode_prev", _ui_mode)
+    if _prev_ui_mode != _ui_mode:
+        st.session_state["_rbv_ui_mode_prev"] = _ui_mode
+        st.rerun()
+    else:
+        st.session_state["_rbv_ui_mode_prev"] = _ui_mode
     if not _show_advanced_controls:
         st.caption("Basic mode hides expert controls to reduce clutter. Switch to **Advanced** for full modeling options.")
     # Public/Power mode toggle removed (v2_41).
 
     # Scenario save/load (public-friendly)
     with st.expander("Scenario", expanded=False):
+        if not _show_advanced_controls:
+            st.info("Quick flow: **Download/Load** for backup, then use **Save → A/B** and **Load A/B** to compare two scenarios.")
         try:
             _payload = _rbv_make_scenario_payload()
             _json = json.dumps(_payload, indent=2, default=str)
@@ -2169,6 +2177,8 @@ with st.sidebar:
 
 
     with st.expander("Simulation Horizon", expanded=True):
+        if not _show_advanced_controls:
+            st.caption("Set your analysis years first. Longer horizons increase uncertainty and can widen Buy vs Rent outcome ranges.")
         years = st.number_input("Analysis Duration (Years)", min_value=1, max_value=50, step=1, key='years', label_visibility="collapsed")
 
         general_inf = st.number_input(
@@ -2188,6 +2198,8 @@ with st.sidebar:
         ) / 100
 
     with st.expander("Taxes & Cash-out", expanded=False):
+        if not _show_advanced_controls:
+            st.info("For most users: keep **Pre-tax** for quick comparisons, then check **Deferred capital gains at end** to view after-tax cash-out results.")
         # Tax schedule "as of" date (used for date-dependent rules like Toronto MLTT >$3M brackets).
         _asof_default = datetime.date.today()
         _raw_asof = st.session_state.get("tax_rules_asof", _asof_default)

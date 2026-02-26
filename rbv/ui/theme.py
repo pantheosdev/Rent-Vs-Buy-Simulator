@@ -93,16 +93,19 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
 }
 
 .rbv-label-row{
-  display:flex; align-items:center; justify-content:space-between;
-  gap:10px; margin: 10px 0 6px 0;
-  min-height: 20px;
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:10px; margin: 12px 0 8px 0;
+  min-height: 24px;
   overflow: visible;
 }
 .rbv-label-text{
   font-weight: 500;
   font-size: 0.95rem;
   color: var(--rbv-text-2);
-  line-height: 1.2;
+  line-height: 1.35;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 8px;
 }
 .rbv-help{ position:relative; display:inline-flex; align-items:center; justify-content:center; overflow: visible; z-index: 1000000; }
 .rbv-help:hover{ z-index: 1000001; }
@@ -416,7 +419,7 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
   font-weight: 800;
   letter-spacing: 0.02em;
   font-size: 0.82rem;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 999px;
   background: rgba(230,184,0,0.12);
   border: 1px solid rgba(230,184,0,0.35);
@@ -1385,7 +1388,7 @@ section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] button div{
   letter-spacing:0.045em;
   padding:10px 12px;
   border-radius:14px;
-  margin:10px 0 14px 0;
+  margin:14px 0 18px 0;
   text-transform:none;
   border:1px solid rgba(255,255,255,0.16);
   background:linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
@@ -2897,14 +2900,14 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
 .rbv-input-panel div[data-testid="stSlider"],
 .rbv-input-panel div[data-testid="stCheckbox"],
 .rbv-input-panel div[data-testid="stRadio"]{
-  margin-top: 0.15rem !important;
-  margin-bottom: 0.15rem !important;
+  margin-top: 0.28rem !important;
+  margin-bottom: 0.35rem !important;
 }
 
 
 /* --- Micro group separators inside input panels (premium density without changing inputs) --- */
 .rbv-input-subhead{
-  margin: 4px 2px 6px 2px;
+  margin: 10px 2px 10px 2px;
   padding: 6px 10px;
   border-radius: 14px;
   background: rgba(255,255,255,0.03);
