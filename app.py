@@ -2026,12 +2026,12 @@ with st.sidebar:
     # --- HEADER 1: Settings (White) ---
     st.markdown('<div class="sidebar-header-gen">⚙️ Settings</div>', unsafe_allow_html=True)
     # Phase 3 UX simplification: basic vs advanced control density.
-    st.session_state.setdefault("ui_mode", "Basic")
+    st.session_state.setdefault("ui_mode", "Advanced")
     _ui_mode = st.radio(
         "Interface mode",
         ["Basic", "Advanced"],
         horizontal=True,
-        index=(0 if str(st.session_state.get("ui_mode", "Basic")) == "Basic" else 1),
+        index=(0 if str(st.session_state.get("ui_mode", "Advanced")) == "Basic" else 1),
         key="ui_mode",
     )
     _show_advanced_controls = (_ui_mode == "Advanced")
