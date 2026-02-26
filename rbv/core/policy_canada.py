@@ -14,12 +14,24 @@ import datetime as dt
 POLICY_LAST_REVIEWED = dt.date(2026, 2, 23)
 
 
+def _coerce_date(asof_date: dt.date | None) -> dt.date:
+    """Return a safe date for policy lookups.
+
+    Public helpers in this module are called by UI/session state code where values may
+    be missing or stringly typed. Falling back to today's date avoids hard crashes.
+    """
+    if isinstance(asof_date, dt.date):
+        return asof_date
+    return dt.date.today()
+
+
 def insured_mortgage_price_cap(asof_date: dt.date) -> float:
     """Return the insured-mortgage purchase price cap for the given as-of date.
 
     As of 2024-12-15, the federal government increased the cap from $1,000,000 to $1,500,000.
     """
-    if asof_date >= dt.date(2024, 12, 15):
+    d = _coerce_date(asof_date)
+    if d >= dt.date(2024, 12, 15):
         return 1_500_000.0
     return 1_000_000.0
 
@@ -33,7 +45,10 @@ def min_down_payment_canada(price: float, asof_date: dt.date) -> float:
 
     Note: For price >= cap, 20% is a common minimum and aligns with insured-mortgage ineligibility.
     """
-    p = max(0.0, float(price))
+    try:
+        p = max(0.0, float(price))
+    except Exception:
+        p = 0.0
     if p <= 500_000.0:
         return 0.05 * p
 
@@ -59,9 +74,10 @@ def insured_30yr_amortization_policy_stage(asof_date: dt.date) -> str:
     represented as a policy schedule rather than a single cutoff so future amendments
     can be added cleanly.
     """
-    if asof_date >= dt.date(2024, 12, 15):
+    d = _coerce_date(asof_date)
+    if d >= dt.date(2024, 12, 15):
         return "ftb_or_new_build"
-    if asof_date >= dt.date(2024, 8, 1):
+    if d >= dt.date(2024, 8, 1):
         return "ftb_and_new_build"
     return "pre_2024_08_01"
 
@@ -116,7 +132,10 @@ def cmhc_premium_rate_from_ltv(ltv: float, down_payment_source: str | None = Non
     Returns:
         Premium rate as a decimal fraction (e.g., 0.04 for 4%).
     """
-    x = float(ltv)
+    try:
+        x = float(ltv)
+    except Exception:
+        return 0.0
 
     if x <= 0.80:
         return 0.0
@@ -150,14 +169,21 @@ def mortgage_default_insurance_sales_tax_rate(province: str, asof_date: dt.date)
 
     Returns the applicable tax rate as a decimal (e.g., 0.08 for 8%).
     """
-    prov = (province or "").strip().lower()
+    prov_raw = (province or "").strip().lower()
+    prov = {
+        "on": "ontario",
+        "sk": "saskatchewan",
+        "qc": "quebec",
+        "pq": "quebec",
+    }.get(prov_raw, prov_raw)
+    d = _coerce_date(asof_date)
     if prov == "ontario":
         return 0.08
     if prov == "saskatchewan":
         return 0.06
     if prov == "quebec":
         # Quebec's tax on insurance premiums is 9% through 2026, then aligns to 9.975% starting 2027-01-01.
-        if asof_date >= dt.date(2027, 1, 1):
+        if d >= dt.date(2027, 1, 1):
             return 0.09975
         return 0.09
     return 0.0

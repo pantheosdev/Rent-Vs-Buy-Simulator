@@ -13,6 +13,8 @@ def _annual_nominal_pct_to_monthly_rate(rate_pct: float, canadian: bool) -> floa
     """
     try:
         r = float(rate_pct) / 100.0
+        if r != r or r in (float("inf"), float("-inf")):
+            r = 0.0
     except Exception:
         r = 0.0
 
@@ -31,6 +33,8 @@ def _monthly_rate_to_annual_nominal_pct(mr: float, canadian: bool) -> float:
     """Inverse of _annual_nominal_pct_to_monthly_rate: monthly effective rate -> annual nominal percent."""
     try:
         mr_f = float(mr)
+        if mr_f != mr_f or mr_f in (float("inf"), float("-inf")):
+            mr_f = 0.0
     except Exception:
         mr_f = 0.0
 
@@ -40,7 +44,7 @@ def _monthly_rate_to_annual_nominal_pct(mr: float, canadian: bool) -> float:
         base = 1.0 + mr_eff
         if base <= 0.0:
             base = 1e-12
-        return 100.0 * (2.0 * ((base ** 6.0) - 1.0))
+        return 100.0 * (2.0 * ((base**6.0) - 1.0))
 
     return 100.0 * (mr_f * 12.0)
 

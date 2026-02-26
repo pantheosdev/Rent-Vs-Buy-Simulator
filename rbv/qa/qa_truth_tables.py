@@ -130,7 +130,6 @@ def _base_cfg() -> dict:
         "rent_control_cap": None,
         "rent_control_frequency_years": 1,
         "condo_inf": 0.0,
-
         # Optional modeling layers (must be opt-in)
         "special_assessment_amount": 0.0,
         "special_assessment_month": 0,
@@ -142,7 +141,16 @@ def _base_cfg() -> dict:
     }
 
 
-def _run_det(cfg: dict, *, buyer_ret_pct: float, renter_ret_pct: float, apprec_pct: float, invest_diff: bool, mc_seed: int = 123, overrides: dict | None = None):
+def _run_det(
+    cfg: dict,
+    *,
+    buyer_ret_pct: float,
+    renter_ret_pct: float,
+    apprec_pct: float,
+    invest_diff: bool,
+    mc_seed: int = 123,
+    overrides: dict | None = None,
+):
     from rbv.core.engine import run_simulation_core
 
     return run_simulation_core(
@@ -161,7 +169,16 @@ def _run_det(cfg: dict, *, buyer_ret_pct: float, renter_ret_pct: float, apprec_p
     )
 
 
-def _run_mc(cfg: dict, *, buyer_ret_pct: float, renter_ret_pct: float, apprec_pct: float, invest_diff: bool, mc_seed: int, num_sims: int):
+def _run_mc(
+    cfg: dict,
+    *,
+    buyer_ret_pct: float,
+    renter_ret_pct: float,
+    apprec_pct: float,
+    invest_diff: bool,
+    mc_seed: int,
+    num_sims: int,
+):
     from rbv.core.engine import run_simulation_core
 
     return run_simulation_core(
@@ -192,7 +209,9 @@ def _tt_mortgage_rate_and_payment() -> None:
 
     # Engine payment agrees
     cfg = _base_cfg()
-    df, close_cash, mort_pmt, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    df, close_cash, mort_pmt, _ = _run_det(
+        cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False
+    )
     _assert_close("TT-M1 engine mort_pmt", mort_pmt, pmt_exp, atol=1e-9)
 
 
@@ -239,14 +258,18 @@ def _tt_cmhc_pst_recompute() -> None:
     min_down = 0.05 * 500_000.0 + 0.10 * (price - 500_000.0)
     down_pct = min_down / price
     overrides = {"price": price, "down_pct": down_pct, "province": "Ontario", "asof_date": asof}
-    _, close_cash, mort_pmt, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False, overrides=overrides)
+    _, close_cash, mort_pmt, _ = _run_det(
+        cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False, overrides=overrides
+    )
 
     _assert_close("TT-T1 close_cash (eligible)", close_cash, 102_959.89712, atol=1e-6)
     _assert_close("TT-T1 mort_pmt (eligible)", mort_pmt, 5595.034512233429, atol=1e-9)
 
     # Case B (ineligible): 5% down is BELOW the legal minimum at this price (no insurance should be applied).
     overrides_bad = {"price": price, "down_pct": 0.05, "province": "Ontario", "asof_date": asof}
-    _, close_cash2, mort_pmt2, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False, overrides=overrides_bad)
+    _, close_cash2, mort_pmt2, _ = _run_det(
+        cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False, overrides=overrides_bad
+    )
 
     _assert_close("TT-T2 close_cash (ineligible)", close_cash2, 74_999.95, atol=1e-6)
     _assert_close("TT-T2 mort_pmt (ineligible)", mort_pmt2, 5525.24183260429, atol=1e-9)
@@ -256,19 +279,21 @@ def _tt_liquidation_cg_tax_end_only() -> None:
     # Buyer owns a mortgage-free home; buyer invests the rent-vs-buy difference (1000/mo).
     # CG tax applies ONLY to gains at liquidation.
     cfg = _base_cfg()
-    cfg.update({
-        "years": 1,
-        "price": 100_000.0,
-        "down": 100_000.0,
-        "mort": 0.0,
-        "rate": 0.0,
-        "rent": 1_000.0,
-        "show_liquidation_view": True,
-        "cg_tax_end": 25.0,
-        "assume_sale_end": False,
-        "investment_tax_mode": "Pre-tax (no investment taxes)",
-        "tax_r": 0.0,
-    })
+    cfg.update(
+        {
+            "years": 1,
+            "price": 100_000.0,
+            "down": 100_000.0,
+            "mort": 0.0,
+            "rate": 0.0,
+            "rent": 1_000.0,
+            "show_liquidation_view": True,
+            "cg_tax_end": 25.0,
+            "assume_sale_end": False,
+            "investment_tax_mode": "Pre-tax (no investment taxes)",
+            "tax_r": 0.0,
+        }
+    )
 
     df, _, _, _ = _run_det(cfg, buyer_ret_pct=12.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
     last = df.iloc[-1]
@@ -278,19 +303,21 @@ def _tt_liquidation_cg_tax_end_only() -> None:
 
 def _tt_annual_drag_disables_extra_liquidation_cg() -> None:
     cfg = _base_cfg()
-    cfg.update({
-        "years": 1,
-        "price": 100_000.0,
-        "down": 100_000.0,
-        "mort": 0.0,
-        "rate": 0.0,
-        "rent": 1_000.0,
-        "show_liquidation_view": True,
-        "cg_tax_end": 25.0,
-        "assume_sale_end": False,
-        "investment_tax_mode": "Annual return drag",
-        "tax_r": 1.0,
-    })
+    cfg.update(
+        {
+            "years": 1,
+            "price": 100_000.0,
+            "down": 100_000.0,
+            "mort": 0.0,
+            "rate": 0.0,
+            "rent": 1_000.0,
+            "show_liquidation_view": True,
+            "cg_tax_end": 25.0,
+            "assume_sale_end": False,
+            "investment_tax_mode": "Annual return drag",
+            "tax_r": 1.0,
+        }
+    )
 
     df, _, _, _ = _run_det(cfg, buyer_ret_pct=12.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=True)
     last = df.iloc[-1]
@@ -300,18 +327,20 @@ def _tt_annual_drag_disables_extra_liquidation_cg() -> None:
 
 def _tt_special_assessment_applied_once() -> None:
     cfg = _base_cfg()
-    cfg.update({
-        "years": 2,
-        "price": 100_000.0,
-        "down": 100_000.0,
-        "mort": 0.0,
-        "rate": 0.0,
-        "rent": 0.0,
-        "show_liquidation_view": False,
-        "assume_sale_end": False,
-        "special_assessment_amount": 10_000.0,
-        "special_assessment_month": 7,
-    })
+    cfg.update(
+        {
+            "years": 2,
+            "price": 100_000.0,
+            "down": 100_000.0,
+            "mort": 0.0,
+            "rate": 0.0,
+            "rent": 0.0,
+            "show_liquidation_view": False,
+            "assume_sale_end": False,
+            "special_assessment_amount": 10_000.0,
+            "special_assessment_month": 7,
+        }
+    )
 
     df, _, _, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
     if df is None or len(df) < 24:
@@ -330,24 +359,26 @@ def _tt_special_assessment_applied_once() -> None:
 def _tt_cg_inclusion_tier_and_shelter() -> None:
     # Construct a deterministic case with large portfolio gains so the tier triggers.
     cfg = _base_cfg()
-    cfg.update({
-        "years": 1,
-        "price": 100_000.0,
-        "down": 100_000.0,
-        "mort": 0.0,
-        "rate": 0.0,
-        "rent": 100_000.0,  # forces buyer to invest 100k/mo when invest_diff=True
-        "r_ins": 0.0,
-        "r_util": 0.0,
-        "moving_cost": 0.0,
-        "moving_freq": 1000.0,
-        "show_liquidation_view": True,
-        "assume_sale_end": False,
-        "investment_tax_mode": "Pre-tax (no investment taxes)",
-        "cg_tax_end": 25.0,
-        "cg_inclusion_threshold": 250_000.0,
-        "reg_shelter_enabled": False,
-    })
+    cfg.update(
+        {
+            "years": 1,
+            "price": 100_000.0,
+            "down": 100_000.0,
+            "mort": 0.0,
+            "rate": 0.0,
+            "rent": 100_000.0,  # forces buyer to invest 100k/mo when invest_diff=True
+            "r_ins": 0.0,
+            "r_util": 0.0,
+            "moving_cost": 0.0,
+            "moving_freq": 1000.0,
+            "show_liquidation_view": True,
+            "assume_sale_end": False,
+            "investment_tax_mode": "Pre-tax (no investment taxes)",
+            "cg_tax_end": 25.0,
+            "cg_inclusion_threshold": 250_000.0,
+            "reg_shelter_enabled": False,
+        }
+    )
 
     basis = 12.0 * 100_000.0
     home_eq = 100_000.0
@@ -387,7 +418,6 @@ def _tt_cg_inclusion_tier_and_shelter() -> None:
     _assert_close("TT-L3 sheltered buyer_liq", b_liq3, (b_nw3 - home_eq), atol=1e-6)
 
 
-
 def _tt_ui_defaults_match_presets() -> None:
     """UI first-load defaults must match the selected scenario preset (single source of truth).
 
@@ -405,6 +435,7 @@ def _tt_ui_defaults_match_presets() -> None:
             if k not in d:
                 _die(f"ui_defaults: missing key '{k}' for scenario {scen}")
             _assert_close(f"ui_defaults[{scen}].{k}", float(d[k]), float(v), atol=1e-12, rtol=0.0)
+
 
 def _tt_city_preset_framework_toronto_mltt_and_summary() -> None:
     from rbv.ui.defaults import (
@@ -484,18 +515,20 @@ def _tt_city_preset_framework_toronto_mltt_and_summary() -> None:
 
 def _tt_rent_control_cadence_every3() -> None:
     cfg = _base_cfg()
-    cfg.update({
-        "years": 4,
-        "price": 0.0,
-        "down": 0.0,
-        "mort": 0.0,
-        "rate": 0.0,
-        "rent": 1_000.0,
-        "rent_inf": 0.03,
-        "rent_control_enabled": True,
-        "rent_control_cap": 0.02,
-        "rent_control_frequency_years": 3,
-    })
+    cfg.update(
+        {
+            "years": 4,
+            "price": 0.0,
+            "down": 0.0,
+            "mort": 0.0,
+            "rate": 0.0,
+            "rent": 1_000.0,
+            "rent_inf": 0.03,
+            "rent_control_enabled": True,
+            "rent_control_cap": 0.02,
+            "rent_control_frequency_years": 3,
+        }
+    )
 
     df, _, _, _ = _run_det(cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
     if df is None or len(df) < 37:
@@ -504,9 +537,7 @@ def _tt_rent_control_cadence_every3() -> None:
     rent_m36 = float(df.iloc[35]["Rent"])
     rent_m37 = float(df.iloc[36]["Rent"])
     _assert_close("TT-RC1 rent m36", rent_m36, 1000.0, atol=1e-12)
-    _assert_close("TT-RC1 rent m37", rent_m37, 1000.0 * (1.02 ** 3), atol=1e-6)
-
-
+    _assert_close("TT-RC1 rent m37", rent_m37, 1000.0 * (1.02**3), atol=1e-6)
 
 
 def _tt_moving_frequency_default_is_5_years() -> None:
@@ -515,7 +546,9 @@ def _tt_moving_frequency_default_is_5_years() -> None:
     cfg_missing.update({"years": 6, "rent": 2_000.0, "moving_cost": 2_500.0})
     cfg_missing.pop("moving_freq", None)
 
-    df_missing, _, _, _ = _run_det(cfg_missing, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    df_missing, _, _, _ = _run_det(
+        cfg_missing, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False
+    )
     if df_missing is None or len(df_missing) < 72:
         _die("TT-MOVE-DEF: engine returned empty/short df for missing moving_freq")
 
@@ -525,34 +558,43 @@ def _tt_moving_frequency_default_is_5_years() -> None:
     cfg_explicit = _base_cfg()
     cfg_explicit.update({"years": 6, "rent": 2_000.0, "moving_cost": 2_500.0, "moving_freq": 5.0})
 
-    df_explicit, _, _, _ = _run_det(cfg_explicit, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False)
+    df_explicit, _, _, _ = _run_det(
+        cfg_explicit, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False
+    )
     if df_explicit is None or len(df_explicit) < 72:
         _die("TT-MOVE-DEF: engine returned empty/short df for explicit moving_freq")
 
     moving_explicit = float(df_explicit["Moving"].sum())
     _assert_close("TT-MOVE-DEF parity with explicit 5y", moving_missing, moving_explicit, atol=1e-9)
 
+
 def _tt_mc_seed_reproducible() -> None:
     cfg = _base_cfg()
-    cfg.update({
-        "years": 3,
-        "price": 800_000.0,
-        "down": 160_000.0,
-        "mort": 640_000.0,
-        "rate": 5.0,
-        "rent": 3_200.0,
-        "use_volatility": True,
-        "num_sims": 200,
-        "ret_std": 0.15,
-        "apprec_std": 0.10,
-        "vectorized_mc": True,
-        "assume_sale_end": True,
-        "show_liquidation_view": True,
-        "cg_tax_end": 0.0,
-    })
+    cfg.update(
+        {
+            "years": 3,
+            "price": 800_000.0,
+            "down": 160_000.0,
+            "mort": 640_000.0,
+            "rate": 5.0,
+            "rent": 3_200.0,
+            "use_volatility": True,
+            "num_sims": 200,
+            "ret_std": 0.15,
+            "apprec_std": 0.10,
+            "vectorized_mc": True,
+            "assume_sale_end": True,
+            "show_liquidation_view": True,
+            "cg_tax_end": 0.0,
+        }
+    )
 
-    df1, close1, pmt1, win1 = _run_mc(cfg, buyer_ret_pct=7.0, renter_ret_pct=7.0, apprec_pct=3.0, invest_diff=False, mc_seed=424242, num_sims=200)
-    df2, close2, pmt2, win2 = _run_mc(cfg, buyer_ret_pct=7.0, renter_ret_pct=7.0, apprec_pct=3.0, invest_diff=False, mc_seed=424242, num_sims=200)
+    df1, close1, pmt1, win1 = _run_mc(
+        cfg, buyer_ret_pct=7.0, renter_ret_pct=7.0, apprec_pct=3.0, invest_diff=False, mc_seed=424242, num_sims=200
+    )
+    df2, close2, pmt2, win2 = _run_mc(
+        cfg, buyer_ret_pct=7.0, renter_ret_pct=7.0, apprec_pct=3.0, invest_diff=False, mc_seed=424242, num_sims=200
+    )
 
     _assert_close("TT-MC1 close_cash", close1, close2, atol=0.0)
     _assert_close("TT-MC1 mort_pmt", pmt1, pmt2, atol=0.0)
@@ -570,7 +612,6 @@ def _tt_mc_seed_reproducible() -> None:
         "Renter Liquidation NW",
     ]:
         _assert_close(f"TT-MC1 last[{col}]", float(last1[col]), float(last2[col]), atol=0.0)
-
 
 
 def _tt_reference_numbers_regression() -> None:
@@ -641,7 +682,9 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     # BC example: $500k => 200k*1% + 300k*2% = 8000
     _assert_close(
         "TT-TAX BC 500k",
-        float(calc_transfer_tax("British Columbia", 500_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        float(
+            calc_transfer_tax("British Columbia", 500_000.0, first_time_buyer=False, toronto_property=False)["total"]
+        ),
         8000.0,
         atol=1e-6,
     )
@@ -664,7 +707,9 @@ def _tt_transfer_tax_examples_multi_province() -> None:
 
     _assert_close(
         "TT-TAX BC negative",
-        float(calc_transfer_tax("British Columbia", -100_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        float(
+            calc_transfer_tax("British Columbia", -100_000.0, first_time_buyer=False, toronto_property=False)["total"]
+        ),
         0.0,
         atol=1e-9,
     )
@@ -674,13 +719,21 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     # NB: tax base is max(purchase price, assessed value) (1% simplified).
     _assert_close(
         "TT-TAX NB assessed>price",
-        float(calc_transfer_tax("New Brunswick", 300_000.0, first_time_buyer=False, toronto_property=False, assessed_value=350_000.0)["total"]),
+        float(
+            calc_transfer_tax(
+                "New Brunswick", 300_000.0, first_time_buyer=False, toronto_property=False, assessed_value=350_000.0
+            )["total"]
+        ),
         3500.0,
         atol=1e-6,
     )
     _assert_close(
         "TT-TAX NB assessed<price",
-        float(calc_transfer_tax("New Brunswick", 300_000.0, first_time_buyer=False, toronto_property=False, assessed_value=250_000.0)["total"]),
+        float(
+            calc_transfer_tax(
+                "New Brunswick", 300_000.0, first_time_buyer=False, toronto_property=False, assessed_value=250_000.0
+            )["total"]
+        ),
         3000.0,
         atol=1e-6,
     )
@@ -689,13 +742,29 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     # 1% on (min(base,1M)-30k) + 2% above 1M
     _assert_close(
         "TT-TAX PEI assessed>price",
-        float(calc_transfer_tax("Prince Edward Island", 200_000.0, first_time_buyer=False, toronto_property=False, assessed_value=250_000.0)["total"]),
+        float(
+            calc_transfer_tax(
+                "Prince Edward Island",
+                200_000.0,
+                first_time_buyer=False,
+                toronto_property=False,
+                assessed_value=250_000.0,
+            )["total"]
+        ),
         2200.0,
         atol=1e-6,
     )
     _assert_close(
         "TT-TAX PEI assessed<price",
-        float(calc_transfer_tax("Prince Edward Island", 200_000.0, first_time_buyer=False, toronto_property=False, assessed_value=150_000.0)["total"]),
+        float(
+            calc_transfer_tax(
+                "Prince Edward Island",
+                200_000.0,
+                first_time_buyer=False,
+                toronto_property=False,
+                assessed_value=150_000.0,
+            )["total"]
+        ),
         1700.0,
         atol=1e-6,
     )
@@ -703,7 +772,11 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     # Nova Scotia: municipal rate varies; ensure custom rate is applied.
     _assert_close(
         "TT-TAX NS custom rate 2.0%",
-        float(calc_transfer_tax("Nova Scotia", 500_000.0, first_time_buyer=False, toronto_property=False, ns_deed_transfer_rate=0.02)["total"]),
+        float(
+            calc_transfer_tax(
+                "Nova Scotia", 500_000.0, first_time_buyer=False, toronto_property=False, ns_deed_transfer_rate=0.02
+            )["total"]
+        ),
         10_000.0,
         atol=1e-6,
     )
@@ -718,8 +791,16 @@ def _tt_transfer_tax_examples_multi_province() -> None:
     # Input normalization: province labels with different casing should map to same rule.
     _assert_close(
         "TT-TAX NL canonical-case parity",
-        float(calc_transfer_tax("newfoundland and labrador", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
-        float(calc_transfer_tax("Newfoundland and Labrador", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        float(
+            calc_transfer_tax("newfoundland and labrador", 400_000.0, first_time_buyer=False, toronto_property=False)[
+                "total"
+            ]
+        ),
+        float(
+            calc_transfer_tax("Newfoundland and Labrador", 400_000.0, first_time_buyer=False, toronto_property=False)[
+                "total"
+            ]
+        ),
         atol=1e-9,
     )
 
@@ -735,7 +816,11 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     # <=500k: fully exempt (PTT <= 8k)
     _assert_close(
         "TT-BC-FTHB 400k post2024",
-        float(calc_transfer_tax("British Columbia", 400_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 400_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof
+            )["total"]
+        ),
         0.0,
         atol=1e-9,
     )
@@ -743,7 +828,11 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     # 500k: base PTT 8k; max exemption 8k => 0
     _assert_close(
         "TT-BC-FTHB 500k post2024",
-        float(calc_transfer_tax("British Columbia", 500_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 500_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof
+            )["total"]
+        ),
         0.0,
         atol=1e-9,
     )
@@ -751,7 +840,11 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     # 600k: base PTT 10k; exemption 8k => 2k
     _assert_close(
         "TT-BC-FTHB 600k post2024",
-        float(calc_transfer_tax("British Columbia", 600_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 600_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof
+            )["total"]
+        ),
         2000.0,
         atol=1e-6,
     )
@@ -759,7 +852,11 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     # 835k: full benefit (8k) still applies
     _assert_close(
         "TT-BC-FTHB 835k post2024",
-        float(calc_transfer_tax("British Columbia", 835_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 835_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof
+            )["total"]
+        ),
         6700.0,
         atol=1e-6,
     )
@@ -767,7 +864,11 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     # 850k: partial phaseout => exemption 3.2k; base 15k => 11.8k
     _assert_close(
         "TT-BC-FTHB 850k post2024",
-        float(calc_transfer_tax("British Columbia", 850_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 850_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof
+            )["total"]
+        ),
         11800.0,
         atol=1e-6,
     )
@@ -775,7 +876,11 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     # 860k+: no exemption
     _assert_close(
         "TT-BC-FTHB 860k post2024",
-        float(calc_transfer_tax("British Columbia", 860_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 860_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof
+            )["total"]
+        ),
         15200.0,
         atol=1e-6,
     )
@@ -784,41 +889,50 @@ def _tt_bc_fthb_exemption_date_aware() -> None:
     asof_old = _dt.date(2024, 3, 1)
     _assert_close(
         "TT-BC-FTHB 520k pre2024",
-        float(calc_transfer_tax("British Columbia", 520_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof_old)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 520_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof_old
+            )["total"]
+        ),
         6800.0,
         atol=1e-6,
     )
     _assert_close(
         "TT-BC-FTHB 525k pre2024",
-        float(calc_transfer_tax("British Columbia", 525_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof_old)["total"]),
+        float(
+            calc_transfer_tax(
+                "British Columbia", 525_000.0, first_time_buyer=True, toronto_property=False, asof_date=asof_old
+            )["total"]
+        ),
         8500.0,
         atol=1e-6,
     )
 
 
-
 def _tt_purchase_closing_costs_reduce_buyer_nw() -> None:
     """Truth table: one-time closing costs must reduce buyer net worth dollar-for-dollar when returns are zero."""
     cfg = _base_cfg()
-    cfg.update({
-        "years": 1,
-        "rent": 0.0,
-        "general_inf": 0.0,
-        "rent_inf": 0.0,
-        "sell_cost": 0.0,
-        "p_tax_rate": 0.0,
-        "maint_rate": 0.0,
-        "repair_rate": 0.0,
-        "condo": 0.0,
-        "h_ins": 0.0,
-        "o_util": 0.0,
-        "r_ins": 0.0,
-        "r_util": 0.0,
-        "moving_cost": 0.0,
-        "moving_freq": 1000.0,
-        "assume_sale_end": False,
-        "show_liquidation_view": False,
-    })
+    cfg.update(
+        {
+            "years": 1,
+            "rent": 0.0,
+            "general_inf": 0.0,
+            "rent_inf": 0.0,
+            "sell_cost": 0.0,
+            "p_tax_rate": 0.0,
+            "maint_rate": 0.0,
+            "repair_rate": 0.0,
+            "condo": 0.0,
+            "h_ins": 0.0,
+            "o_util": 0.0,
+            "r_ins": 0.0,
+            "r_util": 0.0,
+            "moving_cost": 0.0,
+            "moving_freq": 1000.0,
+            "assume_sale_end": False,
+            "show_liquidation_view": False,
+        }
+    )
 
     cfg0 = dict(cfg)
     cfg0["close"] = 0.0
@@ -835,7 +949,6 @@ def _tt_purchase_closing_costs_reduce_buyer_nw() -> None:
     bu0 = float(df0.iloc[-1]["Buyer Unrecoverable"])
     bu1 = float(df1.iloc[-1]["Buyer Unrecoverable"])
     _assert_close("TT-CLOSE buyer unrecoverable delta", bu1 - bu0, 10_000.0, atol=1e-6)
-
 
 
 def _tt_insured_30yr_amortization_policy_schedule() -> None:
@@ -865,6 +978,139 @@ def _tt_insured_30yr_amortization_policy_schedule() -> None:
     assert insured_max_amortization_years(d_new, first_time_buyer=True, new_construction=False) == 30
     assert insured_max_amortization_years(d_new, first_time_buyer=False, new_construction=True) == 30
     assert insured_max_amortization_years(d_new, first_time_buyer=True, new_construction=True) == 30
+
+
+def _tt_policy_and_snapshot_input_guardrails() -> None:
+    """Input guardrails for policy/tax/snapshot helpers (regression set)."""
+    import datetime as dt
+
+    from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
+    from rbv.core.policy_canada import (
+        cmhc_premium_rate_from_ltv,
+        insured_mortgage_price_cap,
+        insured_30yr_amortization_policy_stage,
+        mortgage_default_insurance_sales_tax_rate,
+    )
+    from rbv.core.scenario_snapshots import (
+        ScenarioConfig,
+        ScenarioSnapshot,
+        parse_scenario_payload,
+        scenario_state_diff_rows,
+    )
+    from rbv.core.taxes import calc_transfer_tax
+
+    # 1-2) Date coercion should not crash and should behave like "today".
+    cap_none = insured_mortgage_price_cap(None)
+    cap_today = insured_mortgage_price_cap(dt.date.today())
+    _assert_close("TT-GUARD cap-none-equals-today", cap_none, cap_today, atol=0.0)
+
+    stage_none = insured_30yr_amortization_policy_stage(None)
+    stage_today = insured_30yr_amortization_policy_stage(dt.date.today())
+    if stage_none != stage_today:
+        _die(f"TT-GUARD stage-none mismatch: {stage_none} vs {stage_today}")
+
+    # 3-4) CMHC helper should be safe for non-numeric LTV and continue valid edge behavior.
+    _assert_close("TT-GUARD cmhc-nonnumeric", cmhc_premium_rate_from_ltv("abc"), 0.0, atol=0.0)
+    _assert_close("TT-GUARD cmhc-95", cmhc_premium_rate_from_ltv(0.95), 0.04, atol=1e-12)
+
+    # 5-8) Province aliases for mortgage insurance sales tax.
+    _assert_close(
+        "TT-GUARD pst-on", mortgage_default_insurance_sales_tax_rate("ON", dt.date(2026, 1, 1)), 0.08, atol=0.0
+    )
+    _assert_close(
+        "TT-GUARD pst-sk", mortgage_default_insurance_sales_tax_rate("sk", dt.date(2026, 1, 1)), 0.06, atol=0.0
+    )
+    _assert_close(
+        "TT-GUARD pst-qc", mortgage_default_insurance_sales_tax_rate("QC", dt.date(2026, 1, 1)), 0.09, atol=0.0
+    )
+    _assert_close(
+        "TT-GUARD pst-qc-2027", mortgage_default_insurance_sales_tax_rate("pq", dt.date(2027, 1, 1)), 0.09975, atol=0.0
+    )
+
+    # 9-16) Tax province + boolean parsing regressions.
+    _assert_close(
+        "TT-GUARD tax-on-alias",
+        float(calc_transfer_tax("ON", 500_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        6475.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-GUARD tax-bc-alias",
+        float(calc_transfer_tax("BC", 500_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        8000.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-GUARD tax-nl-alias",
+        float(calc_transfer_tax("NL", 400_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        float(
+            calc_transfer_tax("Newfoundland and Labrador", 400_000.0, first_time_buyer=False, toronto_property=False)[
+                "total"
+            ]
+        ),
+        atol=1e-9,
+    )
+    _assert_close(
+        "TT-GUARD tax-pei-alias",
+        float(calc_transfer_tax("PEI", 200_000.0, first_time_buyer=False, toronto_property=False)["total"]),
+        1700.0,
+        atol=1e-6,
+    )
+
+    # String booleans should not accidentally trigger rebates/toronto MLTT.
+    _assert_close(
+        "TT-GUARD bool-false-fthb",
+        float(calc_transfer_tax("Ontario", 500_000.0, first_time_buyer="False", toronto_property=False)["total"]),
+        6475.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-GUARD bool-false-toronto",
+        float(calc_transfer_tax("Ontario", 500_000.0, first_time_buyer=False, toronto_property="False")["total"]),
+        6475.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-GUARD bool-true-fthb",
+        float(calc_transfer_tax("Ontario", 500_000.0, first_time_buyer="true", toronto_property=False)["total"]),
+        2475.0,
+        atol=1e-6,
+    )
+    _assert_close(
+        "TT-GUARD bool-true-toronto",
+        float(calc_transfer_tax("Ontario", 500_000.0, first_time_buyer=False, toronto_property="yes")["total"]),
+        12950.0,
+        atol=1e-6,
+    )
+
+    # 17-18) Snapshot helpers should tolerate non-dict state and preserve schema from payload state form.
+    cfg = ScenarioConfig.from_state([("price", 1)])
+    if cfg.state != {}:
+        _die(f"TT-GUARD scenario-config non-dict state should clear; got {cfg.state}")
+
+    cfg2 = ScenarioConfig.from_payload({"schema": "custom.schema", "state": {"price": 123}})
+    if cfg2.schema != "custom.schema":
+        _die(f"TT-GUARD scenario-config schema not preserved: {cfg2.schema}")
+
+    # 19) ScenarioSnapshot should coerce config payload dicts.
+    snap = ScenarioSnapshot(config={"state": {"price": 9}}, slot="X")
+    if not isinstance(snap.config, ScenarioConfig):
+        _die("TT-GUARD scenario-snapshot config not coerced")
+
+    # 20) state diff helper should gracefully handle non-dict canonicalization outputs.
+    rows = scenario_state_diff_rows("abc", [1, 2, 3])
+    if rows != []:
+        _die(f"TT-GUARD scenario-state-diff non-dict expected [], got {rows}")
+
+    # 21-22) Mortgage helpers should sanitize NaN/inf, not propagate NaN/inf.
+    _assert_close("TT-GUARD mort-nan", _annual_nominal_pct_to_monthly_rate(float('nan'), canadian=False), 0.0, atol=0.0)
+    _assert_close("TT-GUARD mort-inf", _monthly_rate_to_annual_nominal_pct(float('inf'), canadian=False), 0.0, atol=0.0)
+
+    # 23) parse payload should tolerate non-dict metadata.
+    state_rt, meta = parse_scenario_payload({"state": {"x": 1}, "meta": "bad"})
+    if int(state_rt.get("x", 0)) != 1 or not isinstance(meta, dict):
+        _die("TT-GUARD parse_scenario_payload malformed-meta handling failed")
+
 
 def _tt_discount_rate_unit_guard() -> None:
     """Guard: discount_rate passed as percent-points should not zero-out PV outputs."""
@@ -911,7 +1157,10 @@ def _tt_scenario_snapshot_hash_stable_roundtrip() -> None:
     snap = build_scenario_snapshot(state_a, slot="A", label="Scenario A", version="qa")
     payload = snap.to_dict()
     assert str(payload.get("schema")) == SCENARIO_SNAPSHOT_SCHEMA
-    assert isinstance(payload.get("config"), dict) and str((payload.get("config") or {}).get("schema")) == SCENARIO_CONFIG_SCHEMA
+    assert (
+        isinstance(payload.get("config"), dict)
+        and str((payload.get("config") or {}).get("schema")) == SCENARIO_CONFIG_SCHEMA
+    )
     state_rt, meta = parse_scenario_payload(payload)
     assert state_rt.get("province") == "Ontario"
     assert int(state_rt.get("years")) == 25
@@ -931,7 +1180,6 @@ def _tt_scenario_snapshot_filters_allowed_keys() -> None:
     assert "_tmp" not in st
     assert str(payload.get("slot")) == "B"
     assert bool(payload.get("scenario_hash"))
-
 
 
 def _tt_scenario_compare_delta_engine_zero_when_equal() -> None:
@@ -966,6 +1214,7 @@ def _tt_scenario_compare_delta_engine_zero_when_equal() -> None:
     state_c = {"province": "Ontario", "rate": 5.6, "price": 900000}
     diffs = scenario_state_diff_rows(state_a, state_c, atol=1e-9)
     assert any(str(r.get("key")) == "rate" for r in diffs)
+
 
 def _tt_compare_export_helpers_schema_and_csv() -> None:
     from rbv.core.scenario_snapshots import (
@@ -1040,6 +1289,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_scenario_snapshot_filters_allowed_keys()
     _tt_scenario_compare_delta_engine_zero_when_equal()
     _tt_compare_export_helpers_schema_and_csv()
+    _tt_policy_and_snapshot_input_guardrails()
 
     # Rent control cadence
     _tt_rent_control_cadence_every3()
