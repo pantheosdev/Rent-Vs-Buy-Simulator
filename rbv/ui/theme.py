@@ -3923,8 +3923,10 @@ def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_
     hash_key = "_rbv_css_last_hash"
     state[counter_key] = int(state.get(counter_key, 0)) + 1
 
+    force_reinject = bool(state.get("_rbv_force_css_reinject", False))
     should_inject = (
-        state.get(hash_key) != css_hash
+        force_reinject
+        or state.get(hash_key) != css_hash
         or state[counter_key] <= 2
         or (state[counter_key] % 25 == 0)
     )
@@ -3932,9 +3934,13 @@ def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_
     if should_inject:
         st.markdown(
             "<style id=\"rbv-global-css\">\n" + css + "\n</style>",
+
+
             unsafe_allow_html=True,
         )
         state[hash_key] = css_hash
+        if force_reinject:
+            state["_rbv_force_css_reinject"] = False
 
 
 # Backwards-compatible alias (older app.py variants called this)

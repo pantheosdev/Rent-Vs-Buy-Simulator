@@ -2038,6 +2038,9 @@ with st.sidebar:
     _prev_ui_mode = st.session_state.get("_rbv_ui_mode_prev", _ui_mode)
     if _prev_ui_mode != _ui_mode:
         st.session_state["_rbv_ui_mode_prev"] = _ui_mode
+        # Force CSS reinjection on mode transitions: Streamlit can recreate DOM/style tags
+        # during reruns and dedupe logic may otherwise skip an identical stylesheet.
+        st.session_state["_rbv_force_css_reinject"] = True
         st.rerun()
     else:
         st.session_state["_rbv_ui_mode_prev"] = _ui_mode
