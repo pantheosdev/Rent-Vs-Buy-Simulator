@@ -13,7 +13,7 @@ import random
 import re
 import os
 import sys
-
+import traceback
 # Ensure the local package (rbv/) is importable when running via an absolute path
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -45,21 +45,64 @@ from rbv.core.policy_canada import (
 )
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
-from rbv.ui.defaults import (
-    PRESETS,
-    CITY_PRESETS,
-    CITY_PRESET_CUSTOM,
-    apply_city_preset_values,
-    build_city_preset_change_summary,
-    build_session_defaults,
-    city_preset_filter_region_options,
-    city_preset_filter_type_options,
-    city_preset_filtered_options,
-    city_preset_metadata,
-    city_preset_options,
-    city_preset_preview_summary_lines,
-    city_preset_values,
-)
+# Deploy-safe imports: Streamlit Cloud can briefly run app.py during partial rollouts.
+# Fail gracefully (UI error) instead of crashing on import.
+try:
+    from rbv.ui.defaults import PRESETS, build_session_defaults
+except Exception:
+    st.error(
+        "Startup import failed (rbv.ui.defaults). This can happen during a partial deployment. "
+        "Reload in 1–2 minutes; if it persists, redeploy from GitHub."
+    )
+    st.code(traceback.format_exc())
+    st.stop()
+
+# City presets are optional; if they fail to import during rollout, degrade to Custom-only.
+try:
+    from rbv.ui.defaults import (
+        CITY_PRESETS,
+        CITY_PRESET_CUSTOM,
+        apply_city_preset_values,
+        build_city_preset_change_summary,
+        city_preset_filter_region_options,
+        city_preset_filter_type_options,
+        city_preset_filtered_options,
+        city_preset_metadata,
+        city_preset_options,
+        city_preset_preview_summary_lines,
+        city_preset_values,
+    )
+except Exception:
+    CITY_PRESET_CUSTOM = "Custom"
+    CITY_PRESETS = {}
+
+    def city_preset_options():
+        return [CITY_PRESET_CUSTOM]
+
+    def city_preset_filter_region_options():
+        return ["All regions"]
+
+    def city_preset_filter_type_options():
+        return ["All homes"]
+
+    def city_preset_filtered_options(*, region=None, home_type=None, query=None):
+        return [CITY_PRESET_CUSTOM]
+
+    def city_preset_metadata(name):
+        return {"name": str(name or CITY_PRESET_CUSTOM)}
+
+    def city_preset_preview_summary_lines(name, *, max_items: int = 5):
+        return []
+
+    def city_preset_values(name):
+        return None
+
+    def apply_city_preset_values(state, preset_name):
+        # No-op fallback; keep app running
+        return []
+
+    def build_city_preset_change_summary(changes, *, max_items: int = 8):
+        return []
 from rbv.core.scenario_snapshots import (
     build_scenario_config,
     build_scenario_snapshot,
