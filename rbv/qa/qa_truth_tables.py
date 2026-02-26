@@ -406,6 +406,82 @@ def _tt_ui_defaults_match_presets() -> None:
                 _die(f"ui_defaults: missing key '{k}' for scenario {scen}")
             _assert_close(f"ui_defaults[{scen}].{k}", float(d[k]), float(v), atol=1e-12, rtol=0.0)
 
+def _tt_city_preset_framework_toronto_mltt_and_summary() -> None:
+    from rbv.ui.defaults import (
+        CITY_PRESET_CUSTOM,
+        apply_city_preset_values,
+        build_city_preset_change_summary,
+        city_preset_filter_region_options,
+        city_preset_filter_type_options,
+        city_preset_filtered_options,
+        city_preset_metadata,
+        city_preset_options,
+        city_preset_preview_summary_lines,
+        city_preset_values,
+    )
+
+    opts = city_preset_options()
+    assert isinstance(opts, list) and opts and opts[0] == CITY_PRESET_CUSTOM
+    toronto_name = next((x for x in opts if str(x).startswith("Toronto (ON)")), None)
+    assert toronto_name is not None
+
+    # PR13 filtering / metadata helpers
+    assert "All regions" in city_preset_filter_region_options()
+    assert "All homes" in city_preset_filter_type_options()
+    tor_only = city_preset_filtered_options(region="Toronto only")
+    assert tor_only and tor_only[0] == CITY_PRESET_CUSTOM
+    assert all((x == CITY_PRESET_CUSTOM) or str(x).startswith("Toronto (ON)") for x in tor_only)
+    condo_only = city_preset_filtered_options(home_type="Condo")
+    assert any("Condo" in str(x) for x in condo_only[1:])
+    assert all((x == CITY_PRESET_CUSTOM) or ("Detached" not in str(x)) for x in condo_only)
+    vanc_only = city_preset_filtered_options(query="vanc")
+    assert any(str(x).startswith("Vancouver (BC)") for x in vanc_only)
+    meta = city_preset_metadata(toronto_name)
+    assert str(meta.get("province_code")) == "ON"
+    assert bool(meta.get("is_toronto")) is True
+    preview_lines = city_preset_preview_summary_lines(toronto_name, max_items=4)
+    assert isinstance(preview_lines, list) and preview_lines and any("Region:" in str(x) for x in preview_lines)
+
+    st0 = {
+        "city_preset": CITY_PRESET_CUSTOM,
+        "province": "British Columbia",
+        "toronto": False,
+        "price": 700000.0,
+        "down": 140000.0,
+        "rent": 2600.0,
+        "p_tax_rate_pct": 0.5,
+        "condo": 0.0,
+        "o_util": 180.0,
+        "r_util": 120.0,
+    }
+    changes = apply_city_preset_values(st0, toronto_name)
+    assert str(st0.get("city_preset")) == str(toronto_name)
+    assert str(st0.get("province")) == "Ontario"
+    assert bool(st0.get("toronto")) is True
+    assert float(st0.get("price")) > 0.0 and float(st0.get("rent")) > 0.0
+    assert any(str(r.get("key")) == "toronto" for r in changes)
+
+    summary = build_city_preset_change_summary(changes, max_items=12)
+    assert isinstance(summary, list) and summary
+    assert any(("Toronto property" in str(x)) or ("MLTT" in str(x)) for x in summary)
+
+    # Custom should not overwrite values (only normalize marker).
+    before_price = float(st0.get("price"))
+    no_changes = apply_city_preset_values(st0, CITY_PRESET_CUSTOM)
+    assert no_changes == []
+    assert str(st0.get("city_preset")) == CITY_PRESET_CUSTOM
+    _assert_close("TT-CITY custom no overwrite", float(st0.get("price")), before_price, atol=0.0)
+
+    # Non-Toronto preset should clear MLTT and force toronto flag off.
+    van_name = next((x for x in opts if str(x).startswith("Vancouver (BC)")), None)
+    assert van_name is not None
+    st1 = {"province": "Ontario", "toronto": True}
+    apply_city_preset_values(st1, van_name)
+    assert str(st1.get("province")) == "British Columbia"
+    assert bool(st1.get("toronto")) is False
+    assert isinstance(city_preset_values(van_name), dict)
+
+
 def _tt_rent_control_cadence_every3() -> None:
     cfg = _base_cfg()
     cfg.update({
@@ -926,6 +1002,7 @@ def main(argv: list[str] | None = None) -> None:
     _tt_cg_inclusion_tier_and_shelter()
     _tt_discount_rate_unit_guard()
     _tt_ui_defaults_match_presets()
+    _tt_city_preset_framework_toronto_mltt_and_summary()
     _tt_scenario_snapshot_hash_stable_roundtrip()
     _tt_scenario_snapshot_filters_allowed_keys()
     _tt_scenario_compare_delta_engine_zero_when_equal()
