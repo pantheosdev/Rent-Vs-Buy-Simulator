@@ -92,7 +92,9 @@ def canonicalize_jsonish(value: Any) -> Any:
 
 
 def _filter_state(state: dict[str, Any] | None, allowed_keys: Iterable[str] | None = None) -> dict[str, Any]:
-    src = dict(state or {})
+    if not isinstance(state, dict):
+        return {}
+    src = dict(state)
     if allowed_keys is None:
         return src
     allowed = {str(k) for k in allowed_keys}
@@ -106,7 +108,9 @@ class ScenarioConfig:
 
     def __post_init__(self) -> None:
         # Freeze a shallow copy to avoid external mutation changing hashes.
-        object.__setattr__(self, "state", dict(self.state or {}))
+        state = self.state if isinstance(self.state, dict) else {}
+        object.__setattr__(self, "state", dict(state))
+        object.__setattr__(self, "schema", str(self.schema or SCENARIO_CONFIG_SCHEMA))
 
     @property
     def canonical_state(self) -> dict[str, Any]:
@@ -123,7 +127,9 @@ class ScenarioConfig:
         return {
             "schema": self.schema,
             "state": state,
-            "hash": hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest(),
+            "hash": hashlib.sha256(
+                json.dumps(state, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+            ).hexdigest(),
         }
 
     @classmethod
@@ -137,7 +143,10 @@ class ScenarioConfig:
             cfg = obj["config"]
             return cls(state=dict(cfg.get("state") or {}), schema=str(cfg.get("schema") or SCENARIO_CONFIG_SCHEMA))
         if "state" in obj and isinstance(obj.get("state"), dict):
-            return cls(state=dict(obj.get("state") or {}))
+            return cls(
+                state=dict(obj.get("state") or {}),
+                schema=str(obj.get("schema") or SCENARIO_CONFIG_SCHEMA),
+            )
         # Back-compat: treat bare dict as state
         return cls(state=obj)
 
@@ -154,8 +163,11 @@ class ScenarioSnapshot:
     schema: str = SCENARIO_SNAPSHOT_SCHEMA
 
     def __post_init__(self) -> None:
+        cfg = self.config if isinstance(self.config, ScenarioConfig) else ScenarioConfig.from_payload(self.config)
+        object.__setattr__(self, "config", cfg)
         object.__setattr__(self, "meta", dict(self.meta or {}))
         object.__setattr__(self, "slot", str(self.slot or "active"))
+        object.__setattr__(self, "schema", str(self.schema or SCENARIO_SNAPSHOT_SCHEMA))
 
     @property
     def scenario_hash(self) -> str:
@@ -188,7 +200,7 @@ class ScenarioSnapshot:
             app=str(obj.get("app") or "Rent vs Buy Simulator"),
             version=(None if obj.get("version") is None else str(obj.get("version"))),
             exported_at=str(obj.get("exported_at") or _dt.datetime.now().isoformat(timespec="seconds")),
-            meta=dict(obj.get("meta") or {}),
+            meta=(dict(obj.get("meta")) if isinstance(obj.get("meta"), dict) else {}),
             schema=str(obj.get("schema") or SCENARIO_SNAPSHOT_SCHEMA),
         )
 
@@ -219,8 +231,6 @@ def build_scenario_snapshot(
         version=version,
         meta=dict(meta or {}),
     )
-
-
 
 
 def _to_float_or_none(v: Any) -> float | None:
@@ -259,6 +269,9 @@ def extract_terminal_metrics(
             return out
         row = df.iloc[-1]
     except Exception:
+        return out
+
+    if row is None:
         return out
 
     def _row(col: str) -> float | None:
@@ -333,8 +346,10 @@ def scenario_state_diff_rows(
     atol: float = 1e-9,
 ) -> list[dict[str, Any]]:
     """Canonical A/B state diff rows (stable sort; ignores tiny float noise)."""
-    a = canonicalize_jsonish(state_a or {})
-    b = canonicalize_jsonish(state_b or {})
+    a_raw = canonicalize_jsonish(state_a or {})
+    b_raw = canonicalize_jsonish(state_b or {})
+    a = a_raw if isinstance(a_raw, dict) else {}
+    b = b_raw if isinstance(b_raw, dict) else {}
     rows: list[dict[str, Any]] = []
     for k in sorted(set(a.keys()) | set(b.keys())):
         va = a.get(k)
@@ -374,6 +389,7 @@ def parse_scenario_payload(payload: dict[str, Any] | None) -> tuple[dict[str, An
                 meta[str(k)] = v
 
     return dict(snap.config.canonical_state), meta
+
 
 def rows_to_csv_text(rows: list[dict[str, Any]] | None, *, columns: list[str] | tuple[str, ...] | None = None) -> str:
     """Serialize rows to CSV text with stable column ordering."""
@@ -425,6 +441,7 @@ def build_compare_export_payload(
     meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a JSON-safe compare export payload for PR11 exports."""
+
     def _snap_meta(payload: dict[str, Any] | None) -> dict[str, Any]:
         try:
             _state, _meta = parse_scenario_payload(payload or {})
@@ -447,4 +464,3 @@ def build_compare_export_payload(
         "metrics": [canonicalize_jsonish(r) for r in (metric_rows or [])],
         "state_diffs": [canonicalize_jsonish(r) for r in (state_diff_rows or [])],
     }
-
