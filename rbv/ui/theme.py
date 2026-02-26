@@ -1149,18 +1149,19 @@ div[data-testid="stTabs"]{
     /* Prevent tiny columns from wrapping labels into vertical letters */
 div[data-testid="stButton"] > button, div[data-testid="stButton"] button, .stButton > button {
         white-space: nowrap !important;
-        background: rgba(255,255,255,0.06) !important;
-        color: rgba(241,241,243,0.92) !important;
-        border: 1px solid rgba(255,255,255,0.16) !important;
+        background: linear-gradient(180deg, rgba(48,93,196,0.95), rgba(32,67,150,0.95)) !important;
+        color: #EAF1FF !important;
+        border: 1px solid rgba(155,190,255,0.42) !important;
         border-radius: 12px !important;
         font-weight: 700 !important;
-        box-shadow: none !important;
+        box-shadow: 0 10px 24px -16px rgba(34,84,195,0.85), inset 0 1px 0 rgba(255,255,255,0.16) !important;
         transition: background 0.14s ease, border-color 0.14s ease, transform 0.08s ease;
     }
     div[data-testid="stButton"] > button:hover, div[data-testid="stButton"] button:hover, .stButton > button:hover {
-        background: rgba(255,255,255,0.12) !important;
-        border-color: rgba(255,255,255,0.38) !important;
-        color: #E6EDF7 !important;
+        background: linear-gradient(180deg, rgba(66,118,232,0.98), rgba(38,81,178,0.98)) !important;
+        border-color: rgba(180,210,255,0.52) !important;
+        color: #F5F9FF !important;
+        transform: translateY(-1px);
     }
     div[data-testid="stButton"] > button:focus, div[data-testid="stButton"] button:focus, .stButton > button:focus,
     div[data-testid="stButton"] > button:focus-visible, div[data-testid="stButton"] button:focus-visible, .stButton > button:focus-visible {
@@ -1272,45 +1273,58 @@ div[data-testid="stNumberInput"] input{
 
 /* --- Premium KPI cards (Buying vs Renting) --- */
 .kpi-card{
-  background: rgba(255,255,255,0.045);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 14px;
-  padding: 12px 14px;
+  background:
+    radial-gradient(130% 90% at 6% -20%, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.00) 55%),
+    linear-gradient(160deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 45%, rgba(255,255,255,0.02) 100%);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  padding: 13px 15px;
   position: relative;
   /* Tooltips must be able to escape the card bounds */
   overflow: visible;
-  min-height: 78px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  min-height: 80px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.10);
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+  transition: transform 140ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+.kpi-card:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: 0 14px 34px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
 }
 .kpi-card:before{
   content:"";
   position:absolute;
   left:0; top:0;
   height:4px; width:100%;
-  background: var(--accent, rgba(255,255,255,0.25));
+  background: linear-gradient(90deg, var(--accent, rgba(255,255,255,0.32)), rgba(255,255,255,0.20));
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
 }
 .kpi-card.kpi-neutral:before{
   display:none;
 }
 .kpi-title{
-  color: rgba(255,255,255,0.78);
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.80);
+  font-size: 0.80rem;
+  font-weight: 650;
+  letter-spacing: 0.25px;
   display:flex;
   align-items:center;
   gap:8px;
 }
 .kpi-value{
   color: #ffffff;
-  font-size: 1.75rem;
-  font-weight: 700;
+  font-size: 1.82rem;
+  font-weight: 760;
   margin-top: 8px;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.15px;
+  text-shadow: 0 2px 14px rgba(0,0,0,0.35);
 }
 @media (max-width: 768px){
-  .kpi-card{ padding: 14px 14px; min-height: 86px; border-radius: 14px; }
-  .kpi-value{ font-size: 1.75rem; }
+  .kpi-card{ padding: 14px; min-height: 86px; border-radius: 14px; }
+  .kpi-value{ font-size: 1.72rem; }
 }
 
 
@@ -1355,14 +1369,15 @@ section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] button div{
   display:block;
   width:100%;
   text-align:center;
-  font-weight:700;
-  letter-spacing:0.04em;
+  font-weight:760;
+  letter-spacing:0.045em;
   padding:10px 12px;
   border-radius:14px;
   margin:10px 0 14px 0;
   text-transform:none;
-  border:1px solid rgba(255,255,255,0.12);
-  background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.16);
+  background:linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
+  box-shadow:0 10px 26px -18px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .kpi-section-title.buy-title{
   color: var(--buy, #2F8BFF);

@@ -1313,7 +1313,7 @@ def run_heatmap_mc_batch(
     r_ins = _f(cfg.get("r_ins", 0.0), 0.0)
     r_util = _f(cfg.get("r_util", 0.0), 0.0)
     moving_cost = _f(cfg.get("moving_cost", 0.0), 0.0)
-    moving_freq = _f(cfg.get("moving_freq", 0.0), 0.0)
+    moving_freq = _f(cfg.get("moving_freq", 5.0), 5.0)
 
     mort = _f(cfg.get("mort", 0.0), 0.0)
     close = _f(cfg.get("close", 0.0), 0.0)
@@ -1861,7 +1861,7 @@ def run_simulation_core(
     r_ins = _f(cfg.get("r_ins", 0.0), 0.0)
     r_util = _f(cfg.get("r_util", 0.0), 0.0)
     moving_cost = _f(cfg.get("moving_cost", 0.0), 0.0)
-    moving_freq = _f(cfg.get("moving_freq", 0.0), 0.0)
+    moving_freq = _f(cfg.get("moving_freq", 5.0), 5.0)
 
     mort = _f(cfg.get("mort", 0.0), 0.0)
     close = _f(cfg.get("close", 0.0), 0.0)
