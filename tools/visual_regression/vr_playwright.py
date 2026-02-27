@@ -203,6 +203,18 @@ def main() -> int:
             page = context.new_page()
             page.goto(url, wait_until="networkidle")
             page.wait_for_selector('div[data-testid="stAppViewContainer"]', timeout=60_000)
+            page.wait_for_timeout(350)
+
+            def _clip_in_viewport(left: float, top: float, right: float, bottom: float, *, pad: int = 24):
+                """Return a safe clip rect within viewport or None when degenerate."""
+                viewport = page.viewport_size or {"width": 1400, "height": 900}
+                x = max(0.0, float(left) - float(pad))
+                y = max(0.0, float(top) - float(pad))
+                w = min(float(viewport["width"]) - x, (float(right) - float(left)) + 2.0 * float(pad))
+                h = min(float(viewport["height"]) - y, (float(bottom) - float(top)) + 2.0 * float(pad))
+                if (w < 40.0) or (h < 40.0):
+                    return None
+                return {"x": x, "y": y, "width": w, "height": h}
 
             def save(name: str, *, baseline: bool = False, clip=None, element=None):
                 target = (BASELINE_DIR if baseline else OUT_DIR) / name
@@ -218,12 +230,24 @@ def main() -> int:
                     root.screenshot(path=str(target))
                 return target
 
+            def _ensure_visible(loc, *, settle_ms: int = 220):
+                try:
+                    if loc is not None and loc.count() > 0:
+                        loc.first.scroll_into_view_if_needed(timeout=8_000)
+                        page.wait_for_timeout(settle_ms)
+                        return True
+                except Exception:
+                    pass
+                return False
+
             # 1) Focused input (focus ring + radius integrity)
             try:
                 ni = page.locator('div[data-testid="stNumberInput"] input').first
+                _ensure_visible(ni)
                 if ni.count() > 0:
                     ni.click()
                 ni_wrap = page.locator('div[data-testid="stNumberInput"]').first
+                _ensure_visible(ni_wrap)
                 if ni_wrap.count() > 0:
                     save("focused_input.png", baseline=args.update_baseline, element=ni_wrap)
                 else:
@@ -256,6 +280,7 @@ def main() -> int:
             # 3) Verdict banners
             try:
                 banners = page.locator('.verdict-banner')
+                _ensure_visible(banners)
                 if banners.count() > 0:
                     first = banners.nth(0)
                     last = banners.nth(min(1, banners.count() - 1))
@@ -276,31 +301,65 @@ def main() -> int:
                 print(f"[vr] WARN: verdict banner capture skipped: {e}")
                 save("verdict_banners.png", baseline=args.update_baseline)
 
-            # 4) Tabs + tables
+            # 4) Bias tab section (focused capture around tab content, not top banners)
             try:
                 # Some UI variants may not render the exact label; don't hard-fail smoke runs.
                 tab = page.get_by_text("Bias & Sensitivity", exact=True)
                 if tab.count() > 0:
                     tab.click()
-                    page.wait_for_timeout(600)
+                    page.wait_for_timeout(900)
+                # Ensure target tab content has rendered before reading bounds.
+                with contextlib.suppress(Exception):
+                    page.locator('xpath=//*[contains(normalize-space(.), "What this tab does:")]').first.wait_for(
+                        state="visible", timeout=12_000
+                    )
+                with contextlib.suppress(Exception):
+                    page.get_by_role("button", name="Compute Bias Dashboard").first.wait_for(
+                        state="visible", timeout=12_000
+                    )
             except Exception as e:  # noqa: BLE001
                 print(f"[vr] WARN: could not switch to Bias & Sensitivity tab: {e}")
 
             try:
+                # Anchor within the Bias tab so snapshots don't accidentally stay on the top banners.
+                anchor = page.locator(
+                    "xpath=//*[contains(normalize-space(.), 'What this tab does:') or contains(normalize-space(.), 'Compute Bias Dashboard')]"
+                ).first
+                if anchor.count() > 0:
+                    anchor.scroll_into_view_if_needed(timeout=10_000)
+                    page.wait_for_timeout(500)
+
                 tabbar = page.locator('.st-key-rbv_tab_nav').first
-                table = page.locator('div[data-testid="stDataFrame"], div[data-testid="stTable"]').first
-                if tabbar.count() > 0 and table.count() > 0:
-                    b1 = tabbar.bounding_box()
-                    b2 = table.bounding_box()
-                    if b1 and b2:
-                        left = min(b1["x"], b2["x"])
-                        top = min(b1["y"], b2["y"])
-                        right = max(b1["x"] + b1["width"], b2["x"] + b2["width"])
-                        bottom = max(b1["y"] + b1["height"], b2["y"] + b2["height"])
-                        clip = {"x": left, "y": top, "width": right - left, "height": bottom - top}
+                _ensure_visible(tabbar)
+                note = page.locator('xpath=//*[contains(normalize-space(.), "What this tab does:")]').first
+                _ensure_visible(note)
+                compute_btn = page.get_by_role("button", name="Compute Bias Dashboard").first
+                sens_hdr = page.locator('xpath=//*[contains(normalize-space(.), "Sensitivity chart")]').first
+
+                boxes = []
+                for loc in (tabbar, note, compute_btn, sens_hdr):
+                    try:
+                        if loc.count() > 0:
+                            bb = loc.bounding_box()
+                            if bb:
+                                boxes.append(bb)
+                    except Exception:
+                        pass
+
+                if boxes:
+                    left = min(b["x"] for b in boxes)
+                    top = min(b["y"] for b in boxes)
+                    right = max(b["x"] + b["width"] for b in boxes)
+                    bottom = max(b["y"] + b["height"] for b in boxes)
+                    clip = _clip_in_viewport(left, top, right, bottom, pad=24)
+                    if clip is not None:
                         save("tabs_tables.png", baseline=args.update_baseline, clip=clip)
+                    elif note.count() > 0:
+                        save("tabs_tables.png", baseline=args.update_baseline, element=note)
                     else:
-                        save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
+                        save("tabs_tables.png", baseline=args.update_baseline)
+                elif note.count() > 0:
+                    save("tabs_tables.png", baseline=args.update_baseline, element=note)
                 elif tabbar.count() > 0:
                     save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
                 else:

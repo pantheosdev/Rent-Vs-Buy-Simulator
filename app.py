@@ -5701,7 +5701,7 @@ if tab == _TAB_NET:
     except Exception:
         pass
 
-    view = st.radio("", ["Yearly", "Monthly"], horizontal=True, label_visibility="collapsed")
+    view = st.radio("Time view", ["Yearly", "Monthly"], horizontal=True, label_visibility="collapsed")
 
     data = (df.groupby('Year').tail(1) if view == "Yearly" else df).copy()
 
@@ -6891,7 +6891,7 @@ elif tab == _TAB_BIAS:
     # Mode selection
     bias_mode = st.radio(
         "Mode",
-        ["Deterministic ", "Monte Carlo "],
+        ["Deterministic", "Monte Carlo"],
         horizontal=True,
         key="bias_dash_mode",
     )
@@ -6916,7 +6916,12 @@ elif tab == _TAB_BIAS:
             key="bias_dash_mc_metric",
         )
 
-        mc_sims = int(st.session_state.get("bias_mc_sims", 15_000 if fast_mode else 30_000))
+        _raw_bias_mc_sims = st.session_state.get("bias_mc_sims", 15_000 if fast_mode else 30_000)
+        try:
+            mc_sims = int(float(_raw_bias_mc_sims))
+        except Exception:
+            mc_sims = 15_000 if fast_mode else 30_000
+        mc_sims = int(max(100, min(250_000, mc_sims)))
         st.caption(f"Monte Carlo simulations (from Performance mode): **{mc_sims:,}**")
 
     # PV metric only applies to money-valued deltas (deterministic Δ or MC Expected Δ)
@@ -6929,6 +6934,7 @@ elif tab == _TAB_BIAS:
             key="bias_dash_use_pv",
         )
     else:
+        st.session_state["bias_dash_use_pv"] = False
         st.caption("PV metric is disabled for Win% mode (Win% is not PV-discounted).")
 
     # Flip-points included in the 12-card grid (computed on every dashboard run).
@@ -6959,6 +6965,12 @@ elif tab == _TAB_BIAS:
                 return default
 
         sig = {
+            "bias_cache_version": 2,
+            "bias_mode": str(bias_mode),
+            "use_mc": bool(use_mc),
+            "mc_metric": str(mc_metric) if mc_metric is not None else None,
+            "mc_sims": int(mc_sims) if mc_sims is not None else None,
+            "use_pv_metric": bool(use_pv_metric),
             "price": float(_ss("price", 0.0)),
             "rent": float(_ss("rent", 0.0)),
             "years": int(_ss("years", 25)),
@@ -6975,6 +6987,8 @@ elif tab == _TAB_BIAS:
             "cg_tax_end": float(_ss("cg_tax_end", 0.0)),
             "home_sale_legal_fee": float(_ss("home_sale_legal_fee", 0.0)),
             "use_volatility": bool(_ss("use_volatility", False)),
+            "mc_seed": _ss("mc_seed", None),
+            "mc_randomize": bool(_ss("mc_randomize", True)),
             "ret_std_pct": float(_ss("ret_std_pct", 15.0)),
             "apprec_std_pct": float(_ss("apprec_std_pct", 5.0)),
             "market_corr_input": float(_ss("market_corr_input", 0.0)),
@@ -6985,6 +6999,16 @@ elif tab == _TAB_BIAS:
             "renter_uses_closing_input": bool(_ss("renter_uses_closing_input", True)),
             "prop_tax_growth_model": str(_ss("prop_tax_growth_model", "")),
             "prop_tax_hybrid_addon_pct": float(_ss("prop_tax_hybrid_addon_pct", 0.5)),
+            "rent_control_enabled": bool(_ss("rent_control_enabled", False)),
+            "rent_control_cap_pct": float(_ss("rent_control_cap_pct", 2.5)),
+            "rent_control_frequency": str(_ss("rent_control_frequency", "Every year")),
+            "invest_surplus_input": bool(_ss("invest_surplus_input", False)),
+            "budget_enabled": bool(_ss("budget_enabled", False)),
+            "budget_allow_withdraw": bool(_ss("budget_allow_withdraw", False)),
+            "tax_deduct_contributions": bool(_ss("tax_deduct_contributions_input", False)),
+            "reg_shelter_enabled": bool(_ss("reg_shelter_enabled", False)),
+            "reg_initial_room": float(_ss("reg_initial_room", 0.0)),
+            "reg_annual_room": float(_ss("reg_annual_room", 0.0)),
         }
         raw = json.dumps(sig, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -7864,10 +7888,6 @@ elif tab == _TAB_BIAS:
             if _adaptive_bias_active:
                 _bias_eval_phase = "full"
 
-            # After flip-point solving, switch back to full sims for sensitivity evaluations
-            if _adaptive_bias_active:
-                _bias_eval_phase = "full"
-
             sens_specs = [
                 ("Monthly Rent ($)", max(200.0, 0.07 * max(1.0, base_r)), "rent"),
                 ("Home appreciation (+0.5%/yr)", 0.50, "apprec"),
@@ -7879,6 +7899,13 @@ elif tab == _TAB_BIAS:
                 ("Maintenance rate (+0.10% of home value)", 0.10, "maint_rate"),
                 ("Selling cost (+0.5% of sale price)", 0.50, "sell_cost"),
             ]
+
+            # Use the explicit user-entered percent-point value for rent inflation in sensitivity
+            # (not the already-capped effective decimal), then let engine rules apply caps consistently.
+            try:
+                _base_rent_inf_pct = float(st.session_state.get("rent_inf", 0.0))
+            except Exception:
+                _base_rent_inf_pct = float(rent_inf_eff * 100.0)
 
             sens_rows = []
             for label, step, key in sens_specs:
@@ -7894,7 +7921,9 @@ elif tab == _TAB_BIAS:
                     elif key == "mort_rate":
                         d_plus = _eval_metric(use_pv_metric, rate_override_pct=float(rate) + step) - base_val
                     elif key == "rent_inf":
-                        d_plus = _eval_metric(use_pv_metric, rent_inf_override_pct=(rent_inf_eff * 100.0) + step) - base_val
+                        _ri_plus = float(_base_rent_inf_pct) + float(step)
+                        _ri_plus = min(100.0, max(-99.0, _ri_plus))
+                        d_plus = _eval_metric(use_pv_metric, rent_inf_override_pct=_ri_plus) - base_val
                     elif key in ("p_tax_rate", "maint_rate"):
                         cur = float(p_tax_rate) if key == "p_tax_rate" else float(maint_rate)
                         d_plus = _eval_metric(use_pv_metric, param_overrides={key: cur + 0.01 * step}) - base_val
@@ -8143,75 +8172,52 @@ elif tab == _TAB_BIAS:
                     f"<div class='bias-pill'><div class='k'>{html.escape(label)} {tip_html}</div><div class='v'>{html.escape(value)}</div>{sub_html}</div>"
                 )
 
-            flips_grid = (
-                "<div class='bias-flip-grid'>"
-                + current_pill
-                + _pill(
+            _flip_cards = [
+                _pill(
                     "Flip rent",
                     flip_rent_txt,
                     "Approximate monthly rent that would make the result a tie. If it says ‘No crossover’, the tie wasn’t found within the search range.",
-                )
-                + _pill(
+                ),
+                _pill(
                     "Flip home appreciation",
                     flip_app_txt,
                     "Approximate annual home appreciation rate that would make the result a tie for the chosen metric.",
-                )
-                + _pill(
+                ),
+                _pill(
                     "Flip mortgage rate",
                     flip_rate_txt,
                     "Approximate mortgage rate that would make the result a tie (holding other inputs constant).",
-                )
-                + _pill(
+                ),
+                _pill(
                     "Flip renter return",
                     flip_renter_txt,
                     "Approximate renter investment return that would make the result a tie (holding other inputs constant).",
-                )
-                + _pill(
-                    "Flip buyer return",
-                    flip_buyer_txt,
-                    flip_buyer_tip or "Approximate buyer investment return that would make the result a tie (holding other inputs constant).",
-                    sub=flip_buyer_sub,
-                )
-                + _pill(
-                    "Flip down payment",
-                    flip_down_txt,
-                    flip_down_tip or "Approximate down payment percentage (of purchase price) that would make the result a tie.",
-                    sub=flip_down_sub,
-                )
-                + _pill(
-                    "Flip selling cost",
-                    flip_sell_txt,
-                    flip_sell_tip or "Approximate total selling cost rate (as % of sale price) that would make the result a tie.",
-                    sub=flip_sell_sub,
-                )
-                + _pill(
-                    "Flip rent inflation",
-                    flip_rinf_txt,
-                    flip_rinf_tip or "Approximate annual rent inflation rate that would make the result a tie.",
-                    sub=flip_rinf_sub,
-                )
-                + _pill(
-                    "Flip property tax rate",
-                    flip_ptax_txt,
-                    flip_ptax_tip or "Approximate property tax rate (as % of home value per year) that would make the result a tie.",
-                    sub=flip_ptax_sub,
-                )
-                + _pill(
-                    "Flip maintenance rate",
-                    flip_maint_txt,
-                    flip_maint_tip or "Approximate maintenance rate (as % of home value per year) that would make the result a tie.",
-                    sub=flip_maint_sub,
-                )
-                + _pill(
-                    "Flip repairs rate",
-                    flip_repair_txt,
-                    flip_repair_tip or "Approximate annual repair costs rate (as % of home value per year) that would make the result a tie.",
-                    sub=flip_repair_sub,
-                )
-                + "</div>"
-            )
+                ),
+            ]
 
+            _adv_specs = [
+                ("Flip buyer return", flip_buyer_txt, flip_buyer_tip or "Approximate buyer investment return that would make the result a tie (holding other inputs constant).", flip_buyer_sub),
+                ("Flip down payment", flip_down_txt, flip_down_tip or "Approximate down payment percentage (of purchase price) that would make the result a tie.", flip_down_sub),
+                ("Flip selling cost", flip_sell_txt, flip_sell_tip or "Approximate total selling cost rate (as % of sale price) that would make the result a tie.", flip_sell_sub),
+                ("Flip rent inflation", flip_rinf_txt, flip_rinf_tip or "Approximate annual rent inflation rate that would make the result a tie.", flip_rinf_sub),
+                ("Flip property tax rate", flip_ptax_txt, flip_ptax_tip or "Approximate property tax rate (as % of home value per year) that would make the result a tie.", flip_ptax_sub),
+                ("Flip maintenance rate", flip_maint_txt, flip_maint_tip or "Approximate maintenance rate (as % of home value per year) that would make the result a tie.", flip_maint_sub),
+                ("Flip repairs rate", flip_repair_txt, flip_repair_tip or "Approximate annual repair costs rate (as % of home value per year) that would make the result a tie.", flip_repair_sub),
+            ]
+
+            _hidden_adv_no_x = 0
+            for _label, _val_txt, _tip, _sub in _adv_specs:
+                # Keep the panel focused on actionable flips by hiding advanced cards with no found crossover.
+                # Core flips remain always visible above.
+                if str(_val_txt).strip().lower() == "no crossover":
+                    _hidden_adv_no_x += 1
+                    continue
+                _flip_cards.append(_pill(_label, _val_txt, _tip, sub=_sub))
+
+            flips_grid = "<div class='bias-flip-grid'>" + current_pill + "".join(_flip_cards) + "</div>"
             st.markdown(mode_row + flips_grid, unsafe_allow_html=True)
+            if _hidden_adv_no_x > 0:
+                st.caption(f"Showing actionable flip-points. Hidden advanced flips with no crossover in current range: {_hidden_adv_no_x}.")
         except Exception:
             pass
 
@@ -8255,23 +8261,26 @@ elif tab == _TAB_BIAS:
 
 
 
-        # Single graph: tornado bar chart (top 8)
+        # Single graph: tornado bar chart + readable details table (top 8)
         try:
             sens_num = res.get("sens_df")
             if sens_num is not None:
                 sens_num = sens_num.copy()
                 sens_num = sens_num.dropna(subset=["Impact"])
                 if not sens_num.empty:
-                    if str(res.get("value_kind","money")) == "money":
-                        chart_title = "What matters most (near your current inputs)"
+                    _is_money = str(res.get("value_kind", "money")) == "money"
+                    chart_title = "What matters most (near your current inputs)"
+
+                    if _is_money:
                         x_axis_title = "Change in result ($, Buyer − Renter)"
                         x_vals = sens_num["Impact"]
                         tick_fmt = ",.0f"
+                        bar_text = [f"${v:,.0f}" for v in x_vals]
                     else:
-                        chart_title = "What matters most (near your current inputs)"
                         x_axis_title = "Change in win chance (% out of 100)"
                         x_vals = sens_num["Impact"] * 100.0
                         tick_fmt = ",.1f"
+                        bar_text = [f"{v:+.2f} pp" for v in x_vals]
 
                     fig = go.Figure()
                     colors = [(BUY_COLOR if float(v) >= 0 else RENT_COLOR) for v in sens_num['Impact'].tolist()]
@@ -8280,20 +8289,34 @@ elif tab == _TAB_BIAS:
                         y=sens_num["Input"],
                         orientation="h",
                         marker=dict(color=colors),
+                        text=bar_text,
+                        textposition="outside",
+                        cliponaxis=False,
                     )
                     fig.update_layout(
                         template=pio.templates.default,
-                        height=420,
-                        margin=dict(l=10, r=10, t=50, b=10),
+                        height=440,
+                        margin=dict(l=10, r=30, t=50, b=10),
                         title=chart_title,
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                         font=dict(color="#E6EDF7"),
                     )
                     fig.update_xaxes(title_text=x_axis_title, gridcolor="rgba(255,255,255,0.10)", tickformat=tick_fmt)
-                    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)")
+                    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", autorange="reversed")
                     fig.add_vline(x=0, line_width=1, line_dash='dash', line_color='rgba(255,255,255,0.25)')
-                    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), use_container_width=True)
+                    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=420), use_container_width=True)
+
+                    with st.expander("Sensitivity details", expanded=False):
+                        _tbl = sens_num.copy()
+                        if _is_money:
+                            _tbl["Impact"] = _tbl["Impact"].map(lambda v: f"${float(v):,.0f}")
+                        else:
+                            _tbl["Impact"] = (_tbl["Impact"] * 100.0).map(lambda v: f"{float(v):+.2f} pp")
+                        _tbl = _tbl[["Input", "Increase By", "Impact"]]
+                        st.dataframe(_tbl, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Sensitivity results are empty for this scenario.")
         except Exception:
             pass
 # ------------------------------
