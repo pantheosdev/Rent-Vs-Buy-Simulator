@@ -1959,6 +1959,49 @@ rate_shock_pp = 2.0
 
 
 
+def _rbv_mc_seed_signature_payload() -> dict:
+    """Canonical payload for derived Monte Carlo seed signatures."""
+    ss = st.session_state
+
+    def _g(k, d=None):
+        return ss.get(k, d)
+
+    keys_numeric = [
+        "price", "down", "rate", "amort", "years", "apprec", "buyer_ret", "renter_ret",
+        "rent", "rent_inf", "discount_rate", "market_corr_input", "ret_std_pct", "apprec_std_pct",
+        "num_sims", "sell_cost_pct", "p_tax_rate_pct", "maint_rate_pct", "repair_rate_pct",
+        "cg_tax_end", "tax_r", "hm_grid_size", "hm_mc_sims", "bias_mc_sims",
+    ]
+    keys_bool = [
+        "use_volatility", "invest_surplus_input", "renter_uses_closing_input",
+        "rent_control_enabled", "budget_enabled", "budget_allow_withdraw",
+        "assume_sale_end", "show_liquidation_view", "canadian_compounding",
+    ]
+    keys_str = [
+        "investment_tax_mode", "prop_tax_growth_model", "rate_mode", "sim_mode",
+        "rent_control_frequency", "condo_inf_mode",
+    ]
+
+    out = {}
+    for k in keys_numeric:
+        try:
+            v = _g(k, None)
+            out[k] = (None if v is None else float(v))
+        except Exception:
+            out[k] = str(_g(k, None))
+    for k in keys_bool:
+        out[k] = bool(_g(k, False))
+    for k in keys_str:
+        out[k] = str(_g(k, ""))
+    return out
+
+
+def _rbv_derived_mc_seed_and_sig() -> tuple[int, str]:
+    payload = _rbv_mc_seed_signature_payload()
+    sig = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    seed = int(hashlib.sha256(sig.encode("utf-8")).hexdigest()[:8], 16)
+    return int(seed), sig
+
 # Load scenario from share-link (URL param) before rendering widgets
 _rbv_maybe_load_scenario_from_url()
 
@@ -2849,25 +2892,8 @@ with st.sidebar:
                 st.session_state["mc_randomize"] = bool(mc_randomize)
 
                 def _compute_derived_seed_sidebar():
-                    _sig_items = {
-                        "price": float(st.session_state.get("price", 0.0)) if "price" in st.session_state else None,
-                        "down": float(st.session_state.get("down", 0.0)) if "down" in st.session_state else None,
-                        "rate": float(st.session_state.get("rate", 0.0)) if "rate" in st.session_state else None,
-                        "amort": int(st.session_state.get("amort", 0)) if "amort" in st.session_state else None,
-                        "apprec": float(st.session_state.get("apprec", 0.0)),
-                        "buyer_ret": float(st.session_state.get("buyer_ret", 0.0)),
-                        "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
-                        "rent": float(st.session_state.get("rent", 0.0)) if "rent" in st.session_state else None,
-                        "rent_inf": float(st.session_state.get("rent_inf", 0.0)) if "rent_inf" in st.session_state else None,
-                        "pv": float(st.session_state.get("discount_rate", 3.0)),
-                        "corr": float(st.session_state.get("market_corr_input", 0.0)) if "market_corr_input" in st.session_state else None,
-                        "ret_std": float(st.session_state.get("ret_std_pct", 15.0)) / 100.0,
-                        "app_std": float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0,
-                        "sims": int(st.session_state.get("num_sims", 0)) if "num_sims" in st.session_state else None,
-                    }
-                    _sig = json.dumps(_sig_items, sort_keys=True, separators=(",", ":"))
-                    _seed = int(hashlib.sha256(_sig.encode("utf-8")).hexdigest()[:8], 16)
-                    return int(_seed), _sig
+                    return _rbv_derived_mc_seed_and_sig()
+
 
                 # Auto-fill a stable derived seed into mc_seed when left blank (only in Stable mode).
                 # This must run BEFORE st.text_input(key="mc_seed") below to avoid StreamlitAPIException.
@@ -2897,13 +2923,33 @@ with st.sidebar:
                 mc_seed_text = "" if mc_randomize else str(st.session_state.get("mc_seed", "")).strip()
                 _eff = str(st.session_state.get("mc_seed_effective", "")).strip()
                 _src = str(st.session_state.get("mc_seed_effective_source", "")).strip()
-                if _eff:
-                    _src_label = {
-                        "custom": "custom",
-                        "derived": "derived stable",
-                        "random": "randomized",
-                    }.get(_src, "n/a")
-                    st.caption(f"Effective MC seed: **{_eff}** ({_src_label})")
+                _eff_display = ""
+                _src_label = ""
+                if mc_randomize:
+                    _eff_display = "changes every run"
+                    _src_label = "randomized"
+                else:
+                    try:
+                        _manual = int(str(mc_seed_text).strip()) if str(mc_seed_text).strip().lstrip("-").isdigit() else None
+                    except Exception:
+                        _manual = None
+                    if _manual is not None:
+                        _eff_display = str(int(_manual))
+                        _src_label = "custom"
+                    else:
+                        try:
+                            _seed_now, _ = _rbv_derived_mc_seed_and_sig()
+                            _eff_display = str(int(_seed_now))
+                            _src_label = "derived stable"
+                        except Exception:
+                            _eff_display = _eff
+                            _src_label = ({
+                                "custom": "custom",
+                                "derived": "derived stable",
+                                "random": "randomized",
+                            }.get(_src, "n/a"))
+                if _eff_display:
+                    st.caption(f"Effective MC seed: **{_eff_display}** ({_src_label})")
             # Keep variable in sync for downstream logic (e.g., heatmap fallback)
             try:
                 num_sims = int(st.session_state.get("num_sims", num_sims))
@@ -4096,24 +4142,8 @@ if use_volatility:
             mc_seed = random.randint(0, 2**31 - 1)
             _mc_seed_source = "random"
         else:
-            _sig_items = {
-                "price": float(st.session_state.get("price", 0.0)) if "price" in st.session_state else None,
-                "down": float(st.session_state.get("down", 0.0)) if "down" in st.session_state else None,
-                "rate": float(st.session_state.get("rate", 0.0)) if "rate" in st.session_state else None,
-                "amort": int(st.session_state.get("amort", 0)) if "amort" in st.session_state else None,
-                "apprec": float(st.session_state.get("apprec", 0.0)),
-                "buyer_ret": float(st.session_state.get("buyer_ret", 0.0)),
-                "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
-                "rent": float(st.session_state.get("rent", 0.0)) if "rent" in st.session_state else None,
-                "rent_inf": float(st.session_state.get("rent_inf", 0.0)) if "rent_inf" in st.session_state else None,
-                "pv": float(st.session_state.get("discount_rate", 3.0)),
-                "corr": float(st.session_state.get("market_corr_input", 0.0)) if "market_corr_input" in st.session_state else None,
-                "ret_std": float(st.session_state.get("ret_std_pct", 15.0)) / 100.0,
-                "app_std": float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0,
-                "sims": int(st.session_state.get("num_sims", 0)) if "num_sims" in st.session_state else None,
-            }
-            _sig = json.dumps(_sig_items, sort_keys=True, separators=(",", ":"))
-            mc_seed = int(hashlib.sha256(_sig.encode("utf-8")).hexdigest()[:8], 16)
+            _seed_now, _sig = _rbv_derived_mc_seed_and_sig()
+            mc_seed = int(_seed_now)
             _mc_seed_source = "derived"
 
 
@@ -5750,6 +5780,9 @@ if tab == _TAB_NET:
             index=0,
         )
 
+        st.session_state.setdefault("hm_visual_smooth", True)
+        hm_visual_smooth = bool(st.checkbox("Smooth heatmap visuals", key="hm_visual_smooth"))
+
         # Heatmap follows the global performance profile defaults (no manual N×N / sim tweaking needed).
         is_mc_hm = ("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric)
 
@@ -6279,10 +6312,11 @@ if tab == _TAB_NET:
 
                 # Diagonal monotonicity sanity: as both appreciation and rent inflation rise together,
                 # the buyer advantage should generally increase (small MC noise tolerated).
-                if Z.shape[0] == Z.shape[1]:
+                _is_mc_metric = ("Monte Carlo" in str(hm_metric)) or ("MC" in str(hm_metric)) or ("Win %" in str(hm_metric))
+                if (not _is_mc_metric) and Z.shape[0] == Z.shape[1]:
                     d = np.diag(Z)
                     if np.isfinite(d).all() and (len(d) >= 3):
-                        eps = 2.5 if ("Monte Carlo" in str(hm_metric) or "MC" in str(hm_metric) or "Win %" in str(hm_metric)) else 1e-6
+                        eps = 1e-6
                         dv = np.diff(d)
                         n_viol = int(np.count_nonzero(dv < -float(eps)))
                         if n_viol == 0:
@@ -6338,7 +6372,7 @@ if tab == _TAB_NET:
 
         # Visual smoothing: MC heatmaps benefit from interpolation for readability.
         # This does NOT change the computed grid values—only how Plotly renders between cells.
-        hm_zsmooth = "best" if (("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric)) else False
+        hm_zsmooth = "best" if (hm_visual_smooth and (("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric))) else False
 
         fig_hm = go.Figure()
 
