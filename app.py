@@ -45,6 +45,8 @@ from rbv.core.policy_canada import (
 )
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
+from rbv.ui.costs_utils import safe_numeric_series, safe_numeric_mean, normalize_month_like_series
+from rbv.ui.costs_tab import build_costs_core, build_cost_mix_dataframe
 # Deploy-safe imports: Streamlit Cloud can briefly run app.py during partial rollouts.
 # Fail gracefully (UI error) instead of crashing on import.
 try:
@@ -1576,7 +1578,7 @@ def _rbv_render_compare_preview() -> None:
             )
             fig_cmp.update_xaxes(title_text="Years", gridcolor="rgba(255,255,255,0.12)")
             fig_cmp.update_yaxes(title_text="Net worth", tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.12)")
-            st.plotly_chart(_rbv_apply_plotly_theme(fig_cmp, height=360), use_container_width=True)
+            st.plotly_chart(_rbv_apply_plotly_theme(fig_cmp, height=360), width="stretch")
             st.caption("Solid = A, dashed = B. Compare preview runs deterministically for speed/stability.")
         except Exception:
             st.caption("Compare overlay chart unavailable for this pair.")
@@ -5424,7 +5426,7 @@ def render_fin_table(dframe: pd.DataFrame, index_name: str | None = None, table_
                         cls.append("zero")
                         style_attr = ""
 
-            # Numeric formatting (money for most columns; plain for Month/Year)
+            # Numeric formatting (money for most columns; plain for Month/Year; percent for share/pct columns)
             if c in num_cols and isinstance(v, (int, float, np.integer, np.floating)):
                 # Handle NaN cleanly (avoid "$nan")
                 if isinstance(v, float) and np.isnan(v):
@@ -5432,6 +5434,9 @@ def render_fin_table(dframe: pd.DataFrame, index_name: str | None = None, table_
                     cls.append("num")
                 elif c_norm in {"month", "year"}:
                     txt = _fmt_number(v)
+                    cls.append("num")
+                elif ("%" in c_str) or ("pct" in c_norm) or ("share" in c_norm) or ("rate" in c_norm):
+                    txt = f"{float(v):,.1f}%"
                     cls.append("num")
                 else:
                     # For delta columns, remove the minus sign and let color indicate direction
@@ -5719,7 +5724,7 @@ if tab == _TAB_NET:
         spikemode="across"
     )
     fig.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
-    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), use_container_width=True)
+    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), width="stretch")
     st.caption("Note: Buyer net worth permanently subtracts one-time closing costs (sunk costs), so it can start negative in Month 1.")
 
     try:
@@ -6503,7 +6508,7 @@ if tab == _TAB_NET:
         fig_hm.update_xaxes(title="Home Appreciation (%)", showgrid=False, zeroline=False, mirror=True, ticks="outside")
         fig_hm.update_yaxes(title=hm_y_title, showgrid=False, zeroline=False, mirror=True, ticks="outside")
 
-        st.plotly_chart(_rbv_apply_plotly_theme(fig_hm), use_container_width=True)
+        st.plotly_chart(_rbv_apply_plotly_theme(fig_hm), width="stretch")
 
         _hm_be_caption = "Breakeven line (dotted) = Win% 50%" if ("Win %" in str(hm_metric)) else "Breakeven line (dotted) = Δ = 0"
 
@@ -6525,18 +6530,91 @@ if tab == _TAB_NET:
         st.caption("Tip: Higher grid resolution and Monte Carlo metrics can be slower. Results are cached per setting.")
 
 elif tab == _TAB_COSTS:
+    if (df is None) or (len(df) == 0):
+        st.warning("No simulation data available for the Ongoing Housing Costs tab.")
+        st.stop()
+
     st.markdown(
-        '<div class=\"note-box\"><b>About these costs:</b> This tab summarizes <b>ongoing non-principal housing costs</b> '
+        '<div class="note-box"><b>About these costs:</b> This tab summarizes <b>ongoing non-principal housing costs</b> '
         '(interest, taxes, condo/maintenance, insurance, utilities, rent, etc.). '
         'Some of these costs help maintain the asset (e.g., maintenance) and are partly “offset” by appreciation in the net worth view. '
         'Principal paydown is <b>not</b> shown as a cost because it becomes equity. '
         '<br><b>Note:</b> Buyer total includes upfront closing costs + selling costs at horizon (realtor + legal). Renter total includes all moving costs.</div>',
         unsafe_allow_html=True,
     )
-    diff_uc = df.iloc[-1]['Buyer Unrecoverable'] - df.iloc[-1]['Renter Unrecoverable']
-    st.markdown(f'<div class="unrec-box"><div style="font-weight:700; color:#9A9A9A;">ONGOING HOUSING COSTS SUMMARY</div>'
-                f'<div style="font-size:14px; margin:10px 0;">Buyer Lost: <b>${df.iloc[-1]["Buyer Unrecoverable"]:,.0f}</b> vs Renter Lost: <b>${df.iloc[-1]["Renter Unrecoverable"]:,.0f}</b></div>'
-                f'<div style="font-weight:700; font-size:16px; color:#F8FAFC;">The <b>{"Buyer" if diff_uc > 0 else "Renter"}</b> lost <b>${abs(diff_uc):,.0f}</b> more.</div></div>', unsafe_allow_html=True)
+
+    _core = build_costs_core(df)
+    _series_cache: dict[str, pd.Series] = dict((_core or {}).get("cache") or {})
+
+    def _safe_series(col: str) -> pd.Series:
+        return safe_numeric_series(df, col, _series_cache)
+
+    if "Month" in df.columns:
+        _m_num = pd.to_numeric(df["Month"], errors="coerce")
+        df_avg = df[_m_num > 0].copy()
+        if df_avg.empty:
+            df_avg = df.copy()
+    else:
+        df_avg = df.copy()
+
+    _avg_cache: dict[str, float] = {}
+
+    def _safe_mean(col: str) -> float:
+        return safe_numeric_mean(df_avg, col, _avg_cache)
+
+    _s = (_core or {}).get("series") or {}
+    _t = (_core or {}).get("totals") or {}
+    _f = (_core or {}).get("flags") or {}
+
+    b_unrec_series = _s.get("b_unrec", _safe_series("Buyer Unrecoverable"))
+    r_unrec_series = _s.get("r_unrec", _safe_series("Renter Unrecoverable"))
+    b_interest_s = _s.get("b_interest", _safe_series("Interest"))
+    b_tax_s = _s.get("b_tax", _safe_series("Property Tax"))
+    b_maint_s = _s.get("b_maint", _safe_series("Maintenance"))
+    b_repairs_s = _s.get("b_repairs", _safe_series("Repairs"))
+    b_condo_s = _s.get("b_condo", _safe_series("Condo Fees"))
+    b_ins_s = _s.get("b_ins", _safe_series("Home Insurance"))
+    b_util_s = _s.get("b_util", _safe_series("Utilities"))
+    b_special_s = _s.get("b_special", _safe_series("Special Assessment"))
+    r_rent_s = _s.get("r_rent", _safe_series("Rent"))
+    r_ins_s = _s.get("r_ins", _safe_series("Rent Insurance"))
+    r_util_s = _s.get("r_util", _safe_series("Rent Utilities"))
+    r_move_s = _s.get("r_move", _safe_series("Moving"))
+
+    buyer_total_actual = float(_t.get("buyer_total_actual", 0.0) or 0.0)
+    renter_total_actual = float(_t.get("renter_total_actual", 0.0) or 0.0)
+    diff_uc = buyer_total_actual - renter_total_actual
+
+    if abs(diff_uc) < 0.5:
+        _cost_delta_line = "Buyer and renter are effectively tied on total unrecoverable costs."
+    else:
+        _cost_winner = "Buyer" if diff_uc > 0 else "Renter"
+        _cost_delta_line = f'<b>{_cost_winner}</b> has <b>${abs(diff_uc):,.0f}</b> higher net unrecoverable costs.'
+
+    st.markdown(
+        f'<div class="unrec-box"><div style="font-weight:700; color:#9A9A9A;">ONGOING HOUSING COSTS SUMMARY</div>'
+        f'<div style="font-size:14px; margin:10px 0;">Buyer net unrecoverable: <b>${buyer_total_actual:,.0f}</b> vs Renter net unrecoverable: <b>${renter_total_actual:,.0f}</b></div>'
+        f'<div style="font-weight:700; font-size:16px; color:#F8FAFC;">{_cost_delta_line}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    _k1, _k2, _k3 = st.columns(3)
+    try:
+        if "Month" in df.columns:
+            _h_raw = normalize_month_like_series(df, "Month", min_value=1.0, outlier_mult=2.0, outlier_floor=24.0)
+            _h_candidate = float(_h_raw.max()) if len(_h_raw) else float(len(df_avg))
+        else:
+            _h_candidate = float(len(df_avg))
+    except Exception:
+        _h_candidate = float(len(df_avg))
+    _h_months = _h_candidate if np.isfinite(_h_candidate) and (_h_candidate > 0.0) else max(float(len(df_avg)), 1.0)
+    with _k1:
+        st.metric("Buyer avg unrecoverable / mo", _fmt_money(buyer_total_actual / _h_months))
+    with _k2:
+        st.metric("Renter avg unrecoverable / mo", _fmt_money(renter_total_actual / _h_months))
+    with _k3:
+        st.metric("Gap (Buyer - Renter)", _fmt_money(diff_uc))
+    st.caption(f"Per-month KPIs normalize by {_h_months:,.0f} modeled months in this run.")
 
     # --- Clarification: opportunity cost (down payment) + principal paydown ---
     try:
@@ -6557,31 +6635,23 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     # --- Total cost breakdown (Buyer vs Renter, simplified categories) ---
     st.markdown("##### Total Ongoing Costs (Buyer vs Renter)")
 
-    # We show a small set of aligned categories (two bars per category) so it's easy to compare.
-    # This avoids the unreadable stacked legend when many categories exist.
-    def _safe_sum(col: str) -> float:
-        return float(df[col].sum()) if col in df.columns else 0.0
+    buyer_interest = float(b_interest_s.sum())
+    buyer_tax = float(b_tax_s.sum())
+    buyer_maint_condo = float((b_maint_s + b_repairs_s + b_condo_s).sum())
+    buyer_insurance = float(b_ins_s.sum())
+    buyer_utilities = float(b_util_s.sum())
+    buyer_special = float(b_special_s.sum())
 
-    buyer_interest = _safe_sum("Interest")
-    buyer_tax = _safe_sum("Property Tax")
-    buyer_maint_condo = _safe_sum("Maintenance") + _safe_sum("Repairs") + _safe_sum("Condo Fees")
-    buyer_insurance = _safe_sum("Home Insurance")
-    buyer_utilities = _safe_sum("Utilities")
-    buyer_special = _safe_sum("Special Assessment")
-    buyer_moving = 0.0  # Moving is modeled for renters (frequency-based), not buyers
+    renter_rent = float(r_rent_s.sum())
+    renter_insurance = float(r_ins_s.sum())
+    renter_utilities = float(r_util_s.sum())
+    renter_moving = float(r_move_s.sum())
 
-    renter_rent = _safe_sum("Rent")
-    renter_insurance = _safe_sum("Rent Insurance")
-    renter_utilities = _safe_sum("Rent Utilities")
-    renter_moving = _safe_sum("Moving")
+    buyer_non_tx_total = buyer_interest + buyer_tax + buyer_maint_condo + buyer_insurance + buyer_utilities + buyer_special
+    renter_non_resid_total = renter_rent + renter_insurance + renter_utilities + renter_moving
 
-    # Closing + selling costs are included in Buyer Unrecoverable but not in the monthly columns above
-    try:
-        buyer_close_sell = max(0.0, float(df.iloc[-1]["Buyer Unrecoverable"]) - (
-            buyer_interest + buyer_tax + buyer_maint_condo + buyer_insurance + buyer_utilities + buyer_special + buyer_moving
-        ))
-    except Exception:
-        buyer_close_sell = 0.0
+    buyer_close_sell = float(buyer_total_actual - buyer_non_tx_total)
+    renter_residual = float(renter_total_actual - renter_non_resid_total)
 
     categories = [
         "Housing payment (Interest / Rent)",
@@ -6590,9 +6660,11 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         "Insurance",
         "Utilities",
         "Special assessment",
-        "Transaction costs",
+        "Transaction costs (net)",
         "Moving",
     ]
+    if abs(renter_residual) > 1.0:
+        categories.append("Other modeled costs")
 
     buyer_vals = [
         buyer_interest,
@@ -6602,7 +6674,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         buyer_utilities,
         buyer_special,
         buyer_close_sell,
-        buyer_moving,
+        0.0,
     ]
     renter_vals = [
         renter_rent,
@@ -6614,8 +6686,15 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         0.0,
         renter_moving,
     ]
+    if abs(renter_residual) > 1.0:
+        buyer_vals.append(0.0)
+        renter_vals.append(renter_residual)
 
-    # Plot as horizontal grouped bars for readability.
+    buyer_total_display = float(sum(buyer_vals))
+    renter_total_display = float(sum(renter_vals))
+    buyer_gap = buyer_total_actual - buyer_total_display
+    renter_gap = renter_total_actual - renter_total_display
+
     fig_uc_bar = go.Figure()
     fig_uc_bar.add_trace(go.Bar(
         name="Buyer",
@@ -6639,54 +6718,84 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         barmode="group",
-        height=420,
+        height=430,
         margin=dict(l=0, r=0, t=10, b=0),
         legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
         font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
     )
     fig_uc_bar.update_xaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     fig_uc_bar.update_yaxes(gridcolor="rgba(255,255,255,0.14)", autorange="reversed")
-    st.plotly_chart(_rbv_apply_plotly_theme(fig_uc_bar), use_container_width=True)
+    st.plotly_chart(_rbv_apply_plotly_theme(fig_uc_bar), width="stretch")
 
-    st.caption("Categories are aligned across Buyer/Renter; zeros indicate costs that don’t apply to that side.")
+    st.caption("Categories are aligned across Buyer/Renter; positive/negative values reflect net modeled costs (including credits/offsets).")
+    if (abs(buyer_gap) > 1.0) or (abs(renter_gap) > 1.0):
+        st.warning(
+            "Displayed category totals do not perfectly reconcile to modeled cumulative totals "
+            f"(Buyer gap: ${buyer_gap:,.0f}, Renter gap: ${renter_gap:,.0f}). "
+            "This can happen in Monte Carlo median views where category medians do not add exactly to portfolio medians."
+        )
+
+    share_df = build_cost_mix_dataframe(categories, buyer_vals, renter_vals, buyer_total_actual, renter_total_actual)
+    if not share_df.empty:
+        st.markdown("###### Cost mix (% of each side's total unrecoverable costs)")
+        st.markdown(render_fin_table(share_df, index_name="Category", table_key="cost_mix_share"), unsafe_allow_html=True)
+        if (abs(float(buyer_total_actual)) < 1.0) or (abs(float(renter_total_actual)) < 1.0):
+            st.caption("Net Share (%) is hidden when a side's net total is near $0 to avoid unstable percentages; Mix (%) still shows composition reliably.")
 
     # --- Monthly unrecoverable series (buyer vs renter) ---
     st.markdown("##### Monthly Unrecoverable Cost Over Time")
-    st.caption("Toggle renter series between smooth recurring costs and spiky totals that include moving months.")
+    st.caption("Choose whether to show pure recurring monthly costs or full modeled irrecoverable increments.")
 
-    rent_series_mode = st.radio(
-        "Renter series mode",
-        ["Recurring only (smooth)", "Total incl. moving (spiky)"],
-        horizontal=True,
-        key="rent_series_mode",
-        label_visibility="collapsed",
-    )
+    series_col1, series_col2 = st.columns(2)
+    with series_col1:
+        buyer_series_mode = st.radio(
+            "Buyer series",
+            ["Recurring only", "Total incl. transaction timing"],
+            horizontal=True,
+            key="buyer_series_mode",
+        )
+    with series_col2:
+        rent_series_mode = st.radio(
+            "Renter series",
+            ["Recurring only", "Total incl. moving"],
+            horizontal=True,
+            key="rent_series_mode",
+        )
 
     try:
         if "Month" in df.columns:
-            x_m = (df["Month"].astype(float) - 1.0) / 12.0 + 1.0
+            _mx = normalize_month_like_series(df, "Month", min_value=1.0, outlier_mult=2.0, outlier_floor=24.0)
+            x_m = (_mx - 1.0) / 12.0 + 1.0
         elif "Year" in df.columns:
-            x_m = df["Year"].astype(float)
+            _yx = pd.to_numeric(df["Year"], errors="coerce")
+            x_m = _yx.where(_yx.notna(), pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype=float))
         else:
             x_m = list(range(1, len(df) + 1))
     except Exception:
         x_m = list(range(1, len(df) + 1))
 
-    b_mo_unrec = (
-        (df["Interest"] if "Interest" in df.columns else 0.0)
-        + (df["Property Tax"] if "Property Tax" in df.columns else 0.0)
-        + (df["Maintenance"] if "Maintenance" in df.columns else 0.0)
-        + (df["Repairs"] if "Repairs" in df.columns else 0.0)
-        + (df["Condo Fees"] if "Condo Fees" in df.columns else 0.0)
-        + (df["Home Insurance"] if "Home Insurance" in df.columns else 0.0)
-        + (df["Utilities"] if "Utilities" in df.columns else 0.0)
-        + (df["Special Assessment"] if "Special Assessment" in df.columns else 0.0)
-    )
+    b_mo_recurring = b_interest_s + b_tax_s + b_maint_s + b_repairs_s + b_condo_s + b_ins_s + b_util_s + b_special_s
+    r_mo_recurring = r_rent_s + r_ins_s + r_util_s
 
-    if str(rent_series_mode).startswith("Total"):
-        r_mo_unrec = df["Rent Payment"] if "Rent Payment" in df.columns else 0.0
-    else:
-        r_mo_unrec = df["Rent Cost (Recurring)"] if "Rent Cost (Recurring)" in df.columns else (df["Rent"] if "Rent" in df.columns else 0.0)
+    _has_b_unrec = bool(_f.get("has_b_unrec", False))
+    _has_r_unrec = bool(_f.get("has_r_unrec", False))
+
+    b_unrec_step = _s.get("b_step", b_unrec_series.diff().fillna(b_unrec_series))
+    r_unrec_step = _s.get("r_step", r_unrec_series.diff().fillna(r_unrec_series))
+
+    try:
+        if _has_b_unrec and (float(np.nanmin(b_unrec_step.to_numpy(dtype=float))) < -1e-6):
+            st.caption("Note: Buyer cumulative unrecoverable series has non-monotonic median steps (possible in Monte Carlo median aggregation).")
+        if _has_r_unrec and (float(np.nanmin(r_unrec_step.to_numpy(dtype=float))) < -1e-6):
+            st.caption("Note: Renter cumulative unrecoverable series has non-monotonic median steps (possible in Monte Carlo median aggregation).")
+    except Exception:
+        pass
+
+    b_mo_total = b_unrec_step if _has_b_unrec else b_mo_recurring
+    r_mo_total = r_unrec_step if _has_r_unrec else (r_mo_recurring + r_move_s)
+
+    b_mo_unrec = b_mo_total if str(buyer_series_mode).startswith("Total") else b_mo_recurring
+    r_mo_unrec = r_mo_total if str(rent_series_mode).startswith("Total") else r_mo_recurring
 
     fig_mo_uc = go.Figure()
     fig_mo_uc.add_trace(go.Scatter(x=x_m, y=b_mo_unrec, name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
@@ -6696,7 +6805,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         template=pio.templates.default,
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        height=330,
+        height=335,
         margin=dict(l=0, r=0, t=10, b=0),
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
         font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
@@ -6704,65 +6813,57 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     )
     fig_mo_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     fig_mo_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
-    st.plotly_chart(_rbv_apply_plotly_theme(fig_mo_uc), use_container_width=True)
-
+    st.plotly_chart(_rbv_apply_plotly_theme(fig_mo_uc), width="stretch")
 
     with st.expander("Cumulative costs over time", expanded=False):
         fig_uc = go.Figure()
-        # X-axis for cumulative plots: prefer continuous years to avoid repeated Year values.
-        try:
-            if "Month" in df.columns:
-                x = (df["Month"].astype(float) - 1.0) / 12.0 + 1.0
-            elif "Year" in df.columns:
-                x = df["Year"]
-            else:
-                x = list(range(1, len(df) + 1))
-        except Exception:
-            x = list(range(1, len(df) + 1))
-
-        fig_uc.add_trace(go.Scatter(x=x, y=df['Buyer Unrecoverable'], name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
-        fig_uc.add_trace(go.Scatter(x=x, y=df['Renter Unrecoverable'], name="Renter", mode='lines', line=dict(color=RENT_COLOR, width=2)))
+        fig_uc.add_trace(go.Scatter(x=x_m, y=(b_unrec_series if _has_b_unrec else b_mo_recurring.cumsum()), name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
+        fig_uc.add_trace(go.Scatter(x=x_m, y=(r_unrec_series if _has_r_unrec else (r_mo_recurring + r_move_s).cumsum()), name="Renter", mode='lines', line=dict(color=RENT_COLOR, width=2)))
 
         fig_uc.update_layout(
             template=pio.templates.default,
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
             height=350,
-            margin=dict(l=0,r=0,t=10,b=0),
+            margin=dict(l=0, r=0, t=10, b=0),
             legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
-            font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)")
+            font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
+            hovermode="x unified",
         )
         fig_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
         fig_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
-        st.plotly_chart(_rbv_apply_plotly_theme(fig_uc), use_container_width=True)
+        st.plotly_chart(_rbv_apply_plotly_theme(fig_uc), width="stretch")
 
     st.markdown("##### Average Monthly Irrecoverable Costs (cost of living)")
     st.caption(
         "These are the monthly costs you pay to live in the property that do **not** build equity (interest, taxes, upkeep, insurance, utilities). "
         "Principal repayment is excluded here because it increases home equity."
     )
-    df_avg = df[df['Month'] > 0]
+    monthly_tx_equiv = buyer_close_sell / _h_months
+    monthly_r_resid_equiv = renter_residual / _h_months
+
     b_table = pd.DataFrame({
-        "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Special Assessment", "Insurance", "Utilities"],
+        "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Special Assessment", "Insurance", "Utilities", "Transaction (equiv/mo)"],
         "Amount": [
-            df_avg['Interest'].mean(),
-            df_avg['Property Tax'].mean(),
-            df_avg['Maintenance'].mean(),
-            df_avg['Repairs'].mean(),
-            df_avg['Condo Fees'].mean(),
-            (df_avg['Special Assessment'].mean() if 'Special Assessment' in df_avg.columns else 0.0),
-            df_avg['Home Insurance'].mean(),
-            df_avg['Utilities'].mean(),
+            _safe_mean('Interest'),
+            _safe_mean('Property Tax'),
+            _safe_mean('Maintenance'),
+            _safe_mean('Repairs'),
+            _safe_mean('Condo Fees'),
+            _safe_mean('Special Assessment'),
+            _safe_mean('Home Insurance'),
+            _safe_mean('Utilities'),
+            monthly_tx_equiv,
         ]
     }).set_index("Category")
-    b_table = b_table[b_table['Amount'] > 0]
+    b_table = b_table[b_table['Amount'].abs() > 0.005]
     b_table.loc['TOTAL'] = b_table['Amount'].sum()
 
     r_table = pd.DataFrame({
-        "Category": ["Rent", "Insurance", "Rent Utilities", "Moving"],
-        "Amount": [df_avg['Rent'].mean(), df_avg['Rent Insurance'].mean(), df_avg['Rent Utilities'].mean(), df_avg['Moving'].mean()]
+        "Category": ["Rent", "Insurance", "Rent Utilities", "Moving", "Other (equiv/mo)"],
+        "Amount": [_safe_mean('Rent'), _safe_mean('Rent Insurance'), _safe_mean('Rent Utilities'), _safe_mean('Moving'), monthly_r_resid_equiv]
     }).set_index("Category")
-    r_table = r_table[r_table['Amount'] > 0]
+    r_table = r_table[r_table['Amount'].abs() > 0.005]
     r_table.loc['TOTAL'] = r_table['Amount'].sum()
 
     c_tbl1, c_tbl2 = st.columns(2)
@@ -6788,14 +6889,16 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     except Exception:
         pass
 
-    monthly_diff = b_table.loc['TOTAL', 'Amount'] - r_table.loc['TOTAL', 'Amount']
-    note_color = BUY_COLOR if monthly_diff > 0 else RENT_COLOR
-    note_text = "pays more" if monthly_diff > 0 else "saves"
-    st.markdown(f"<div style='text-align:center; font-size:14px; color:{note_color};'>Buyer {note_text} <b>${abs(monthly_diff):,.0f} / month</b> in pure costs.</div>", unsafe_allow_html=True)
+    monthly_diff = float(b_table.loc['TOTAL', 'Amount']) - float(r_table.loc['TOTAL', 'Amount'])
+    if abs(monthly_diff) < 0.5:
+        st.markdown("<div style='text-align:center; font-size:14px; color:#cbd5e1;'>Buyer and renter are effectively tied in monthly pure costs.</div>", unsafe_allow_html=True)
+    else:
+        note_color = BUY_COLOR if monthly_diff > 0 else RENT_COLOR
+        note_text = "pays more" if monthly_diff > 0 else "pays less"
+        st.markdown(f"<div style='text-align:center; font-size:14px; color:{note_color};'>Buyer {note_text} by <b>${abs(monthly_diff):,.0f} / month</b> in net unrecoverable costs.</div>", unsafe_allow_html=True)
 
-    uc_view = st.radio("View Period", ["Yearly", "Monthly"], horizontal=True, key="uc_view", label_visibility="collapsed")
+    uc_view = st.radio("View Period", ["Yearly", "Monthly"], horizontal=True, key="uc_view")
 
-    # Display labels vs underlying simulation column names
     buyer_map = {
         "Interest": "Interest",
         "Property Tax": "Property Tax",
@@ -6813,15 +6916,58 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         "Moving": "Moving",
     }
 
-    active_b = [label for label, src in buyer_map.items() if src in df.columns and df[src].sum() > 0]
-    active_r = [label for label, src in renter_map.items() if src in df.columns and df[src].sum() > 0]
+    _buyer_col_sums = {label: float(_safe_series(src).sum()) for label, src in buyer_map.items()}
+    _renter_col_sums = {label: float(_safe_series(src).sum()) for label, src in renter_map.items()}
+    active_b = [label for label, _v in _buyer_col_sums.items() if abs(_v) > 0.01]
+    active_r = [label for label, _v in _renter_col_sums.items() if abs(_v) > 0.01]
+
+    if _has_b_unrec:
+        tx_monthly = b_unrec_step - (
+            b_interest_s + b_tax_s + b_maint_s + b_repairs_s + b_special_s + b_condo_s + b_ins_s + b_util_s
+        )
+    else:
+        tx_monthly = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+
+    if _has_r_unrec:
+        renter_other_monthly = r_unrec_step - (r_rent_s + r_ins_s + r_util_s + r_move_s)
+    else:
+        renter_other_monthly = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+    
+    _buyer_frame = pd.DataFrame({l: _safe_series(buyer_map[l]) for l in active_b}, index=df.index)
+    _renter_frame = pd.DataFrame({l: _safe_series(renter_map[l]) for l in active_r}, index=df.index)
 
     if uc_view == "Yearly":
-        uc_b = df.groupby("Year")[[buyer_map[l] for l in active_b]].sum().rename(columns={buyer_map[l]: l for l in active_b})
-        uc_r = df.groupby("Year")[[renter_map[l] for l in active_r]].sum().rename(columns={renter_map[l]: l for l in active_r})
+        if "Year" in df.columns:
+            period = pd.to_numeric(df["Year"], errors="coerce").fillna(1).astype(int).clip(lower=1)
+        else:
+            period = pd.Series([((i // 12) + 1) for i in range(len(df))], index=df.index)
+        uc_b = _buyer_frame.groupby(period).sum() if not _buyer_frame.empty else pd.DataFrame(index=sorted(period.unique()))
+        uc_r = _renter_frame.groupby(period).sum() if not _renter_frame.empty else pd.DataFrame(index=sorted(period.unique()))
+        uc_b["Transaction"] = tx_monthly.groupby(period).sum()
+        uc_r["Other"] = renter_other_monthly.groupby(period).sum()
     else:
-        uc_b = df[["Month"] + [buyer_map[l] for l in active_b]].set_index("Month").rename(columns={buyer_map[l]: l for l in active_b})
-        uc_r = df[["Month"] + [renter_map[l] for l in active_r]].set_index("Month").rename(columns={renter_map[l]: l for l in active_r})
+        if "Month" in df.columns:
+            month_raw = pd.to_numeric(df["Month"], errors="coerce")
+            month_fallback = pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype=float)
+            month_idx = month_raw.where(month_raw.notna(), month_fallback).astype(int).clip(lower=1)
+        else:
+            month_idx = pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype=int)
+        uc_b = _buyer_frame.copy()
+        uc_r = _renter_frame.copy()
+        uc_b.index = month_idx
+        uc_r.index = month_idx
+        uc_b["Transaction"] = tx_monthly.to_numpy(dtype=float)
+        uc_r["Other"] = renter_other_monthly.to_numpy(dtype=float)
+        # If malformed inputs create duplicate month labels, aggregate to one row per month.
+        uc_b = uc_b.groupby(level=0).sum()
+        uc_r = uc_r.groupby(level=0).sum()
+
+    uc_b = uc_b.sort_index().fillna(0.0)
+    uc_r = uc_r.sort_index().fillna(0.0)
+    if "Transaction" in uc_b.columns and abs(float(uc_b["Transaction"].sum())) <= 0.01:
+        uc_b = uc_b.drop(columns=["Transaction"])
+    if "Other" in uc_r.columns and abs(float(uc_r["Other"].sum())) <= 0.01:
+        uc_r = uc_r.drop(columns=["Other"])
 
     uc_b["TOTAL"] = uc_b.sum(axis=1)
     uc_r["TOTAL"] = uc_r.sum(axis=1)
@@ -6829,10 +6975,10 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     c1, c2 = st.columns(2)
     with c1:
         st.markdown('<div class="header-buy section-header">BUYER UNRECOVERABLE</div>', unsafe_allow_html=True)
-        st.markdown(render_fin_table(uc_b, index_name=("Year" if uc_view=="Yearly" else "Month"), table_key="buyer_unrec"), unsafe_allow_html=True)
+        st.markdown(render_fin_table(uc_b, index_name=("Year" if uc_view == "Yearly" else "Month"), table_key="buyer_unrec"), unsafe_allow_html=True)
     with c2:
         st.markdown('<div class="header-rent section-header">RENTER UNRECOVERABLE</div>', unsafe_allow_html=True)
-        st.markdown(render_fin_table(uc_r, index_name=("Year" if uc_view=="Yearly" else "Month"), table_key="renter_unrec"), unsafe_allow_html=True)
+        st.markdown(render_fin_table(uc_r, index_name=("Year" if uc_view == "Yearly" else "Month"), table_key="renter_unrec"), unsafe_allow_html=True)
 
 elif tab == _TAB_ASSUM:
 
@@ -8389,7 +8535,7 @@ elif tab == _TAB_BIAS:
                     fig.update_xaxes(title_text=x_axis_title, gridcolor="rgba(255,255,255,0.10)", tickformat=tick_fmt)
                     fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", autorange="reversed")
                     fig.add_vline(x=0, line_width=1, line_dash='dash', line_color='rgba(255,255,255,0.25)')
-                    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=420), use_container_width=True)
+                    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=420), width="stretch")
 
                     with st.expander("Sensitivity details", expanded=False):
                         _tbl = sens_num.copy()
