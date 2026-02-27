@@ -372,6 +372,9 @@ def _rbv_apply_plotly_theme(fig: go.Figure, *, height: int | None = None) -> go.
             ))
         if fig.layout.hovermode is None:
             fig.update_layout(hovermode='x unified')
+        # Global hover polish: keep hover labels but remove vertical/horizontal spike cursor lines.
+        fig.update_xaxes(showspikes=False)
+        fig.update_yaxes(showspikes=False)
     except Exception:
         pass
     return fig
@@ -5585,17 +5588,15 @@ try:
 except Exception:
     _tab_index = 0
 
-# Center the tab "banner" (radio styled as tabs) in the middle of the page
-_tl, _tc, _tr = st.columns([1, 3, 1])
-with _tc:
-    tab = st.radio(
-        "Main tabs",
-        _tab_labels,
-        index=_tab_index,
-        horizontal=True,
-        key="rbv_tab_nav",
-        label_visibility="collapsed",
-    )
+# Center the tab selector and keep it unlabeled in the UI
+tab = st.radio(
+    "Navigation tabs",
+    _tab_labels,
+    index=_tab_index,
+    horizontal=True,
+    key="rbv_tab_nav",
+    label_visibility="collapsed",
+)
 
 st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
 if tab == _TAB_NET:
@@ -5704,7 +5705,7 @@ if tab == _TAB_NET:
     except Exception:
         pass
 
-    # THIN CURSOR (Spikes)
+    # Keep unified hover tooltip without the persistent vertical spike line.
     fig.update_layout(
         template=pio.templates.default,
         paper_bgcolor='rgba(0,0,0,0)',
@@ -5715,13 +5716,10 @@ if tab == _TAB_NET:
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
         font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)")
     )
-    # Thinner, faint white cursor
+    # Explicitly disable Plotly spikes/cursor line on hover.
     fig.update_xaxes(
         gridcolor="rgba(255,255,255,0.14)",
-        showspikes=True,
-        spikethickness=0.5,
-        spikecolor="rgba(255,255,255,0.25)",
-        spikemode="across"
+        showspikes=False,
     )
     fig.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), width="stretch")
