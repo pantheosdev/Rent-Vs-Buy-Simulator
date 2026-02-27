@@ -5558,7 +5558,7 @@ except Exception:
 _tl, _tc, _tr = st.columns([1, 3, 1])
 with _tc:
     tab = st.radio(
-        "",
+        "Main tabs",
         _tab_labels,
         index=_tab_index,
         horizontal=True,
@@ -6571,7 +6571,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     st.caption("Toggle renter series between smooth recurring costs and spiky totals that include moving months.")
 
     rent_series_mode = st.radio(
-        "",
+        "Renter series mode",
         ["Recurring only (smooth)", "Total incl. moving (spiky)"],
         horizontal=True,
         key="rent_series_mode",
