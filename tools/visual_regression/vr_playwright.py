@@ -346,7 +346,7 @@ def main() -> int:
                     page.wait_for_timeout(900)
                 # Ensure target tab content has rendered before reading bounds.
                 with contextlib.suppress(Exception):
-                    page.locator('xpath=//*[contains(normalize-space(.), "What this tab does:")]').first.wait_for(
+                    page.locator('.note-box').first.wait_for(
                         state="visible", timeout=12_000
                     )
                 with contextlib.suppress(Exception):
@@ -367,39 +367,42 @@ def main() -> int:
 
                 tabbar = page.locator('.st-key-rbv_tab_nav').first
                 _ensure_visible(tabbar)
-                note = page.locator('xpath=//*[contains(normalize-space(.), "What this tab does:")]').first
+                note = page.locator('.note-box').first
                 _ensure_visible(note)
                 compute_btn = page.get_by_role("button", name="Compute Bias Dashboard").first
                 sens_hdr = page.locator('xpath=//*[contains(normalize-space(.), "Sensitivity chart")]').first
 
-                boxes = []
-                for loc in (tabbar, note, compute_btn, sens_hdr):
-                    try:
-                        if loc.count() > 0:
-                            bb = loc.bounding_box()
-                            if bb:
-                                boxes.append(bb)
-                    except Exception:
-                        pass
+                # Prefer deterministic element-level snapshot of the Bias explanatory note.
+                # This avoids viewport/clip races that can yield blank full-frame captures.
+                if note.count() > 0:
+                    save("tabs_tables.png", baseline=args.update_baseline, element=note)
+                else:
+                    boxes = []
+                    for loc in (tabbar, compute_btn, sens_hdr):
+                        try:
+                            if loc.count() > 0:
+                                bb = loc.bounding_box()
+                                if bb:
+                                    boxes.append(bb)
+                        except Exception:
+                            pass
 
-                if boxes:
-                    left = min(b["x"] for b in boxes)
-                    top = min(b["y"] for b in boxes)
-                    right = max(b["x"] + b["width"] for b in boxes)
-                    bottom = max(b["y"] + b["height"] for b in boxes)
-                    clip = _clip_in_viewport(left, top, right, bottom, pad=24)
-                    if clip is not None:
-                        save("tabs_tables.png", baseline=args.update_baseline, clip=clip)
-                    elif note.count() > 0:
-                        save("tabs_tables.png", baseline=args.update_baseline, element=note)
+                    if boxes:
+                        left = min(b["x"] for b in boxes)
+                        top = min(b["y"] for b in boxes)
+                        right = max(b["x"] + b["width"] for b in boxes)
+                        bottom = max(b["y"] + b["height"] for b in boxes)
+                        clip = _clip_in_viewport(left, top, right, bottom, pad=24)
+                        if clip is not None:
+                            save("tabs_tables.png", baseline=args.update_baseline, clip=clip)
+                        elif tabbar.count() > 0:
+                            save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
+                        else:
+                            save("tabs_tables.png", baseline=args.update_baseline)
+                    elif tabbar.count() > 0:
+                        save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
                     else:
                         save("tabs_tables.png", baseline=args.update_baseline)
-                elif note.count() > 0:
-                    save("tabs_tables.png", baseline=args.update_baseline, element=note)
-                elif tabbar.count() > 0:
-                    save("tabs_tables.png", baseline=args.update_baseline, element=tabbar)
-                else:
-                    save("tabs_tables.png", baseline=args.update_baseline)
             except Exception as e:  # noqa: BLE001
                 print(f"[vr] WARN: tabs/tables capture skipped: {e}")
                 save("tabs_tables.png", baseline=args.update_baseline)
