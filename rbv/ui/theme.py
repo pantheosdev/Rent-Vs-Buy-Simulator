@@ -2194,19 +2194,7 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
   position: relative !important;
   overflow: hidden !important;
 }
-.verdict-banner::before{
-  content:"";
-  position:absolute;
-  left:1px; right:1px; top:1px;
-  height:3px;
-  border-top-left-radius: 14px;
-  border-top-right-radius: 14px;
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--badge-color) 85%, transparent) 0%,
-    color-mix(in srgb, var(--badge-color) 65%, rgba(255,255,255,0.18)) 48%,
-    color-mix(in srgb, var(--badge-color) 85%, transparent) 100%);
-  opacity: 0.92;
-}
+.verdict-banner::before{ display: none !important; }
 .verdict-banner, .verdict-banner *{
   color: var(--badge-color) !important;
 }
