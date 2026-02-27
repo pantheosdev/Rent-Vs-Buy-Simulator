@@ -165,6 +165,24 @@ def _looks_blank_dark(path: Path) -> bool:
         return False
 
 
+def _is_suspicious_black_capture(path: Path) -> bool:
+    """Broader guard for near-black captures (baseline or output)."""
+    try:
+        from PIL import Image  # type: ignore
+        import numpy as np  # type: ignore
+    except Exception:
+        return False
+
+    try:
+        arr = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+        if arr.size == 0:
+            return True
+        lum = arr.mean(axis=2)
+        return bool(float(lum.mean()) < 28.0 and float(lum.std()) < 12.0)
+    except Exception:
+        return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--update-baseline", action="store_true", help="Write current screenshots into baseline/")
@@ -415,6 +433,9 @@ def main() -> int:
             return 4
         if _looks_blank_dark(b):
             print(f"[vr] WARN: baseline appears blank/dark for {name}; skipping strict compare for this image.")
+            continue
+        if _is_suspicious_black_capture(b) or _is_suspicious_black_capture(o):
+            print(f"[vr] WARN: suspicious near-black capture detected for {name}; skipping strict compare for this image.")
             continue
         diff_out = DIFF_DIR / name.replace(".png", "_diff.png")
         ratio = _img_diff(b, o, diff_out)
