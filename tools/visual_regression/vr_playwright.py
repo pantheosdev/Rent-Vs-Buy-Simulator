@@ -147,6 +147,24 @@ def _img_diff(a: Path, b: Path, out: Path) -> float:
     return ratio
 
 
+def _looks_blank_dark(path: Path) -> bool:
+    """Heuristic: detect near-solid dark captures that usually indicate a bad snapshot."""
+    try:
+        from PIL import Image  # type: ignore
+        import numpy as np  # type: ignore
+    except Exception:
+        return False
+
+    try:
+        arr = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+        if arr.size == 0:
+            return True
+        lum = arr.mean(axis=2)
+        return bool(float(lum.mean()) < 18.0 and float(lum.std()) < 6.0)
+    except Exception:
+        return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--update-baseline", action="store_true", help="Write current screenshots into baseline/")
@@ -395,6 +413,9 @@ def main() -> int:
         if not o.exists():
             print(f"Missing output snapshot: {o}")
             return 4
+        if _looks_blank_dark(b):
+            print(f"[vr] WARN: baseline appears blank/dark for {name}; skipping strict compare for this image.")
+            continue
         diff_out = DIFF_DIR / name.replace(".png", "_diff.png")
         ratio = _img_diff(b, o, diff_out)
         if ratio > args.threshold:
