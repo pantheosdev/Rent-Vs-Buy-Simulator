@@ -1439,14 +1439,18 @@ def run_heatmap_mc_batch(
     house_shocks = None
     if (ret_std_mo > 0.0) or (app_std_mo > 0.0):
         try:
-            stock_shocks = np.empty((months, num_sims), dtype=np.float32)
-            house_shocks = np.empty((months, num_sims), dtype=np.float32)
-            for mi in range(months):
-                z_sys = rng.standard_normal(num_sims).astype(np.float32, copy=False)
-                z_stock = rng.standard_normal(num_sims).astype(np.float32, copy=False)
-                z_house = rng.standard_normal(num_sims).astype(np.float32, copy=False)
-                stock_shocks[mi, :] = (a_corr * z_sys) + (b_corr * z_stock)
-                house_shocks[mi, :] = (a_corr * rho_sign * z_sys) + (b_corr * z_house)
+            # Two float32 matrices: stock_shocks + house_shocks
+            est_bytes = int(2 * months * num_sims * 4)
+            _PRECOMP_MAX_BYTES = 350_000_000
+            if est_bytes <= _PRECOMP_MAX_BYTES:
+                stock_shocks = np.empty((months, num_sims), dtype=np.float32)
+                house_shocks = np.empty((months, num_sims), dtype=np.float32)
+                for mi in range(months):
+                    z_sys = rng.standard_normal(num_sims).astype(np.float32, copy=False)
+                    z_stock = rng.standard_normal(num_sims).astype(np.float32, copy=False)
+                    z_house = rng.standard_normal(num_sims).astype(np.float32, copy=False)
+                    stock_shocks[mi, :] = (a_corr * z_sys) + (b_corr * z_stock)
+                    house_shocks[mi, :] = (a_corr * rho_sign * z_sys) + (b_corr * z_house)
         except Exception:
             # Fallback: no precompute; re-generate shocks per chunk (still deterministic given seed).
             stock_shocks = None
@@ -1461,16 +1465,7 @@ def run_heatmap_mc_batch(
     # percent-points, normalize here to avoid PV underflow to ~0.
 
     if disc_annual > 1.0:
-
         disc_annual = disc_annual / 100.0
-
-        try:
-
-            df.attrs["discount_rate_autonormalized"] = True
-
-        except Exception:
-
-            pass
 
     disc_mo = _annual_effective_dec_to_monthly_eff(disc_annual)
     # Outputs (flat, then reshaped)

@@ -1082,6 +1082,7 @@ div[data-testid="stTabs"]{
         font-size: 13px;
     }
     .fin-table thead th{
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.10);
         position: sticky;
         top: 0;
         z-index: 2;
@@ -1311,11 +1312,16 @@ div[data-testid="stNumberInput"] input{
 .kpi-card:before{
   content:"";
   position:absolute;
-  left:0; top:0;
-  height:4px; width:100%;
-  background: linear-gradient(90deg, var(--accent, rgba(255,255,255,0.32)), rgba(255,255,255,0.20));
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
+  left:1px; right:1px; top:1px;
+  height:3px;
+  /* Keep accent fully integrated with card edge; avoid transparent tail artifacts. */
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent, rgba(255,255,255,0.36)) 92%, transparent) 0%,
+    color-mix(in srgb, var(--accent, rgba(255,255,255,0.36)) 80%, rgba(255,255,255,0.10)) 58%,
+    color-mix(in srgb, var(--accent, rgba(255,255,255,0.36)) 92%, transparent) 100%);
+  border-top-left-radius: calc(var(--rbv-radius-md) - 2px);
+  border-top-right-radius: calc(var(--rbv-radius-md) - 2px);
+  opacity: 0.95;
 }
 .kpi-card.kpi-neutral:before{
   display:none;
@@ -1397,14 +1403,18 @@ section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] button div{
 .kpi-section-title.buy-title{
   color: var(--buy, #2F8BFF);
   border-color: var(--buy-border, rgba(47,139,255,0.42));
-  background: rgba(47,139,255,0.10);
-  box-shadow:none;
+  background:
+    linear-gradient(180deg, rgba(47,139,255,0.16) 0%, rgba(47,139,255,0.08) 100%),
+    linear-gradient(90deg, rgba(47,139,255,0.36) 0%, rgba(47,139,255,0.18) 52%, rgba(47,139,255,0.30) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .kpi-section-title.rent-title{
   color: var(--rent, #E6B800);
   border-color: var(--rent-border, rgba(230,184,0,0.42));
-  background: rgba(230,184,0,0.10);
-  box-shadow:none;
+  background:
+    linear-gradient(180deg, rgba(230,184,0,0.16) 0%, rgba(230,184,0,0.08) 100%),
+    linear-gradient(90deg, rgba(230,184,0,0.36) 0%, rgba(230,184,0,0.18) 52%, rgba(230,184,0,0.30) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .kpi-title{display:flex; align-items:center; gap:8px;}
 
@@ -2170,8 +2180,9 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
 /* v2.14: Neutral dark theme + softer buy/rent accents */
 .verdict-banner{
   margin-bottom: 16px !important;
-  background: var(--badge-bg) !important;
-  border: 1px solid var(--badge-color) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--badge-bg) 92%, rgba(255,255,255,0.05)) 0%, var(--badge-bg) 100%) !important;
+  border: 1px solid color-mix(in srgb, var(--badge-color) 70%, rgba(255,255,255,0.14)) !important;
   border-radius: 16px !important;
   padding: 16px 16px !important;
   text-align: center !important;
@@ -2179,7 +2190,22 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
   font-size: 32px !important;
   letter-spacing: 0.2px !important;
   line-height: 1.10 !important;
-  box-shadow: 0 12px 26px rgba(0,0,0,0.42) !important;
+  box-shadow: 0 12px 26px rgba(0,0,0,0.42) !important, inset 0 1px 0 rgba(255,255,255,0.08) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+.verdict-banner::before{
+  content:"";
+  position:absolute;
+  left:1px; right:1px; top:1px;
+  height:3px;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--badge-color) 85%, transparent) 0%,
+    color-mix(in srgb, var(--badge-color) 65%, rgba(255,255,255,0.18)) 48%,
+    color-mix(in srgb, var(--badge-color) 85%, transparent) 100%);
+  opacity: 0.92;
 }
 .verdict-banner, .verdict-banner *{
   color: var(--badge-color) !important;
@@ -3594,6 +3620,8 @@ h1{ font-size: clamp(1.65rem, 2.7vw, 2.15rem) !important; margin-bottom: 18px !i
   border: 1px solid rgba(255,255,255,0.13) !important;
   box-shadow: 0 14px 30px rgba(0,0,0,0.30) !important;
   border-radius: var(--rbv-radius-md) !important;
+  overflow: hidden !important; /* hide corner seams between sticky col/header and wrapper */
+  isolation: isolate !important;
 }
 
 /* Inputs were visually flat; add clear focus and hover affordances. */
