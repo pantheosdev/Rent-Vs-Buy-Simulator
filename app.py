@@ -4340,6 +4340,10 @@ _cached_core = st.session_state["_core_sim_cache"].get(_core_key)
 
 if _cached_core is not None:
     df, close_cash, m_pmt, win_pct = _cached_core
+    try:
+        st.session_state["_rbv_perf_main"] = {"source": "cache", "num_sims": int(num_sims) if use_volatility else 0}
+    except Exception:
+        pass
 else:
     if use_volatility and int(num_sims) > 1:
 
@@ -4379,6 +4383,12 @@ else:
             _sec_per_sim = _elapsed / max(1, int(num_sims))
             _prev = float(st.session_state.get("_rbv_mc_avg_sec_per_sim", 0.0))
             st.session_state["_rbv_mc_avg_sec_per_sim"] = (0.7 * _prev + 0.3 * _sec_per_sim) if _prev > 0 else _sec_per_sim
+            st.session_state["_rbv_perf_main"] = {
+                "source": "compute",
+                "elapsed_sec": float(_elapsed),
+                "sec_per_sim": float(_sec_per_sim),
+                "num_sims": int(num_sims),
+            }
         except Exception:
             pass
 
@@ -4391,6 +4401,7 @@ else:
     else:
         _cfg_json = json.dumps(_cfg_run, sort_keys=True)
         _extra_items = tuple(sorted(st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs).items()))
+        _t_det0 = time.time()
         df, close_cash, m_pmt, win_pct = _rbv_cached_run_simulation_core(
             _cfg_json,
             float(st.session_state.buyer_ret),
@@ -5781,7 +5792,7 @@ if tab == _TAB_NET:
         )
 
         st.session_state.setdefault("hm_visual_smooth", True)
-        hm_visual_smooth = bool(st.checkbox("Smooth heatmap visuals", key="hm_visual_smooth"))
+        hm_visual_smooth = bool(st.checkbox("Smooth heatmap visuals (interpolated)", key="hm_visual_smooth"))
 
         # Heatmap follows the global performance profile defaults (no manual N×N / sim tweaking needed).
         is_mc_hm = ("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric)
@@ -6106,6 +6117,12 @@ if tab == _TAB_NET:
             Z, _app, _rent = cached
             try:
                 st.session_state["_rbv_hm_pause_active"] = False
+                st.session_state["_rbv_perf_heatmap"] = {
+                    "source": "cache",
+                    "metric": str(hm_metric),
+                    "grid": int(grid_size),
+                    "mc_sims": int(mc_sims) if mc_sims is not None else 0,
+                }
             except Exception:
                 pass
         else:
@@ -6241,6 +6258,15 @@ if tab == _TAB_NET:
                 _sec_per_cell = _elapsed / max(1, int(total_cells))
                 _prev = float(st.session_state.get("_rbv_hm_avg_sec_per_cell", 0.0))
                 st.session_state["_rbv_hm_avg_sec_per_cell"] = (0.7 * _prev + 0.3 * _sec_per_cell) if _prev > 0 else _sec_per_cell
+                st.session_state["_rbv_perf_heatmap"] = {
+                    "source": "compute",
+                    "metric": str(hm_metric),
+                    "grid": int(grid_size),
+                    "mc_sims": int(mc_sims) if mc_sims is not None else 0,
+                    "elapsed_sec": float(_elapsed),
+                    "sec_per_cell": float(_sec_per_cell),
+                    "cells": int(total_cells),
+                }
             except Exception:
                 pass
 
@@ -8430,18 +8456,29 @@ try:
         if not diag:
             st.caption("No diagnostics recorded for this run.")
         else:
-            for item in diag:
+            # Prioritize signal: FAIL first, then WARN, then OK/INFO.
+            _prio = {"FAIL": 0, "WARN": 1, "OK": 2, "INFO": 3}
+            diag_sorted = sorted(
+                list(diag),
+                key=lambda it: (_prio.get(str(it.get("level", "INFO")).upper(), 99), str(it.get("title", ""))),
+            )
+
+            _fail_n = sum(1 for it in diag_sorted if str(it.get("level", "")).upper() == "FAIL")
+            _warn_n = sum(1 for it in diag_sorted if str(it.get("level", "")).upper() == "WARN")
+            _ok_n = sum(1 for it in diag_sorted if str(it.get("level", "")).upper() == "OK")
+            st.caption(f"Summary: FAIL {_fail_n} • WARN {_warn_n} • OK {_ok_n}")
+
+            for item in diag_sorted:
                 lvl = str(item.get("level", "INFO")).upper()
                 title = str(item.get("title", "")).strip()
                 detail = str(item.get("detail", "")).strip()
-                pill_bg = _rbv_rgba(BUY_COLOR, 0.16) if lvl == "OK" else (_rbv_rgba(RENT_COLOR, 0.16) if lvl == "WARN" else "rgba(255,255,255,0.10)")
-                pill_bd = _rbv_rgba(BUY_COLOR, 0.35) if lvl == "OK" else (_rbv_rgba(RENT_COLOR, 0.35) if lvl == "WARN" else "rgba(255,255,255,0.18)")
-                pill_tx = BUY_COLOR if lvl == "OK" else (RENT_COLOR if lvl == "WARN" else "#F8FAFC")
+                pill_bg = "rgba(239,68,68,0.18)" if lvl == "FAIL" else (_rbv_rgba(RENT_COLOR, 0.16) if lvl == "WARN" else (_rbv_rgba(BUY_COLOR, 0.16) if lvl == "OK" else "rgba(255,255,255,0.10)"))
+                pill_bd = "rgba(239,68,68,0.45)" if lvl == "FAIL" else (_rbv_rgba(RENT_COLOR, 0.35) if lvl == "WARN" else (_rbv_rgba(BUY_COLOR, 0.35) if lvl == "OK" else "rgba(255,255,255,0.18)"))
+                pill_tx = "#F87171" if lvl == "FAIL" else (RENT_COLOR if lvl == "WARN" else (BUY_COLOR if lvl == "OK" else "#F8FAFC"))
                 st.markdown(
                     f"""
 <div style="display:flex; gap:10px; align-items:flex-start; margin: 6px 0;">
-  <div style="min-width:54px; text-align:center; font-weight:800; font-size:12px; letter-spacing:0.4px;\
-              color:{pill_tx}; background:{pill_bg}; border:1px solid {pill_bd}; border-radius:999px; padding:4px 10px;">
+  <div style="min-width:54px; text-align:center; font-weight:800; font-size:12px; letter-spacing:0.4px;              color:{pill_tx}; background:{pill_bg}; border:1px solid {pill_bd}; border-radius:999px; padding:4px 10px;">
     {html.escape(lvl)}
   </div>
   <div style="flex:1;">
@@ -8452,6 +8489,32 @@ try:
 """,
                     unsafe_allow_html=True,
                 )
+
+        # Performance telemetry snapshot (best-effort)
+        try:
+            _pm = st.session_state.get("_rbv_perf_main", {}) or {}
+            _ph = st.session_state.get("_rbv_perf_heatmap", {}) or {}
+            _parts = []
+            if _pm:
+                _src = str(_pm.get("source", "")).strip()
+                if _src == "cache":
+                    _parts.append("Main simulation: cache hit")
+                else:
+                    _e = _pm.get("elapsed_sec", None)
+                    _parts.append(f"Main simulation: {_src} ({float(_e):.2f}s)" if _e is not None else f"Main simulation: {_src}")
+            if _ph:
+                _src = str(_ph.get("source", "")).strip()
+                _metric = str(_ph.get("metric", "")).strip()
+                _grid = _ph.get("grid", None)
+                _e = _ph.get("elapsed_sec", None)
+                if _src == "cache":
+                    _parts.append(f"Heatmap: cache hit ({_metric}, {_grid}×{_grid})" if _metric and _grid else "Heatmap: cache hit")
+                else:
+                    _parts.append(f"Heatmap: {_src} ({float(_e):.2f}s, {_metric}, {_grid}×{_grid})" if (_e is not None and _metric and _grid) else f"Heatmap: {_src}")
+            if _parts:
+                st.caption("Performance telemetry: " + " • ".join(_parts))
+        except Exception:
+            pass
 
         hm = st.session_state.get("_rbv_last_heatmap", None)
         if isinstance(hm, dict) and hm.get("metric"):
