@@ -623,7 +623,7 @@ def rbv_text_input(label: str, *, tooltip: str | None = None, **kwargs):
 RBV_SIDEBAR_TOOLTIPS = {
     "Public Mode (simple UI)": "When ON, hides power-user controls and uses safe presets. Turn OFF for Power Mode.",
     "Monte Carlo results": "Choose Stable for reproducible results, or New random run for a fresh random draw each rerun.",
-    "Power overrides": "Optional manual overrides for sim counts/grid. Presets still apply when you change Fast/Quality.",
+    "Power overrides": "Optional manual overrides for sim counts/grid on top of the balanced defaults.",
     "Province": "Select the province for land transfer / welcome tax rules.",
     "Toronto Property?": "If yes, applies Toronto Municipal Land Transfer Tax (MLTT) in addition to Ontario LTT (rates depend on date).",
     "First-Time Buyer?": "If eligible, applies applicable first-time buyer rebates where modeled.",
@@ -686,13 +686,13 @@ RBV_SIDEBAR_TOOLTIPS = {
     "Non-housing spending ($/mo)": "If income constraints are enabled, this models other spending outside housing each month.",
     "Income growth (%/yr)": "Annual growth rate for income/spending when income constraints are enabled.",
     "Enable income/budget constraints (experimental)": "If enabled, the model constrains cashflows by after-tax income and non-housing spending (experimental).",
-    "⚡ Fast Mode": "Reduces expensive computations (especially heatmaps/Monte Carlo) for quicker interaction.",
+    "Performance profile": "Single balanced profile tuned for responsive Monte Carlo and heatmap runs (80k main sims, 20k heatmap sims, 40k bias sims, 40×40 grid). Use Advanced overrides only when needed.",
     "Economic Scenario": "Preset bundle of assumptions (baseline / high inflation / stagnation) applied to key inputs.",
     "Analysis Duration (Years)": "How many years to simulate (monthly cashflows, investing, and PV discounting).",
     "Apply Rent Control Cap?": "Caps rent growth at the configured maximum (use only if your unit is legally rent-controlled). Effective rent growth = min(Rent Inflation, Cap).",
     "Rent Control Cap (%)": "Maximum annual rent increase allowed under rent control (e.g., provincial guideline).",
     "Main Monte Carlo sims": "Number of simulations for the main Monte Carlo net worth chart. Higher = smoother percentiles / win% but slower (and uses more memory).",
-    "Heatmap Monte Carlo sims": "Monte Carlo simulations per heatmap cell (only used when the selected heatmap metric is stochastic). Higher = less noisy cells but slower.",
+    "Heatmap Monte Carlo sims": "Monte Carlo simulations used per heatmap pass for stochastic metrics (shared batched execution across the grid). Higher = less noisy cells but slower.",
     "Bias Monte Carlo sims": "Monte Carlo simulations used inside the breakeven/bias solver. Higher = more stable breakeven results but slower.",
     "Heatmap grid size (N×N)": "Resolution of the heatmap grid. Higher N means more detail but compute grows roughly with N².",
     "Bias grid size (N×N)": "Resolution of the bias scan grid (used for breakeven). Higher N improves accuracy but can be slow.",
@@ -1872,6 +1872,14 @@ moving_freq = 5
 
 
 
+# Monte Carlo / heatmap performance profile defaults (single balanced mode)
+BALANCED_DEFAULT_NUM_SIMS = 80_000
+BALANCED_HM_MC_SIMS_DEFAULT = 20_000
+BALANCED_BIAS_MC_SIMS_DEFAULT = 40_000
+BALANCED_HM_GRID_DEFAULT = 40
+BALANCED_HM_GRID_DET_MIN_PUBLIC = 51
+BALANCED_HM_GRID_MCMEAN_MIN_PUBLIC = 40
+
 # --- Defensive defaults (Streamlit rerun-safe) ---
 # Streamlit can rerun scripts before conditional widgets initialize variables.
 # These defaults prevent NameError; sidebar inputs will override them normally.
@@ -1889,7 +1897,7 @@ use_volatility = bool(st.session_state.get("use_volatility", False))
 # even when the sidebar volatility widgets are collapsed.
 ret_std = float(st.session_state.get("ret_std_pct", 15.0)) / 100.0
 apprec_std = float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0
-num_sims = int(st.session_state.get("num_sims", 1000))
+num_sims = int(st.session_state.get("num_sims", BALANCED_DEFAULT_NUM_SIMS))
 mc_seed_text = ""
 
 # Buying defaults
@@ -2572,16 +2580,13 @@ with st.sidebar:
 
 
     with st.expander("Monte Carlo", expanded=True):
-        # --- Performance mode (Fast / Quality) ---
+        # --- Performance profile (single balanced mode) ---
         # We render a single header with a custom help bubble that *dynamically* reflects
         # current presets + any user overrides. The radio widget itself has a blank label
-        # to avoid duplicated "Performance mode" headers.
-        st.session_state.setdefault("sim_mode", "Fast")
-        sim_mode = str(st.session_state.get("sim_mode", "Fast") or "Fast")
-        if sim_mode not in ("Fast", "Quality"):
-            sim_mode = "Fast"
-            st.session_state["sim_mode"] = "Fast"
-        fast_mode = (sim_mode == "Fast")
+        # to avoid duplicated performance profile headers.
+        st.session_state["sim_mode"] = "Balanced"
+        sim_mode = "Balanced"
+        fast_mode = False  # compatibility for downstream helpers expecting this flag
 
         if not _show_advanced_controls:
             st.info("Using **Basic mode** defaults for simulation controls. Switch sidebar Interface mode to **Advanced** to tune Monte Carlo overrides and behavioral stress settings.")
@@ -2610,56 +2615,34 @@ with st.sidebar:
 
         _mc_cap = _mc_cap_for_horizon(years)
 
-        # Mode presets (public-facing simplification: no manual sim/grid tweaking required)
-        # Main Monte Carlo sims (single-scenario analysis)
-        FAST_DEFAULT_NUM_SIMS = 50_000
-        # Quality defaults tuned for Streamlit Cloud reliability while keeping statistical meaning.
-        # (User request: keep Quality statistically meaningful while lowering server memory: main MC=90k, grid≈41, heatmap sims=20k; bias sims unchanged.)
-        QUALITY_DEFAULT_NUM_SIMS = 90_000
+        # Single balanced defaults are defined at module level and applied here.
 
-        # Heatmap MC sims (shared across the whole grid via batched execution)
-        FAST_HM_MC_SIMS_DEFAULT = 15_000
-        QUALITY_HM_MC_SIMS_DEFAULT = 20_000
+        st.session_state.setdefault("num_sims", BALANCED_DEFAULT_NUM_SIMS)
+        st.session_state.setdefault("hm_grid_size", BALANCED_HM_GRID_DEFAULT)
+        st.session_state.setdefault("hm_mc_sims", BALANCED_HM_MC_SIMS_DEFAULT)
+        st.session_state.setdefault("bias_mc_sims", BALANCED_BIAS_MC_SIMS_DEFAULT)
 
-        # Bias solver MC sims (used inside bisection / flip-point search)
-        FAST_BIAS_MC_SIMS_DEFAULT = 15_000
-        QUALITY_BIAS_MC_SIMS_DEFAULT = 30_000
+        # Sanitize imported/legacy overrides so compute blocks remain stable.
+        try:
+            st.session_state["num_sims"] = int(max(1_000, min(500_000, int(st.session_state.get("num_sims", BALANCED_DEFAULT_NUM_SIMS)))))
+            st.session_state["hm_grid_size"] = int(max(10, min(120, int(st.session_state.get("hm_grid_size", BALANCED_HM_GRID_DEFAULT)))))
+            st.session_state["hm_mc_sims"] = int(max(1_000, min(300_000, int(st.session_state.get("hm_mc_sims", BALANCED_HM_MC_SIMS_DEFAULT)))))
+            st.session_state["bias_mc_sims"] = int(max(1_000, min(300_000, int(st.session_state.get("bias_mc_sims", BALANCED_BIAS_MC_SIMS_DEFAULT)))))
+        except Exception:
+            st.session_state["num_sims"] = BALANCED_DEFAULT_NUM_SIMS
+            st.session_state["hm_grid_size"] = BALANCED_HM_GRID_DEFAULT
+            st.session_state["hm_mc_sims"] = BALANCED_HM_MC_SIMS_DEFAULT
+            st.session_state["bias_mc_sims"] = BALANCED_BIAS_MC_SIMS_DEFAULT
 
-        # Heatmap grid defaults
-        FAST_HM_GRID_DEFAULT = 31
-        QUALITY_HM_GRID_DEFAULT = 41
-
-        # Deterministic heatmaps can render at a higher grid without significant cost (exact batched eval).
-        # In Public Mode we automatically bump grid resolution for deterministic heatmap metrics for smoother visuals.
-        FAST_HM_GRID_DET_MIN_PUBLIC = 61
-        QUALITY_HM_GRID_DET_MIN_PUBLIC = 41
-
-        st.session_state.setdefault("num_sims", FAST_DEFAULT_NUM_SIMS if fast_mode else QUALITY_DEFAULT_NUM_SIMS)
-        st.session_state.setdefault("hm_grid_size", FAST_HM_GRID_DEFAULT if fast_mode else QUALITY_HM_GRID_DEFAULT)
-        st.session_state.setdefault("hm_mc_sims", FAST_HM_MC_SIMS_DEFAULT if fast_mode else QUALITY_HM_MC_SIMS_DEFAULT)
-        st.session_state.setdefault("bias_mc_sims", FAST_BIAS_MC_SIMS_DEFAULT if fast_mode else QUALITY_BIAS_MC_SIMS_DEFAULT)
-
-        # If the user flips mode, push the matching defaults (keeps UX predictable).
-        if "_sim_mode_prev" not in st.session_state:
-            st.session_state["_sim_mode_prev"] = sim_mode
-        if sim_mode != st.session_state.get("_sim_mode_prev"):
-            if fast_mode:
-                st.session_state["num_sims"] = FAST_DEFAULT_NUM_SIMS
-                st.session_state["hm_grid_size"] = FAST_HM_GRID_DEFAULT
-                st.session_state["hm_mc_sims"] = FAST_HM_MC_SIMS_DEFAULT
-                st.session_state["bias_mc_sims"] = FAST_BIAS_MC_SIMS_DEFAULT
-            else:
-                st.session_state["num_sims"] = QUALITY_DEFAULT_NUM_SIMS
-                st.session_state["hm_grid_size"] = QUALITY_HM_GRID_DEFAULT
-                st.session_state["hm_mc_sims"] = QUALITY_HM_MC_SIMS_DEFAULT
-                st.session_state["bias_mc_sims"] = QUALITY_BIAS_MC_SIMS_DEFAULT
+        # Keep legacy sessions pinned to the single mode.
+        if st.session_state.get("_sim_mode_prev") != sim_mode:
             st.session_state["_sim_mode_prev"] = sim_mode
 
-        # Compact tooltip: show *current* settings, and explicitly indicate when an override is active.
-        _preset_main = FAST_DEFAULT_NUM_SIMS if fast_mode else QUALITY_DEFAULT_NUM_SIMS
-        _preset_hm_sims = FAST_HM_MC_SIMS_DEFAULT if fast_mode else QUALITY_HM_MC_SIMS_DEFAULT
-        _preset_bias = FAST_BIAS_MC_SIMS_DEFAULT if fast_mode else QUALITY_BIAS_MC_SIMS_DEFAULT
-        _preset_grid = FAST_HM_GRID_DEFAULT if fast_mode else QUALITY_HM_GRID_DEFAULT
+        # Compact tooltip: show current settings, and explicitly indicate when an override is active.
+        _preset_main = BALANCED_DEFAULT_NUM_SIMS
+        _preset_hm_sims = BALANCED_HM_MC_SIMS_DEFAULT
+        _preset_bias = BALANCED_BIAS_MC_SIMS_DEFAULT
+        _preset_grid = BALANCED_HM_GRID_DEFAULT
 
         _cur_main = int(st.session_state.get('num_sims', 0) or 0)
         _cur_hm_sims = int(st.session_state.get('hm_mc_sims', 0) or 0)
@@ -2680,7 +2663,7 @@ with st.sidebar:
             return f"{label}: {cur_s}"
 
         _mc_tip = "\n".join([
-            f"Mode: {'Fast' if fast_mode else 'Quality'}",
+            "Mode: Balanced",
             _mc_line("Main MC sims", _cur_main, _preset_main),
             _mc_line("Heatmap MC sims", _cur_hm_sims, _preset_hm_sims),
             _mc_line("Bias MC sims", _cur_bias, _preset_bias),
@@ -2688,17 +2671,12 @@ with st.sidebar:
             "Tip: 'Advanced overrides' below can override these presets.",
         ])
 
-        # Single header + tooltip (NO extra info icon on the mode selector itself)
-        rbv_label_row("Performance mode", tooltip=_mc_tip, small_icon=False)
-        sim_mode = st.radio(
-            " ",
-            ["Fast", "Quality"],
-            index=(0 if sim_mode == "Fast" else 1),
-            horizontal=True,
-            key="sim_mode",
-            label_visibility="collapsed",
-        )
-        fast_mode = (sim_mode == "Fast")
+        # Single header + tooltip (single balanced profile)
+        rbv_label_row("Performance profile", tooltip=_mc_tip, small_icon=False)
+        st.caption("Using the balanced profile (single mode).")
+        st.session_state["sim_mode"] = "Balanced"
+        sim_mode = "Balanced"
+        fast_mode = False
 
         if _show_advanced_controls:
             with st.expander("Advanced overrides", expanded=False):
@@ -2714,16 +2692,16 @@ with st.sidebar:
                     if int(st.session_state.get("num_sims", 0)) > int(_mc_cap):
                         st.warning(
                             f"Main sims above {int(_mc_cap):,} may trigger a slow fallback loop on a {int(years)}-year horizon. "
-                            f"Recommended: ≤ {int(_mc_cap):,}."
+                            f"Recommended: ≤ {int(_mc_cap):,} (balanced default is 80,000)."
                         )
                 except Exception:
                     pass
 
                 st.number_input(
                     "Heatmap grid size (N×N)",
-                    min_value=11,
-                    max_value=101,
-                    step=2,
+                    min_value=10,
+                    max_value=120,
+                    step=1,
                     key="hm_grid_size",
                 )
                 st.number_input(
@@ -2854,8 +2832,8 @@ with st.sidebar:
                     st.warning("Investment volatility above 20% is an aggressive stress-test and can produce extreme outcomes. Consider 10–20% for broad-market assumptions.")
                 if float(apprec_std_pct_ui) > 10.0:
                     st.warning("Home price volatility above 10% is very high for annualized assumptions. Consider 3–8% unless deliberately stress-testing.")
-                num_sims = int(st.session_state.get("num_sims", 50_000 if fast_mode else 100_000))
-                st.caption(f"Monte Carlo simulations (from Performance mode): **{num_sims:,}**")
+                num_sims = int(st.session_state.get("num_sims", BALANCED_DEFAULT_NUM_SIMS))
+                st.caption(f"Monte Carlo simulations (from Performance profile): **{num_sims:,}**")
                 # Monte Carlo seed & determinism
                 # NOTE: Streamlit forbids modifying st.session_state["mc_seed"] AFTER the widget with key="mc_seed"
                 # has been instantiated in the same run. Therefore, any auto-fill / migration must happen BEFORE
@@ -2881,7 +2859,7 @@ with st.sidebar:
                         "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
                         "rent": float(st.session_state.get("rent", 0.0)) if "rent" in st.session_state else None,
                         "rent_inf": float(st.session_state.get("rent_inf", 0.0)) if "rent_inf" in st.session_state else None,
-                        "pv": float(st.session_state.get("pv_rate", 0.0)) if "pv_rate" in st.session_state else None,
+                        "pv": float(st.session_state.get("discount_rate", 3.0)),
                         "corr": float(st.session_state.get("market_corr_input", 0.0)) if "market_corr_input" in st.session_state else None,
                         "ret_std": float(st.session_state.get("ret_std_pct", 15.0)) / 100.0,
                         "app_std": float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0,
@@ -2919,6 +2897,13 @@ with st.sidebar:
                 mc_seed_text = "" if mc_randomize else str(st.session_state.get("mc_seed", "")).strip()
                 _eff = str(st.session_state.get("mc_seed_effective", "")).strip()
                 _src = str(st.session_state.get("mc_seed_effective_source", "")).strip()
+                if _eff:
+                    _src_label = {
+                        "custom": "custom",
+                        "derived": "derived stable",
+                        "random": "randomized",
+                    }.get(_src, "n/a")
+                    st.caption(f"Effective MC seed: **{_eff}** ({_src_label})")
             # Keep variable in sync for downstream logic (e.g., heatmap fallback)
             try:
                 num_sims = int(st.session_state.get("num_sims", num_sims))
@@ -3734,7 +3719,7 @@ def _build_cfg():
     """Build the engine config dict from current UI state (single source of truth).
 
     Robust against Streamlit conditional UI branches: never raises NameError if a widget/branch
-    is skipped. Fast/Quality mode must only affect Monte Carlo controls; all buy/rent inputs
+    is skipped. The performance profile only affects Monte Carlo controls; all buy/rent inputs
     remain in the config.
     """
     def _pp(key: str, default_pp: float = 0.0) -> float:
@@ -3834,7 +3819,7 @@ def _build_cfg():
 
     province = str(st.session_state.get("province", _g("province", "Ontario")))
 
-    # ---- Volatility / MC controls (Fast/Quality affects only these)
+    # ---- Volatility / MC controls (performance profile affects only these)
     use_volatility = bool(st.session_state.get("use_volatility", _g("use_volatility", False)))
     num_sims = int(st.session_state.get("num_sims", _g("num_sims", 1000)))
 
@@ -4121,7 +4106,7 @@ if use_volatility:
                 "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
                 "rent": float(st.session_state.get("rent", 0.0)) if "rent" in st.session_state else None,
                 "rent_inf": float(st.session_state.get("rent_inf", 0.0)) if "rent_inf" in st.session_state else None,
-                "pv": float(st.session_state.get("pv_rate", 0.0)) if "pv_rate" in st.session_state else None,
+                "pv": float(st.session_state.get("discount_rate", 3.0)),
                 "corr": float(st.session_state.get("market_corr_input", 0.0)) if "market_corr_input" in st.session_state else None,
                 "ret_std": float(st.session_state.get("ret_std_pct", 15.0)) / 100.0,
                 "app_std": float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0,
@@ -5136,7 +5121,7 @@ try:
     except Exception:
         pass
     try:
-        _changes.append(f"Performance mode: {st.session_state.get('sim_mode', 'Fast')}")
+        _changes.append(f"Performance profile: {st.session_state.get('sim_mode', 'Balanced')}")
     except Exception:
         pass
     try:
@@ -5753,8 +5738,6 @@ if tab == _TAB_NET:
             y_lo, y_hi = 0.0, 6.0
             hm_y_hover = "Rent inflation"
 
-        fast_mode_hm = fast_mode
-
         hm_metric = st.selectbox(
             "Heatmap metric",
             options=[
@@ -5767,37 +5750,34 @@ if tab == _TAB_NET:
             index=0,
         )
 
-        # Heatmap follows the global two-mode philosophy (no manual N×N / sim tweaking needed).
+        # Heatmap follows the global performance profile defaults (no manual N×N / sim tweaking needed).
         is_mc_hm = ("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric)
 
-        grid_size_base = int(st.session_state.get("hm_grid_size", 31 if fast_mode_hm else 51))
+        grid_size_base = int(st.session_state.get("hm_grid_size", BALANCED_HM_GRID_DEFAULT))
         is_det_hm = not is_mc_hm
         is_mcmean_hm = ("MC mean" in str(hm_metric))
 
         # In Public Mode we bump grid resolution for deterministic metrics aggressively (very fast),
         # and for MC-mean delta metrics moderately (to keep runtime sane).
-        FAST_HM_GRID_MCMEAN_MIN_PUBLIC = 41
-        QUALITY_HM_GRID_MCMEAN_MIN_PUBLIC = 61
-
         if is_det_hm:
-            det_min = FAST_HM_GRID_DET_MIN_PUBLIC if fast_mode_hm else QUALITY_HM_GRID_DET_MIN_PUBLIC
+            det_min = BALANCED_HM_GRID_DET_MIN_PUBLIC
             grid_size = int(max(grid_size_base, det_min))
             if grid_size != grid_size_base:
                 st.caption(f"Heatmap grid: **{grid_size}×{grid_size}** (deterministic smoothness override)")
             else:
-                st.caption(f"Heatmap grid (from Performance mode): **{grid_size}×{grid_size}**")
+                st.caption(f"Heatmap grid (from Performance profile): **{grid_size}×{grid_size}**")
         elif is_mcmean_hm:
-            mc_min = FAST_HM_GRID_MCMEAN_MIN_PUBLIC if fast_mode_hm else QUALITY_HM_GRID_MCMEAN_MIN_PUBLIC
+            mc_min = BALANCED_HM_GRID_MCMEAN_MIN_PUBLIC
             grid_size = int(max(grid_size_base, mc_min))
             if grid_size != grid_size_base:
                 st.caption(f"Heatmap grid: **{grid_size}×{grid_size}** (MC mean smoothness override)")
             else:
-                st.caption(f"Heatmap grid (from Performance mode): **{grid_size}×{grid_size}**")
+                st.caption(f"Heatmap grid (from Performance profile): **{grid_size}×{grid_size}**")
         else:
             grid_size = grid_size_base
-            st.caption(f"Heatmap grid (from Performance mode): **{grid_size}×{grid_size}**")
+            st.caption(f"Heatmap grid (from Performance profile): **{grid_size}×{grid_size}**")
 
-        mc_sims = int(st.session_state.get("hm_mc_sims", 15_000 if fast_mode_hm else 30_000)) if is_mc_hm else None
+        mc_sims = int(st.session_state.get("hm_mc_sims", BALANCED_HM_MC_SIMS_DEFAULT)) if is_mc_hm else None
         if is_mc_hm:
             st.caption(f"Heatmap Monte Carlo sims (shared across grid): **{mc_sims:,}**")
             if float(st.session_state.get("ret_std_pct", 0.0) or 0.0) == 0.0 and float(st.session_state.get("apprec_std_pct", 0.0) or 0.0) == 0.0:
@@ -5851,6 +5831,11 @@ if tab == _TAB_NET:
                 rent_vals_eff = (np.asarray([_rent_inf_eff(float(r)) for r in rent_vals], dtype=float)
                               if hm_y_axis == 'rent_inf' else np.asarray(rent_vals, dtype=float))
 
+                try:
+                    st.session_state.pop("_rbv_last_heatmap_adaptive", None)
+                except Exception:
+                    pass
+
                 _winZ, dZ, pvZ = run_heatmap_mc_batch(
                     cfg_det,
                     buyer_ret_pct,
@@ -5883,6 +5868,44 @@ if tab == _TAB_NET:
                 return Z, app_vals, rent_vals
 
             is_win = ("Win" in metric_label)
+
+            # Performance + correctness hardening:
+            # If both volatilities are 0, Monte Carlo metrics collapse to deterministic outcomes.
+            # Skip expensive MC/adaptive passes and compute a single deterministic batch instead.
+            try:
+                _ret_std = float(cfg_hm.get("ret_std", 0.0) or 0.0)
+                _app_std = float(cfg_hm.get("apprec_std", 0.0) or 0.0)
+                _vol_zero = (abs(_ret_std) <= 1e-15) and (abs(_app_std) <= 1e-15)
+            except Exception:
+                _vol_zero = False
+
+            if _vol_zero:
+                try:
+                    st.session_state.pop("_rbv_last_heatmap_adaptive", None)
+                except Exception:
+                    pass
+
+                winZ, dZ, pvZ = run_heatmap_mc_batch(
+                    cfg_hm,
+                    float(buyer_ret_pct),
+                    float(renter_ret_pct),
+                    app_vals_eff,
+                    rent_vals_eff,
+                    float(invest_diff),
+                    bool(rent_closing),
+                    float(mkt_corr),
+                    num_sims=1,
+                    mc_seed=base_seed,
+                    y_axis=str(hm_y_axis),
+                    rate_override_pct=float(base_rate) if base_rate is not None else None,
+                    progress_cb=progress_cb,
+                    **st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs),
+                )
+                if "Win" in metric_label:
+                    return winZ, app_vals, rent_vals
+                if "Expected PV" in metric_label:
+                    return pvZ, app_vals, rent_vals
+                return dZ, app_vals, rent_vals
 
             if is_win:
                 # Two-pass adaptive sampling:
@@ -5962,6 +5985,11 @@ if tab == _TAB_NET:
                 return winZ, app_vals, rent_vals
 
             # MC mean metrics (single-pass at full sims)
+            try:
+                st.session_state.pop("_rbv_last_heatmap_adaptive", None)
+            except Exception:
+                pass
+
             winZ, dZ, pvZ = run_heatmap_mc_batch(
                 cfg_hm,
                 float(buyer_ret_pct),
@@ -5990,36 +6018,32 @@ if tab == _TAB_NET:
 
         # Heatmap cache signature: include core model inputs so the grid never goes stale when users change assumptions.
         def _heatmap_inputs_sig() -> str:
-            sig_keys = [
-                "price", "rent", "years", "amort", "down", "close", "mort",
-                "p_tax_rate", "maint_rate", "repair_rate", "condo", "h_ins", "o_util", "r_ins", "r_util",
-                "sell_cost", "moving_cost", "moving_freq",
-                "general_inf", "pv_rate", "ret_std", "apprec_std",
-                "rate_mode", "rate_reset_years", "rate_reset_to", "rate_reset_step_pp",
-                "rate_shock_enabled", "rate_shock_start_year", "rate_shock_duration_years", "rate_shock_pp",
-                "canadian_compounding", "assume_sale_end", "cg_tax_end", "tax_r", "home_sale_legal_fee",
-                "expert_mode",
-                "province", "first_time", "toronto", "transfer_tax_override",
-                "insured", "ltv",
-                "condo_inf_mode", "condo_inf_spread", "condo_inf_custom",
-                "special_assessment_amount", "special_assessment_year", "special_assessment_month_in_year",
-                "cg_inclusion_policy", "cg_inclusion_threshold",
-                "reg_shelter_enabled", "reg_initial_room", "reg_annual_room",
-            ]
-            g = globals()
-            d = {k: g.get(k) for k in sig_keys if k in g}
-            d["extra_engine_kwargs"] = extra_engine_kwargs
+            """Signature for heatmap cache correctness using normalized config + controls."""
+            try:
+                cfg_sig = _build_cfg()
+            except Exception:
+                cfg_sig = {}
 
-            def _clean(x):
-                if isinstance(x, (str, int, float, bool)) or x is None:
-                    return x
-                if isinstance(x, (list, tuple)):
-                    return [_clean(v) for v in x]
-                if isinstance(x, dict):
-                    return {str(kk): _clean(vv) for kk, vv in x.items()}
-                return str(x)
-
-            s = json.dumps(_clean(d), sort_keys=True, separators=(",", ":"))
+            payload = {
+                "cfg": cfg_sig,
+                "extra_engine_kwargs": dict(st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs) or {}),
+                "metric": str(hm_metric),
+                "axis": str(hm_y_axis),
+                "grid": int(grid_size),
+                "mc_sims": int(mc_sims) if mc_sims is not None else None,
+                "buyer_ret": float(st.session_state.get("buyer_ret", 0.0) or 0.0),
+                "renter_ret": float(st.session_state.get("renter_ret", 0.0) or 0.0),
+                "invest_surplus": bool(invest_surplus_input),
+                "renter_closing": bool(renter_uses_closing_input),
+                "corr": float(market_corr_input),
+                "rate": float(rate),
+                "rent_inf": float(rent_inf),
+                "rent_cap_enabled": bool(rent_cap_enabled_local),
+                "rent_cap_value": float(rent_cap_value_local) if rent_cap_value_local is not None else None,
+                "seed_effective": str(st.session_state.get("mc_seed_effective", "")),
+                "mc_randomize": bool(st.session_state.get("mc_randomize", False)),
+            }
+            s = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
             return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
 
         hm_sig = _heatmap_inputs_sig()
@@ -6037,7 +6061,7 @@ if tab == _TAB_NET:
             int(mc_sims) if (mc_sims is not None and int(mc_sims) > 0) else None,
             int(hm_seed) if (hm_seed is not None) else None,
             float(st.session_state.buyer_ret), float(st.session_state.renter_ret),
-            float(invest_surplus_input), bool(renter_uses_closing_input),
+            bool(invest_surplus_input), bool(renter_uses_closing_input),
             float(market_corr_input), float(rate), float(rent_inf),
             bool(rent_cap_enabled_local),
             float(rent_cap_value_local) if rent_cap_value_local is not None else None,
@@ -6117,7 +6141,7 @@ if tab == _TAB_NET:
                     _eta0 = None
 
 
-                hm_mode_label = "Fast" if bool(fast_mode) else "Quality"
+                hm_mode_label = "Balanced"
                 try:
                     hm_overlay_label = f"Heatmap ({hm_mode_label}, {int(grid_size)}×{int(grid_size)})"
                 except Exception:
@@ -6225,7 +6249,7 @@ if tab == _TAB_NET:
             # Adaptive heatmap refinement info (Phase 4): surfaced in diagnostics for transparency
             try:
                 _hm_ad = st.session_state.get("_rbv_last_heatmap_adaptive")
-                if isinstance(_hm_ad, dict) and ("Win" in str(_hm_ad.get("metric", ""))):
+                if isinstance(_hm_ad, dict) and (str(_hm_ad.get("metric", "")) == str(hm_metric)) and ("Win" in str(_hm_ad.get("metric", ""))):
                     _rbv_diag_add(
                         "OK",
                         "Adaptive heatmap refinement",
@@ -6438,7 +6462,7 @@ if tab == _TAB_NET:
             unsafe_allow_html=True
         )
 
-        st.caption("Tip: Higher grid resolution and Monte Carlo modes can be slower. Results are cached per setting.")
+        st.caption("Tip: Higher grid resolution and Monte Carlo metrics can be slower. Results are cached per setting.")
 
 elif tab == _TAB_COSTS:
     st.markdown(
@@ -6916,13 +6940,13 @@ elif tab == _TAB_BIAS:
             key="bias_dash_mc_metric",
         )
 
-        _raw_bias_mc_sims = st.session_state.get("bias_mc_sims", 15_000 if fast_mode else 30_000)
+        _raw_bias_mc_sims = st.session_state.get("bias_mc_sims", BALANCED_BIAS_MC_SIMS_DEFAULT)
         try:
             mc_sims = int(float(_raw_bias_mc_sims))
         except Exception:
-            mc_sims = 15_000 if fast_mode else 30_000
+            mc_sims = BALANCED_BIAS_MC_SIMS_DEFAULT
         mc_sims = int(max(100, min(250_000, mc_sims)))
-        st.caption(f"Monte Carlo simulations (from Performance mode): **{mc_sims:,}**")
+        st.caption(f"Monte Carlo simulations (from Performance profile): **{mc_sims:,}**")
 
     # PV metric only applies to money-valued deltas (deterministic Δ or MC Expected Δ)
     pv_allowed = (not use_mc) or (mc_metric == "Expected Δ (mean Buyer − Renter)")
@@ -6988,7 +7012,7 @@ elif tab == _TAB_BIAS:
             "home_sale_legal_fee": float(_ss("home_sale_legal_fee", 0.0)),
             "use_volatility": bool(_ss("use_volatility", False)),
             "mc_seed": _ss("mc_seed", None),
-            "mc_randomize": bool(_ss("mc_randomize", True)),
+            "mc_randomize": bool(_ss("mc_randomize", False)),
             "ret_std_pct": float(_ss("ret_std_pct", 15.0)),
             "apprec_std_pct": float(_ss("apprec_std_pct", 5.0)),
             "market_corr_input": float(_ss("market_corr_input", 0.0)),
@@ -7039,10 +7063,10 @@ elif tab == _TAB_BIAS:
         months_i = int(max(1, months))
         sims_i = int(max(1, sims))
         # Keep memory bounded: float32 arrays, 3 * months*sims
-        # ~12MB at (300×5000). If bigger than ~48MB, skip caching.
+        # Size estimate for 3 float32 shock matrices; skip precompute beyond safety threshold.
         try:
             est_bytes = 3 * months_i * sims_i * 4
-            if est_bytes > 800_000_000:
+            if est_bytes > 350_000_000:
                 return None
         except Exception:
             return None
