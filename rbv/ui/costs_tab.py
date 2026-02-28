@@ -27,8 +27,12 @@ def build_costs_core(df: pd.DataFrame) -> dict:
     r_util = s("Rent Utilities")
     r_move = s("Moving")
 
-    buyer_total_actual = float(df.iloc[-1]["Buyer Unrecoverable"]) if "Buyer Unrecoverable" in df.columns else float("nan")
-    renter_total_actual = float(df.iloc[-1]["Renter Unrecoverable"]) if "Renter Unrecoverable" in df.columns else float("nan")
+    buyer_total_actual = (
+        float(df.iloc[-1]["Buyer Unrecoverable"]) if "Buyer Unrecoverable" in df.columns else float("nan")
+    )
+    renter_total_actual = (
+        float(df.iloc[-1]["Renter Unrecoverable"]) if "Renter Unrecoverable" in df.columns else float("nan")
+    )
 
     buyer_rec_total = float((b_interest + b_tax + b_maint + b_repairs + b_condo + b_ins + b_util + b_special).sum())
     renter_rec_total = float((r_rent + r_ins + r_util + r_move).sum())
@@ -77,7 +81,13 @@ def build_costs_core(df: pd.DataFrame) -> dict:
     }
 
 
-def build_cost_mix_dataframe(categories: list[str], buyer_vals: list[float], renter_vals: list[float], buyer_total_actual: float, renter_total_actual: float) -> pd.DataFrame:
+def build_cost_mix_dataframe(
+    categories: list[str],
+    buyer_vals: list[float],
+    renter_vals: list[float],
+    buyer_total_actual: float,
+    renter_total_actual: float,
+) -> pd.DataFrame:
     rows: list[dict] = []
     buyer_share_base = abs(float(buyer_total_actual))
     renter_share_base = abs(float(renter_total_actual))
@@ -88,14 +98,16 @@ def build_cost_mix_dataframe(categories: list[str], buyer_vals: list[float], ren
 
     for cat, b, r in zip(categories, buyer_vals, renter_vals):
         if (abs(b) > 0.01) or (abs(r) > 0.01):
-            rows.append({
-                "Category": cat,
-                "Buyer ($)": b,
-                "Buyer Net Share (%)": ((b / buyer_share_base * 100.0) if buyer_net_ok else np.nan),
-                "Buyer Mix (%)": (abs(b) / buyer_mix_base * 100.0),
-                "Renter ($)": r,
-                "Renter Net Share (%)": ((r / renter_share_base * 100.0) if renter_net_ok else np.nan),
-                "Renter Mix (%)": (abs(r) / renter_mix_base * 100.0),
-            })
+            rows.append(
+                {
+                    "Category": cat,
+                    "Buyer ($)": b,
+                    "Buyer Net Share (%)": ((b / buyer_share_base * 100.0) if buyer_net_ok else np.nan),
+                    "Buyer Mix (%)": (abs(b) / buyer_mix_base * 100.0),
+                    "Renter ($)": r,
+                    "Renter Net Share (%)": ((r / renter_share_base * 100.0) if renter_net_ok else np.nan),
+                    "Renter Mix (%)": (abs(r) / renter_mix_base * 100.0),
+                }
+            )
 
     return pd.DataFrame(rows).set_index("Category") if rows else pd.DataFrame()
