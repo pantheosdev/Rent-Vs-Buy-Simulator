@@ -21,6 +21,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          # Use requirements.txt for flexibility; requirements.lock is available for pinned/reproducible installs.
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
@@ -52,6 +53,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          # Use requirements.txt for flexibility; requirements.lock is available for pinned/reproducible installs.
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 

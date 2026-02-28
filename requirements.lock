@@ -1,0 +1,12 @@
+# Auto-generated lock file for reproducible builds.
+# To update: pip-compile requirements.txt --output-file=requirements.lock
+# To install: pip install -r requirements.lock
+
+streamlit==1.42.0
+numpy==1.26.4
+pandas==2.2.3
+plotly==5.24.1
+
+# Transitive dependencies pinned for reproducibility
+# (Streamlit pulls in many deps; only pin the direct ones here
+# and let pip resolve transitives. For full lock, use pip-compile.)
