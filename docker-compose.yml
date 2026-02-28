@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount source for development (optional; remove for production)
+      - .:/app:ro
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+    restart: unless-stopped
