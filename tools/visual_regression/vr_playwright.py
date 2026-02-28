@@ -200,7 +200,9 @@ def main() -> int:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as e:
-        print("Playwright not installed. Install dev deps:\n  pip install -r requirements-dev.txt\n  python -m playwright install")
+        print(
+            "Playwright not installed. Install dev deps:\n  pip install -r requirements-dev.txt\n  python -m playwright install"
+        )
         print(f"Error: {e}")
         return 2
 
@@ -346,9 +348,7 @@ def main() -> int:
                     page.wait_for_timeout(900)
                 # Ensure target tab content has rendered before reading bounds.
                 with contextlib.suppress(Exception):
-                    page.locator('.note-box').first.wait_for(
-                        state="visible", timeout=12_000
-                    )
+                    page.locator('.note-box').first.wait_for(state="visible", timeout=12_000)
                 with contextlib.suppress(Exception):
                     page.get_by_role("button", name="Compute Bias Dashboard").first.wait_for(
                         state="visible", timeout=12_000
@@ -438,7 +438,9 @@ def main() -> int:
             print(f"[vr] WARN: baseline appears blank/dark for {name}; skipping strict compare for this image.")
             continue
         if _is_suspicious_black_capture(b) or _is_suspicious_black_capture(o):
-            print(f"[vr] WARN: suspicious near-black capture detected for {name}; skipping strict compare for this image.")
+            print(
+                f"[vr] WARN: suspicious near-black capture detected for {name}; skipping strict compare for this image."
+            )
             continue
         diff_out = DIFF_DIR / name.replace(".png", "_diff.png")
         ratio = _img_diff(b, o, diff_out)

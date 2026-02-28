@@ -12,11 +12,10 @@ Functions
 render_verdict(cfg, results, st)
     Compute the outcome of the simulation and display a verdict banner.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict
-
-import streamlit as st
 
 
 def render_verdict(cfg: Dict[str, Any], results: Dict[str, Any], st_module: Any) -> None:
@@ -75,8 +74,6 @@ def render_verdict(cfg: Dict[str, Any], results: Dict[str, Any], st_module: Any)
 
     # Render the verdict banner using pre-defined CSS classes.
     st_module.markdown(
-        f"<div class='verdict-banner {banner_class}'>\n"
-        f"  <span class='verdict-text'>{verdict_text}</span>\n"
-        f"</div>",
+        f"<div class='verdict-banner {banner_class}'>\n  <span class='verdict-text'>{verdict_text}</span>\n</div>",
         unsafe_allow_html=True,
     )

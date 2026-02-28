@@ -17,9 +17,11 @@ if str(_REPO_ROOT) not in sys.path:
 import os
 import compileall
 
+
 def die(msg: str, code: int = 1) -> None:
     print(f"\n[SMOKE CHECK FAILED] {msg}\n")
     raise SystemExit(code)
+
 
 def main() -> None:
     # Use repo root (two levels above rbv/qa/) so paths resolve consistently.
@@ -120,6 +122,7 @@ def main() -> None:
     print(f"Deterministic rows: {len(df_det)}")
     print(f"MC rows: {len(df_mc)}")
     print(f"MC Win% sanity: {win:.1f}%\n")
+
 
 if __name__ == "__main__":
     main()

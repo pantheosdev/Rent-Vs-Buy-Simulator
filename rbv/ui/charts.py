@@ -22,11 +22,10 @@ render_monthly_cost_table(cfg, results, st)
 render_heatmap(cfg, results, st)
     Render a sensitivity heatmap (e.g., appreciation vs rent growth).
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-
-import streamlit as st
+from typing import Any, Dict
 
 
 def render_net_worth_chart(cfg: Dict[str, Any], results: Any, st_module: Any) -> None:
@@ -64,6 +63,7 @@ def render_net_worth_chart(cfg: Dict[str, Any], results: Any, st_module: Any) ->
     displays a warning rather than raising an exception.
     """
     import plotly.graph_objects as go
+
     # Validate input structure
     time = None
     buyer = None
@@ -89,10 +89,8 @@ def render_net_worth_chart(cfg: Dict[str, Any], results: Any, st_module: Any) ->
         return
     # Build Plotly figure
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=time, y=buyer, mode='lines', name='Buyer Net Worth',
-                             line=dict(color='#00B8A9')))
-    fig.add_trace(go.Scatter(x=time, y=renter, mode='lines', name='Renter Net Worth',
-                             line=dict(color='#F6416C')))
+    fig.add_trace(go.Scatter(x=time, y=buyer, mode='lines', name='Buyer Net Worth', line=dict(color='#00B8A9')))
+    fig.add_trace(go.Scatter(x=time, y=renter, mode='lines', name='Renter Net Worth', line=dict(color='#F6416C')))
     fig.update_layout(
         title="Net Worth Comparison",
         xaxis_title="Time",
@@ -145,11 +143,13 @@ def render_monthly_cost_table(cfg: Dict[str, Any], results: Any, st_module: Any)
 
     # Compute union of keys and build DataFrame
     all_keys = sorted(set(buyer_costs.keys()) | set(renter_costs.keys()))
-    df = pd.DataFrame({
-        'Category': all_keys,
-        'Buyer ($/mo)': [buyer_costs.get(k, 0.0) for k in all_keys],
-        'Renter ($/mo)': [renter_costs.get(k, 0.0) for k in all_keys],
-    })
+    df = pd.DataFrame(
+        {
+            'Category': all_keys,
+            'Buyer ($/mo)': [buyer_costs.get(k, 0.0) for k in all_keys],
+            'Renter ($/mo)': [renter_costs.get(k, 0.0) for k in all_keys],
+        }
+    )
 
     # Display the table in Streamlit
     st_module.table(df)
