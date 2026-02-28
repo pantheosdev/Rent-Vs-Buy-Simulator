@@ -63,7 +63,9 @@ def main() -> int:
             print(f"::error::{mod_name}.{attr} is {age} days old (last reviewed {d.isoformat()}). Update required.")
             failed = True
         elif age >= WARN_DAYS:
-            print(f"::warning::{mod_name}.{attr} is {age} days old (last reviewed {d.isoformat()}). Plan an annual policy review.")
+            print(
+                f"::warning::{mod_name}.{attr} is {age} days old (last reviewed {d.isoformat()}). Plan an annual policy review."
+            )
         else:
             print(f"OK: {mod_name}.{attr} last reviewed {d.isoformat()} ({age} days ago)")
 

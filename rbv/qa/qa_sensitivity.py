@@ -30,10 +30,10 @@ import sys
 import datetime
 
 
-MONEY_EPS = 1.0          # $1 threshold for "changed"
-SMALL_EPS = 1e-6         # fallback for unitless values
-MC_EPS = 1.0             # $1 threshold for MC mean metrics
-DEFAULT_REL_X = 0.05     # 5% perturb for large money inputs
+MONEY_EPS = 1.0  # $1 threshold for "changed"
+SMALL_EPS = 1e-6  # fallback for unitless values
+MC_EPS = 1.0  # $1 threshold for MC mean metrics
+DEFAULT_REL_X = 0.05  # 5% perturb for large money inputs
 
 
 def _finite(x) -> bool:
@@ -47,7 +47,8 @@ def _changed(a, b, eps: float) -> bool:
     if a is None or b is None:
         return False
     try:
-        a = float(a); b = float(b)
+        a = float(a)
+        b = float(b)
     except Exception:
         return False
     if (not _finite(a)) or (not _finite(b)):
@@ -68,8 +69,12 @@ def _extract_metrics(df, close_cash, m_pmt, win_pct) -> dict:
         "Rent": float(last.get("Rent", float("nan"))),
         "Buy Payment": float(last.get("Buy Payment", float("nan"))),
         "Moving": float(last.get("Moving", float("nan"))),
-        "Buyer Liquidation NW": float(last.get("Buyer Liquidation NW", float("nan"))) if "Buyer Liquidation NW" in df.columns else float("nan"),
-        "Renter Liquidation NW": float(last.get("Renter Liquidation NW", float("nan"))) if "Renter Liquidation NW" in df.columns else float("nan"),
+        "Buyer Liquidation NW": float(last.get("Buyer Liquidation NW", float("nan")))
+        if "Buyer Liquidation NW" in df.columns
+        else float("nan"),
+        "Renter Liquidation NW": float(last.get("Renter Liquidation NW", float("nan")))
+        if "Renter Liquidation NW" in df.columns
+        else float("nan"),
         "Buyer PV NW": float(last.get("Buyer PV NW", float("nan"))),
         "Renter PV NW": float(last.get("Renter PV NW", float("nan"))),
     }
@@ -84,7 +89,9 @@ def _extract_metrics(df, close_cash, m_pmt, win_pct) -> dict:
     return out
 
 
-def _build_baseline_cfg(*, price: float, down: float, rent: float, province: str, toronto: bool, first_time: bool, years: int) -> dict:
+def _build_baseline_cfg(
+    *, price: float, down: float, rent: float, province: str, toronto: bool, first_time: bool, years: int
+) -> dict:
     """Build a baseline cfg similar to app.py (computes mort/close/pst)."""
     from rbv.core.taxes import calc_transfer_tax
 
@@ -93,11 +100,18 @@ def _build_baseline_cfg(*, price: float, down: float, rent: float, province: str
 
     loan = max(0.0, price - down)
     ltv = (loan / price) if price > 0 else 0.0
-    insured = (ltv > 0.80 + 1e-12)
+    insured = ltv > 0.80 + 1e-12
 
     # Transfer tax
     asof = datetime.date.today()
-    tt = calc_transfer_tax(province, float(price), first_time_buyer=bool(first_time), toronto_property=bool(toronto), override_amount=0.0, asof_date=asof)
+    tt = calc_transfer_tax(
+        province,
+        float(price),
+        first_time_buyer=bool(first_time),
+        toronto_property=bool(toronto),
+        override_amount=0.0,
+        asof_date=asof,
+    )
     total_ltt = float(tt.get("total", 0.0) or 0.0)
 
     # CMHC premium approximation (matches app.py logic)
@@ -123,19 +137,15 @@ def _build_baseline_cfg(*, price: float, down: float, rent: float, province: str
         "province": province,
         "toronto_property": bool(toronto),
         "first_time_buyer": bool(first_time),
-
         "price": float(price),
         "down": float(down),
         "rent": float(rent),
-
-        "rate": 5.0,             # percent
-        "nm": 25 * 12,           # months amortization
-
+        "rate": 5.0,  # percent
+        "nm": 25 * 12,  # months amortization
         "sell_cost": 0.05,
         "p_tax_rate": 0.007,
         "maint_rate": 0.010,
         "repair_rate": 0.002,
-
         # Monthly recurring owner/renter costs
         "condo": 350.0,
         "condo_inf": 0.02,
@@ -143,20 +153,16 @@ def _build_baseline_cfg(*, price: float, down: float, rent: float, province: str
         "o_util": 120.0,
         "r_ins": 25.0,
         "r_util": 80.0,
-
         "general_inf": 0.02,
         "rent_inf": 0.02,
         "discount_rate": 0.00,
-
         "moving_cost": 2500.0,
         "moving_freq": 5.0,
-
         # Rent control defaults (off unless enabled in a prereq)
         "rent_control_enabled": False,
         "rent_control_cap": 0.02,
         "rent_control_frequency_years": 1,
         "rent_control_frequency": 1,
-
         # Rate modes (off unless enabled)
         "rate_mode": "Fixed",
         "rate_reset_years_eff": 5,
@@ -166,28 +172,22 @@ def _build_baseline_cfg(*, price: float, down: float, rent: float, province: str
         "rate_shock_start_year_eff": 3,
         "rate_shock_duration_years_eff": 2,
         "rate_shock_pp_eff": 2.0,
-
         "canadian_compounding": True,
-
         # Property tax growth model (Phase-1/2 work)
         "prop_tax_growth_model": "Hybrid (recommended for Toronto)",
         "prop_tax_hybrid_addon_pct": 0.5,
-
         # Investment taxes
         "investment_tax_mode": "Pre-tax (no investment taxes)",
         "tax_r": 20.0,  # percent (only used in Annual return drag)
-
         # Cash-out / liquidation view
         "assume_sale_end": True,
         "show_liquidation_view": True,
         "cg_tax_end": 0.0,
         "home_sale_legal_fee": 0.0,
-
         # Mortgage + closing costs computed above
         "mort": float(mort),
         "close": float(close),
         "pst": float(pst),
-
         # Volatility defaults (MC suite uses these)
         "use_volatility": False,
         "num_sims": 200,
@@ -198,9 +198,19 @@ def _build_baseline_cfg(*, price: float, down: float, rent: float, province: str
     return cfg
 
 
-def _run_det(cfg: dict, *, buyer_ret_pct: float = 7.0, renter_ret_pct: float = 7.0, apprec_pct: float = 3.0,
-             invest_diff: float = 1.0, rent_closing: bool = False, mkt_corr: float = 0.25, mc_seed: int = 123):
+def _run_det(
+    cfg: dict,
+    *,
+    buyer_ret_pct: float = 7.0,
+    renter_ret_pct: float = 7.0,
+    apprec_pct: float = 3.0,
+    invest_diff: float = 1.0,
+    rent_closing: bool = False,
+    mkt_corr: float = 0.25,
+    mc_seed: int = 123,
+):
     from rbv.core.engine import run_simulation_core
+
     df, close_cash, m_pmt, win_pct = run_simulation_core(
         cfg,
         buyer_ret_pct=buyer_ret_pct,
@@ -217,9 +227,20 @@ def _run_det(cfg: dict, *, buyer_ret_pct: float = 7.0, renter_ret_pct: float = 7
     return _extract_metrics(df, close_cash, m_pmt, win_pct)
 
 
-def _run_mc(cfg: dict, *, buyer_ret_pct: float = 7.0, renter_ret_pct: float = 7.0, apprec_pct: float = 3.0,
-            invest_diff: float = 1.0, rent_closing: bool = False, mkt_corr: float = 0.25, mc_seed: int = 123, num_sims: int = 200):
+def _run_mc(
+    cfg: dict,
+    *,
+    buyer_ret_pct: float = 7.0,
+    renter_ret_pct: float = 7.0,
+    apprec_pct: float = 3.0,
+    invest_diff: float = 1.0,
+    rent_closing: bool = False,
+    mkt_corr: float = 0.25,
+    mc_seed: int = 123,
+    num_sims: int = 200,
+):
     from rbv.core.engine import run_simulation_core
+
     cfg2 = copy.deepcopy(cfg)
     cfg2["use_volatility"] = True
     cfg2["num_sims"] = int(num_sims)
@@ -241,16 +262,23 @@ def _run_mc(cfg: dict, *, buyer_ret_pct: float = 7.0, renter_ret_pct: float = 7.
 
 def main() -> None:
     # Build deterministic baseline
-    cfg0 = _build_baseline_cfg(price=800_000.0, down=160_000.0, rent=3_200.0, province="Ontario",
-                              toronto=True, first_time=False, years=10)
+    cfg0 = _build_baseline_cfg(
+        price=800_000.0, down=160_000.0, rent=3_200.0, province="Ontario", toronto=True, first_time=False, years=10
+    )
 
     base_det = _run_det(cfg0)
     # Deterministic runs may not produce win_pct; only enforce finiteness on core metrics.
     _core_keys = [
-        "Buyer Net Worth", "Renter Net Worth", "PV Delta",
-        "Buyer Unrecoverable", "Renter Unrecoverable",
-        "Buyer Home Equity", "Buyer PV NW", "Renter PV NW",
-        "close_cash", "m_pmt",
+        "Buyer Net Worth",
+        "Renter Net Worth",
+        "PV Delta",
+        "Buyer Unrecoverable",
+        "Renter Unrecoverable",
+        "Buyer Home Equity",
+        "Buyer PV NW",
+        "Renter PV NW",
+        "close_cash",
+        "m_pmt",
     ]
     for k in _core_keys:
         v = base_det.get(k)
@@ -270,27 +298,118 @@ def main() -> None:
     # - expect: list of metric keys that must change (any one is enough)
     # - mono: optional {"metric": "...", "dir": +1/-1} direction check when increasing
     specs = [
-        dict(name="price", kind="cfg", key="price", delta_rel=DEFAULT_REL_X, expect=["Buyer Net Worth", "Buyer Home Equity", "close_cash"], rebuild=True),
-        dict(name="rent", kind="cfg", key="rent", delta_rel=DEFAULT_REL_X, expect=["Renter Net Worth", "PV Delta", "Renter Unrecoverable"], mono={"metric":"Renter Net Worth", "dir": -1}),
-        dict(name="down", kind="cfg", key="down", delta_rel=DEFAULT_REL_X, expect=["Buyer Net Worth", "Buyer Home Equity", "close_cash"], rebuild=True),
-        dict(name="rate (pp)", kind="cfg", key="rate", delta_abs=0.50, expect=["Buyer Net Worth", "Buy Payment"], mono={"metric":"Buyer Net Worth", "dir": -1}),
-        dict(name="sell_cost", kind="cfg", key="sell_cost", delta_abs=0.01, expect=["Buyer Net Worth", "Buyer Liquidation NW"]),
-        dict(name="p_tax_rate", kind="cfg", key="p_tax_rate", delta_abs=0.001, expect=["Buyer Net Worth", "Buyer Unrecoverable"]),
-        dict(name="maint_rate", kind="cfg", key="maint_rate", delta_abs=0.002, expect=["Buyer Net Worth", "Buyer Unrecoverable"]),
-        dict(name="repair_rate", kind="cfg", key="repair_rate", delta_abs=0.001, expect=["Buyer Net Worth", "Buyer Unrecoverable"]),
+        dict(
+            name="price",
+            kind="cfg",
+            key="price",
+            delta_rel=DEFAULT_REL_X,
+            expect=["Buyer Net Worth", "Buyer Home Equity", "close_cash"],
+            rebuild=True,
+        ),
+        dict(
+            name="rent",
+            kind="cfg",
+            key="rent",
+            delta_rel=DEFAULT_REL_X,
+            expect=["Renter Net Worth", "PV Delta", "Renter Unrecoverable"],
+            mono={"metric": "Renter Net Worth", "dir": -1},
+        ),
+        dict(
+            name="down",
+            kind="cfg",
+            key="down",
+            delta_rel=DEFAULT_REL_X,
+            expect=["Buyer Net Worth", "Buyer Home Equity", "close_cash"],
+            rebuild=True,
+        ),
+        dict(
+            name="rate (pp)",
+            kind="cfg",
+            key="rate",
+            delta_abs=0.50,
+            expect=["Buyer Net Worth", "Buy Payment"],
+            mono={"metric": "Buyer Net Worth", "dir": -1},
+        ),
+        dict(
+            name="sell_cost",
+            kind="cfg",
+            key="sell_cost",
+            delta_abs=0.01,
+            expect=["Buyer Net Worth", "Buyer Liquidation NW"],
+        ),
+        dict(
+            name="p_tax_rate",
+            kind="cfg",
+            key="p_tax_rate",
+            delta_abs=0.001,
+            expect=["Buyer Net Worth", "Buyer Unrecoverable"],
+        ),
+        dict(
+            name="maint_rate",
+            kind="cfg",
+            key="maint_rate",
+            delta_abs=0.002,
+            expect=["Buyer Net Worth", "Buyer Unrecoverable"],
+        ),
+        dict(
+            name="repair_rate",
+            kind="cfg",
+            key="repair_rate",
+            delta_abs=0.001,
+            expect=["Buyer Net Worth", "Buyer Unrecoverable"],
+        ),
         dict(name="condo", kind="cfg", key="condo", delta_rel=0.10, expect=["Buyer Net Worth", "Buyer Unrecoverable"]),
         dict(name="h_ins", kind="cfg", key="h_ins", delta_rel=0.20, expect=["Buyer Net Worth", "Buyer Unrecoverable"]),
-        dict(name="o_util", kind="cfg", key="o_util", delta_rel=0.20, expect=["Buyer Net Worth", "Buyer Unrecoverable"]),
-        dict(name="r_ins", kind="cfg", key="r_ins", delta_rel=0.20, expect=["Renter Net Worth", "Renter Unrecoverable"]),
-        dict(name="r_util", kind="cfg", key="r_util", delta_rel=0.20, expect=["Renter Net Worth", "Renter Unrecoverable"]),
-        dict(name="general_inf", kind="cfg", key="general_inf", delta_abs=0.005, expect=["Buyer Unrecoverable", "Renter Unrecoverable"]),
+        dict(
+            name="o_util", kind="cfg", key="o_util", delta_rel=0.20, expect=["Buyer Net Worth", "Buyer Unrecoverable"]
+        ),
+        dict(
+            name="r_ins", kind="cfg", key="r_ins", delta_rel=0.20, expect=["Renter Net Worth", "Renter Unrecoverable"]
+        ),
+        dict(
+            name="r_util", kind="cfg", key="r_util", delta_rel=0.20, expect=["Renter Net Worth", "Renter Unrecoverable"]
+        ),
+        dict(
+            name="general_inf",
+            kind="cfg",
+            key="general_inf",
+            delta_abs=0.005,
+            expect=["Buyer Unrecoverable", "Renter Unrecoverable"],
+        ),
         dict(name="rent_inf", kind="cfg", key="rent_inf", delta_abs=0.005, expect=["Renter Net Worth", "Rent"]),
         dict(name="discount_rate", kind="cfg", key="discount_rate", delta_abs=0.01, expect=["Buyer PV NW", "PV Delta"]),
-
-        dict(name="buyer_ret_pct", kind="arg", key="buyer_ret_pct", delta_abs=1.0, expect=["Buyer Net Worth"], mono={"metric":"Buyer Net Worth", "dir": +1}, prereq=lambda c: {**copy.deepcopy(c), "rent": 4500.0}),
-        dict(name="renter_ret_pct", kind="arg", key="renter_ret_pct", delta_abs=1.0, expect=["Renter Net Worth"], mono={"metric":"Renter Net Worth", "dir": +1}),
-        dict(name="apprec_pct", kind="arg", key="apprec_pct", delta_abs=1.0, expect=["Buyer Net Worth"], mono={"metric":"Buyer Net Worth", "dir": +1}),
-        dict(name="invest_diff (toggle)", kind="arg", key="invest_diff", delta_abs=1.0, expect=["Buyer Net Worth", "Renter Net Worth", "PV Delta"]),
+        dict(
+            name="buyer_ret_pct",
+            kind="arg",
+            key="buyer_ret_pct",
+            delta_abs=1.0,
+            expect=["Buyer Net Worth"],
+            mono={"metric": "Buyer Net Worth", "dir": +1},
+            prereq=lambda c: {**copy.deepcopy(c), "rent": 4500.0},
+        ),
+        dict(
+            name="renter_ret_pct",
+            kind="arg",
+            key="renter_ret_pct",
+            delta_abs=1.0,
+            expect=["Renter Net Worth"],
+            mono={"metric": "Renter Net Worth", "dir": +1},
+        ),
+        dict(
+            name="apprec_pct",
+            kind="arg",
+            key="apprec_pct",
+            delta_abs=1.0,
+            expect=["Buyer Net Worth"],
+            mono={"metric": "Buyer Net Worth", "dir": +1},
+        ),
+        dict(
+            name="invest_diff (toggle)",
+            kind="arg",
+            key="invest_diff",
+            delta_abs=1.0,
+            expect=["Buyer Net Worth", "Renter Net Worth", "PV Delta"],
+        ),
     ]
 
     # Conditional: annual drag must respond to tax_r
@@ -300,8 +419,16 @@ def main() -> None:
         c["tax_r"] = 20.0
         return c
 
-    specs.append(dict(name="tax_r (annual drag)", kind="cfg", key="tax_r", delta_abs=5.0,
-                      prereq=_prereq_annual_drag, expect=["Buyer Net Worth", "Renter Net Worth"]))
+    specs.append(
+        dict(
+            name="tax_r (annual drag)",
+            kind="cfg",
+            key="tax_r",
+            delta_abs=5.0,
+            prereq=_prereq_annual_drag,
+            expect=["Buyer Net Worth", "Renter Net Worth"],
+        )
+    )
 
     # Conditional: rent control cap/frequency must affect rent path when enabled
     def _prereq_rent_control(cfg: dict) -> dict:
@@ -312,15 +439,38 @@ def main() -> None:
         c["rent_control_frequency"] = 1
         return c
 
-    specs.append(dict(name="rent_control_cap", kind="cfg", key="rent_control_cap", delta_abs=0.01,
-                      prereq=_prereq_rent_control, expect=["Rent", "Renter Net Worth", "PV Delta"]))
+    specs.append(
+        dict(
+            name="rent_control_cap",
+            kind="cfg",
+            key="rent_control_cap",
+            delta_abs=0.01,
+            prereq=_prereq_rent_control,
+            expect=["Rent", "Renter Net Worth", "PV Delta"],
+        )
+    )
 
-    specs.append(dict(name="rent_control_frequency_years", kind="cfg", key="rent_control_frequency_years", delta_abs=2,
-                      prereq=_prereq_rent_control, expect=["Renter Unrecoverable", "Rent Payment"]))
+    specs.append(
+        dict(
+            name="rent_control_frequency_years",
+            kind="cfg",
+            key="rent_control_frequency_years",
+            delta_abs=2,
+            prereq=_prereq_rent_control,
+            expect=["Renter Unrecoverable", "Rent Payment"],
+        )
+    )
 
     # Moving frequency is discrete; change enough to alter the number of move events
-    specs.append(dict(name="moving_freq", kind="cfg", key="moving_freq", delta_abs=2.0,
-                      expect=["Moving", "Buyer Unrecoverable", "Renter Unrecoverable"]))
+    specs.append(
+        dict(
+            name="moving_freq",
+            kind="cfg",
+            key="moving_freq",
+            delta_abs=2.0,
+            expect=["Moving", "Buyer Unrecoverable", "Renter Unrecoverable"],
+        )
+    )
 
     # ----------------------------
     # Execute deterministic sensitivity
@@ -365,19 +515,59 @@ def main() -> None:
                 years0 = int(cfg_use.get("years", 10))
 
                 if k == "price":
-                    cfg_p = _build_baseline_cfg(price=max(0.0, price0 + dv), down=down0, rent=rent0, province=province0, toronto=tor0, first_time=ftb0, years=years0)
-                    cfg_m = _build_baseline_cfg(price=max(0.0, price0 - dv), down=down0, rent=rent0, province=province0, toronto=tor0, first_time=ftb0, years=years0)
+                    cfg_p = _build_baseline_cfg(
+                        price=max(0.0, price0 + dv),
+                        down=down0,
+                        rent=rent0,
+                        province=province0,
+                        toronto=tor0,
+                        first_time=ftb0,
+                        years=years0,
+                    )
+                    cfg_m = _build_baseline_cfg(
+                        price=max(0.0, price0 - dv),
+                        down=down0,
+                        rent=rent0,
+                        province=province0,
+                        toronto=tor0,
+                        first_time=ftb0,
+                        years=years0,
+                    )
                 elif k == "down":
-                    cfg_p = _build_baseline_cfg(price=price0, down=max(0.0, down0 + dv), rent=rent0, province=province0, toronto=tor0, first_time=ftb0, years=years0)
-                    cfg_m = _build_baseline_cfg(price=price0, down=max(0.0, down0 - dv), rent=rent0, province=province0, toronto=tor0, first_time=ftb0, years=years0)
+                    cfg_p = _build_baseline_cfg(
+                        price=price0,
+                        down=max(0.0, down0 + dv),
+                        rent=rent0,
+                        province=province0,
+                        toronto=tor0,
+                        first_time=ftb0,
+                        years=years0,
+                    )
+                    cfg_m = _build_baseline_cfg(
+                        price=price0,
+                        down=max(0.0, down0 - dv),
+                        rent=rent0,
+                        province=province0,
+                        toronto=tor0,
+                        first_time=ftb0,
+                        years=years0,
+                    )
                 else:
                     cfg_p[k] = v0 + dv
                     cfg_m = copy.deepcopy(cfg_use)
-                    cfg_m[k] = max(0.0, v0 - dv) if k not in ("discount_rate", "general_inf", "rent_inf", "rent_control_cap") else (v0 - dv)
+                    cfg_m[k] = (
+                        max(0.0, v0 - dv)
+                        if k not in ("discount_rate", "general_inf", "rent_inf", "rent_control_cap")
+                        else (v0 - dv)
+                    )
             else:
                 cfg_p[k] = v0 + dv
                 cfg_m = copy.deepcopy(cfg_use)
-                cfg_m[k] = max(0.0, v0 - dv) if k not in ("discount_rate", "general_inf", "rent_inf", "rent_control_cap") else (v0 - dv)
+                cfg_m[k] = (
+                    max(0.0, v0 - dv)
+                    if k not in ("discount_rate", "general_inf", "rent_inf", "rent_control_cap")
+                    else (v0 - dv)
+                )
         else:
             k = s["key"]
             v0 = float(args_base.get(k, 0.0) or 0.0)
@@ -394,14 +584,23 @@ def main() -> None:
             cfg_m = cfg_use
 
         # run perturbed
-        plus = _run_det(cfg_p if s["kind"]=="cfg" else cfg_use, **args_p)
-        minus = _run_det(cfg_m if s["kind"]=="cfg" else cfg_use, **args_m)
+        plus = _run_det(cfg_p if s["kind"] == "cfg" else cfg_use, **args_p)
+        minus = _run_det(cfg_m if s["kind"] == "cfg" else cfg_use, **args_m)
 
         # check expected outputs
         expect = s.get("expect", [])
         ok = False
         for met in expect:
-            eps = MONEY_EPS if ("Net Worth" in met or "PV" in met or "Unrecoverable" in met or met in ("Rent","Buy Payment","close_cash")) else SMALL_EPS
+            eps = (
+                MONEY_EPS
+                if (
+                    "Net Worth" in met
+                    or "PV" in met
+                    or "Unrecoverable" in met
+                    or met in ("Rent", "Buy Payment", "close_cash")
+                )
+                else SMALL_EPS
+            )
             if _changed(base.get(met), plus.get(met), eps) or _changed(base.get(met), minus.get(met), eps):
                 ok = True
                 break
@@ -412,7 +611,8 @@ def main() -> None:
         if mono:
             met = mono["metric"]
             direction = mono["dir"]
-            a = base.get(met); b = plus.get(met)
+            a = base.get(met)
+            b = plus.get(met)
             if _finite(a) and _finite(b):
                 if direction > 0 and not (b > a + MONEY_EPS):
                     mono_ok = False
@@ -443,20 +643,24 @@ def main() -> None:
         mc_fail.append(("MC baseline", "missing mean columns"))
     else:
         # ret_std should change mean distribution (at least slightly)
-        cfg_std = copy.deepcopy(cfg0); cfg_std["ret_std"] = 0.25
+        cfg_std = copy.deepcopy(cfg0)
+        cfg_std["ret_std"] = 0.25
         mc_std = _run_mc(cfg_std, mc_seed=123, num_sims=200)
         if not _changed(mc_base.get("PV Delta Mean"), mc_std.get("PV Delta Mean"), MC_EPS):
             mc_fail.append(("ret_std", "PV Delta Mean did not change"))
 
         # apprec_std
-        cfg_astd = copy.deepcopy(cfg0); cfg_astd["apprec_std"] = 0.25
+        cfg_astd = copy.deepcopy(cfg0)
+        cfg_astd["apprec_std"] = 0.25
         mc_astd = _run_mc(cfg_astd, mc_seed=123, num_sims=200)
         if not _changed(mc_base.get("PV Delta Mean"), mc_astd.get("PV Delta Mean"), MC_EPS):
             mc_fail.append(("apprec_std", "PV Delta Mean did not change"))
 
         # seed change should change mean *or* win_pct (allow either)
         mc_seed2 = _run_mc(cfg0, mc_seed=456, num_sims=200)
-        if (not _changed(mc_base.get("PV Delta Mean"), mc_seed2.get("PV Delta Mean"), MC_EPS)) and (not _changed(mc_base.get("win_pct"), mc_seed2.get("win_pct"), 0.01)):
+        if (not _changed(mc_base.get("PV Delta Mean"), mc_seed2.get("PV Delta Mean"), MC_EPS)) and (
+            not _changed(mc_base.get("win_pct"), mc_seed2.get("win_pct"), 0.01)
+        ):
             mc_fail.append(("mc_seed", "neither mean nor win_pct changed"))
 
     for name, msg in mc_fail:

@@ -13,10 +13,12 @@ contains all UI definitions, but instead delegates to modules under
 ``rbv/ui``. Additional core utilities such as validation warnings
 remain in ``rbv/core``.
 """
+
 from __future__ import annotations
 
 import streamlit as st
 
+from rbv.core.engine import run_simulation_core
 from rbv.core.validation import get_validation_warnings  # type: ignore
 from rbv.ui.sidebar_inputs import render_sidebar
 from rbv.ui.charts import (
@@ -30,30 +32,71 @@ from rbv.ui.scenarios import render_scenario_ui
 
 
 def run_simulation(cfg: dict) -> dict:
-    """Run the rent‑vs‑buy simulation.
-
-    This is a placeholder function that should call into the core
-    simulation engine (e.g., ``rbv.core.engine.run_simulation``) and
-    return a dictionary of results. For now, it returns dummy values.
+    """Run the rent-vs-buy simulation via the core engine.
 
     Parameters
     ----------
     cfg : dict
-        Configuration dictionary produced by ``render_sidebar``.
+        Configuration dictionary produced by ``render_sidebar``.  Must
+        include all keys expected by ``run_simulation_core`` as well as
+        the extra keys ``buyer_ret``, ``renter_ret``, ``apprec``,
+        ``invest_diff``, ``rent_closing``, and ``mkt_corr`` which are
+        passed as positional/keyword arguments to the engine.
 
     Returns
     -------
     dict
-        A dictionary with at least ``final_buyer_net_worth`` and
-        ``final_renter_net_worth`` entries.
+        Results dictionary containing the raw DataFrame (``df``),
+        derived time-series lists, final net-worth scalars, and other
+        engine outputs.
     """
-    # TODO: import and call the real simulation engine here.
-    # For demonstration purposes, we return zero net worth for both.
-    return {
-        "final_buyer_net_worth": 0.0,
-        "final_renter_net_worth": 0.0,
-        # Additional fields (e.g., time series) would appear here.
+    try:
+        df, close_cash, m_pmt, win_pct = run_simulation_core(
+            cfg,
+            buyer_ret_pct=float(cfg.get("buyer_ret", 7.0)),
+            renter_ret_pct=float(cfg.get("renter_ret", 7.0)),
+            apprec_pct=float(cfg.get("apprec", 3.5)),
+            invest_diff=float(cfg.get("invest_diff", 0.0)),
+            rent_closing=bool(cfg.get("rent_closing", False)),
+            mkt_corr=float(cfg.get("mkt_corr", 0.25)),
+            force_deterministic=not bool(cfg.get("use_volatility", False)),
+            num_sims_override=max(1, int(cfg.get("num_sims", 1) or 1)),
+            budget_enabled=bool(cfg.get("budget_enabled", False)),
+            monthly_income=float(cfg.get("monthly_income", 0.0)),
+            monthly_nonhousing=float(cfg.get("monthly_nonhousing", 0.0)),
+            income_growth_pct=float(cfg.get("income_growth_pct", 0.0)),
+            budget_allow_withdraw=bool(cfg.get("budget_allow_withdraw", True)),
+        )
+    except Exception as e:
+        return {
+            "error": str(e),
+            "final_buyer_net_worth": 0.0,
+            "final_renter_net_worth": 0.0,
+        }
+
+    # Normalise to a plain dict for the UI components
+    time_col = "Year" if "Year" in df.columns else "Month"
+    results: dict = {
+        "df": df,
+        "close_cash": close_cash,
+        "m_pmt": m_pmt,
+        "win_pct": win_pct,
+        # Time-series lists used by charts
+        "time": df[time_col].tolist(),
+        "buyer_networth": df["Buyer Net Worth"].tolist(),
+        "renter_networth": df["Renter Net Worth"].tolist(),
+        # Final scalars used by verdict and other summary widgets
+        "final_buyer_net_worth": float(df.iloc[-1]["Buyer Net Worth"]),
+        "final_renter_net_worth": float(df.iloc[-1]["Renter Net Worth"]),
     }
+    # Include liquidation series when present
+    if "Buyer Liquidation NW" in df.columns:
+        results["buyer_liquidation_networth"] = df["Buyer Liquidation NW"].tolist()
+        results["final_buyer_liquidation_nw"] = float(df.iloc[-1]["Buyer Liquidation NW"])
+    if "Renter Liquidation NW" in df.columns:
+        results["renter_liquidation_networth"] = df["Renter Liquidation NW"].tolist()
+        results["final_renter_liquidation_nw"] = float(df.iloc[-1]["Renter Liquidation NW"])
+    return results
 
 
 def main() -> None:
@@ -74,6 +117,11 @@ def main() -> None:
 
     # Run the simulation
     results = run_simulation(cfg)
+
+    # Surface engine errors gracefully
+    if "error" in results:
+        st.error(f"Simulation error: {results['error']}")
+        return
 
     # Display verdict banner
     render_verdict(cfg, results, st)

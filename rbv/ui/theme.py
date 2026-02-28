@@ -3838,7 +3838,6 @@ html:focus-within{ scroll-behavior: smooth; }
 """
 
 
-
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     h = (h or "").lstrip("#")
     if len(h) != 6:

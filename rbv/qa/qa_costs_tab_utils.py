@@ -15,11 +15,13 @@ from rbv.ui.costs_utils import safe_numeric_series, safe_numeric_mean, has_finit
 
 
 def main(argv=None):
-    df = pd.DataFrame({
-        "Month": [1, 2, "bad", 4],
-        "A": [1, "2", None, "x"],
-        "B": [0.0, 0.0, 0.0, 0.0],
-    })
+    df = pd.DataFrame(
+        {
+            "Month": [1, 2, "bad", 4],
+            "A": [1, "2", None, "x"],
+            "B": [0.0, 0.0, 0.0, 0.0],
+        }
+    )
 
     scache: dict[str, pd.Series] = {}
     mcache: dict[str, float] = {}

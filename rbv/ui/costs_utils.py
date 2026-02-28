@@ -44,7 +44,9 @@ def has_finite_signal(series: pd.Series, eps: float = 0.01) -> bool:
         return False
 
 
-def normalize_month_like_series(df: pd.DataFrame, col: str, *, min_value: float = 1.0, outlier_mult: float = 2.0, outlier_floor: float = 24.0) -> pd.Series:
+def normalize_month_like_series(
+    df: pd.DataFrame, col: str, *, min_value: float = 1.0, outlier_mult: float = 2.0, outlier_floor: float = 24.0
+) -> pd.Series:
     n = len(df)
     fallback = pd.Series(np.arange(1, n + 1), index=df.index, dtype=float)
     if col not in df.columns:
