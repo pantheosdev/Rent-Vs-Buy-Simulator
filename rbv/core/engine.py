@@ -595,7 +595,7 @@ def _run_monte_carlo_vectorized(
         b_nw = (b_nw - b_cash) * b_growth + b_cash
         c_home = c_home * home_growth
 
-        # Crisis shock
+        # Crisis shock (apply only to the invested portion, not to cash)
         if crisis_enabled:
             try:
                 crisis_m_start = int(max(1.0, float(crisis_year)) * 12)
@@ -605,8 +605,12 @@ def _run_monte_carlo_vectorized(
             if crisis_m_start <= m < crisis_m_start + dur:
                 stock_dd = float(np.clip(crisis_stock_dd, 0.0, 0.95))
                 house_dd = float(np.clip(crisis_house_dd, 0.0, 0.95))
-                b_nw *= (1.0 - stock_dd)
-                r_nw *= (1.0 - stock_dd)
+                b_invested = b_nw - b_cash
+                r_invested = r_nw - r_cash
+                b_invested *= (1.0 - stock_dd)
+                r_invested *= (1.0 - stock_dd)
+                b_nw = b_invested + b_cash
+                r_nw = r_invested + r_cash
                 c_home *= (1.0 - house_dd)
 
         # Mortgage balance update
@@ -1320,6 +1324,10 @@ def run_heatmap_mc_batch(
     pst = _f(cfg.get("pst", 0.0), 0.0)
     nm = max(1, _i(cfg.get("nm", 1), 1))
 
+    # Special assessment (one-time buyer shock)
+    special_assessment_amount = _f(cfg.get("special_assessment_amount", 0.0), 0.0)
+    special_assessment_month = _i(cfg.get("special_assessment_month", 0), 0)
+
     # Mortgage recompute (matches run_simulation_core; price/down overrides not used for heatmap currently)
     mort_rate_nominal_pct_use = float(rate_override_pct) if rate_override_pct is not None else float(rate)
     canadian_compounding = bool(cfg.get("canadian_compounding", True))
@@ -1337,6 +1345,9 @@ def run_heatmap_mc_batch(
 
     assume_sale_end = bool(cfg.get("assume_sale_end", True))
     home_sale_legal_fee = _f(cfg.get("home_sale_legal_fee", 0.0), 0.0)
+
+    # Rent control frequency (cadence in years)
+    rent_control_frequency_years = max(1, _i(cfg.get("rent_control_frequency_years", 1), 1))
 
     # Rate mode / renewal + shocks
     rate_mode = str(cfg.get("rate_mode", "Fixed"))
@@ -1559,7 +1570,7 @@ def run_heatmap_mc_batch(
             else:
                 b_growth = bg_const
                 r_growth = (np.exp(renter_mu_chunk).astype(np.float32, copy=False) if renter_mu_chunk is not None else rg_const)
-                home_growth = np.exp(app_chunk_dec[None, :] / 12.0).astype(np.float32, copy=False)
+                home_growth = np.exp(np.log1p(np.clip(app_chunk_dec, -0.999999, None))[None, :] / 12.0).astype(np.float32, copy=False)
 
             # --- Mortgage rate resets (renewals) ---
             rate_changed = False
@@ -1615,10 +1626,13 @@ def run_heatmap_mc_batch(
             if princ > float(c_mort):
                 princ = float(c_mort)
 
+            # Special assessment (one-time buyer shock)
+            m_special = float(special_assessment_amount) if (int(special_assessment_month) > 0 and m == int(special_assessment_month)) else 0.0
+
             # Buyer outflows (arrays per sim×cell)
             b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
-            b_out = b_pmt0 + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util)
-            b_op = float(inte) + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util)
+            b_out = b_pmt0 + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special
+            b_op = float(inte) + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special
 
             # Renter outflows (per cell, broadcast over sims)
             skip_last_move = bool(assume_sale_end) and (m == months)
@@ -1679,9 +1693,14 @@ def run_heatmap_mc_batch(
             if float(c_mort) < 0:
                 c_mort = 0.0
 
-            # Rent inflation (annual step at year end)
-            if (m % 12) == 0:
-                c_rent *= (1.0 + rent_chunk.astype(np.float32, copy=False))
+            # Rent inflation (respects rent control frequency cadence)
+            if rent_control_frequency_years <= 1:
+                if (m % 12) == 0:
+                    c_rent *= (1.0 + rent_chunk.astype(np.float32, copy=False))
+            else:
+                if (m % (12 * rent_control_frequency_years)) == 0:
+                    compound = np.power(1.0 + rent_chunk, float(rent_control_frequency_years)).astype(np.float32, copy=False)
+                    c_rent *= compound
 
             # Accumulate buyer unrecoverable operating costs
             cum_b_op += b_op.astype(np.float32, copy=False)
@@ -2477,6 +2496,10 @@ def simulate_single(
     r_basis = float(r_nw)  # renter portfolio principal (initial)
     b_basis = float(b_nw)  # buyer portfolio principal (initial)
 
+    # Cash portion (0% return) for surplus tracking when invest_diff=False
+    r_cash = 0.0
+    b_cash = 0.0
+
     c_mort = mort
     c_home = price
     c_rent = rent
@@ -2675,12 +2698,23 @@ def simulate_single(
                 b_nw += abs(diff)
                 b_basis += abs(diff)
 
-        # Apply growth
-        r_nw *= r_growth
-        b_nw *= b_growth
+        else:
+            # Surplus investing OFF: track as cash (0% return) to match vectorized MC
+            if diff > 0:
+                r_nw += diff
+                r_basis += diff
+                r_cash += diff
+            elif diff < 0:
+                b_nw += abs(diff)
+                b_basis += abs(diff)
+                b_cash += abs(diff)
+
+        # Apply growth (cash earns 0%, only invested portion grows)
+        r_nw = (r_nw - r_cash) * r_growth + r_cash
+        b_nw = (b_nw - b_cash) * b_growth + b_cash
         c_home *= home_growth
 
-        # Crisis shock
+        # Crisis shock (apply only to the invested portion, not to cash)
         if crisis_enabled:
             try:
                 crisis_m_start = int(max(1.0, float(crisis_year)) * 12)
@@ -2690,8 +2724,12 @@ def simulate_single(
             if crisis_m_start <= m < crisis_m_start + dur:
                 stock_dd = float(np.clip(crisis_stock_dd, 0.0, 0.95))
                 house_dd = float(np.clip(crisis_house_dd, 0.0, 0.95))
-                b_nw *= (1.0 - stock_dd)
-                r_nw *= (1.0 - stock_dd)
+                b_invested = b_nw - b_cash
+                r_invested = r_nw - r_cash
+                b_invested *= (1.0 - stock_dd)
+                r_invested *= (1.0 - stock_dd)
+                b_nw = b_invested + b_cash
+                r_nw = r_invested + r_cash
                 c_home *= (1.0 - house_dd)
 
         if c_mort > 0:
