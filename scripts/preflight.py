@@ -115,7 +115,7 @@ def _check_no_large_files(max_mb: int) -> None:
     if bad:
         print(f"FAIL: Large files (> {max_mb}MB) found:")
         for p, sz in sorted(bad, key=lambda x: x[1], reverse=True):
-            print(f"  - {p.relative_to(ROOT)} ({sz / 1024 / 1024:.1f}MB)")
+            print(f"  - {p.relative_to(ROOT)} ({sz/1024/1024:.1f}MB)")
         raise SystemExit(1)
 
 

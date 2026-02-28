@@ -70,16 +70,7 @@ def _run_suite(name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     _ensure_repo_root_on_syspath()
 
-    suites = [
-        "smoke",
-        "scenarios",
-        "sensitivity",
-        "golden",
-        "city_presets",
-        "truth_tables",
-        "costs_utils",
-        "costs_core",
-    ]
+    suites = ["smoke", "scenarios", "sensitivity", "golden", "city_presets", "truth_tables", "costs_utils", "costs_core"]
 
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("--list", action="store_true", help="List available suites and exit.")
