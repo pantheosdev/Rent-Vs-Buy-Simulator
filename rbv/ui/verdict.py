@@ -41,18 +41,39 @@ def render_verdict(cfg: Dict[str, Any], results: Dict[str, Any], st_module: Any)
     relies on CSS classes defined in ``rbv/ui/theme.py`` and is
     maintained automatically via ``inject_global_css``.
     """
-    buyer_value = results.get("final_buyer_net_worth", 0)
-    renter_value = results.get("final_renter_net_worth", 0)
-    if buyer_value > renter_value:
-        verdict_text = "Buying wins"
+    # Determine final net worth values for buyer and renter.
+    # We attempt multiple keys for robustness.
+    buyer_value = 0.0
+    renter_value = 0.0
+    # Prefer explicit final values if provided by the engine
+    buyer_value = results.get("final_buyer_net_worth") or buyer_value
+    renter_value = results.get("final_renter_net_worth") or renter_value
+    # If not present, fall back to the last entry in net worth series
+    if buyer_value == 0.0 or renter_value == 0.0:
+        buyer_series = results.get("buyer_networth") or results.get("Buyer Net Worth")
+        renter_series = results.get("renter_networth") or results.get("Renter Net Worth")
+        try:
+            if buyer_value == 0.0 and buyer_series is not None:
+                buyer_value = buyer_series[-1]
+            if renter_value == 0.0 and renter_series is not None:
+                renter_value = renter_series[-1]
+        except Exception:
+            # If indexing fails, keep defaults
+            pass
+
+    # Compare final values and build verdict message
+    diff = buyer_value - renter_value
+    if diff > 0:
+        verdict_text = f"Buying leads by ${diff:,.0f}"
         banner_class = "buyer-win"
-    elif renter_value > buyer_value:
-        verdict_text = "Renting wins"
+    elif diff < 0:
+        verdict_text = f"Renting leads by ${abs(diff):,.0f}"
         banner_class = "renter-win"
     else:
-        verdict_text = "It's a tie"
+        verdict_text = "Buying and renting end up equal"
         banner_class = "tie"
 
+    # Render the verdict banner using pre-defined CSS classes.
     st_module.markdown(
         f"<div class='verdict-banner {banner_class}'>\n"
         f"  <span class='verdict-text'>{verdict_text}</span>\n"
