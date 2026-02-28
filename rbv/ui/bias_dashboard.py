@@ -40,7 +40,6 @@ def render_bias_dashboard(cfg: Dict[str, Any], results: Any, st_module: Any) -> 
         The Streamlit module instance used for rendering.
     """
     try:
-        import copy
         import plotly.graph_objects as go
         from rbv.core.engine import run_simulation_core
     except ImportError as exc:
