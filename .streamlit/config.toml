@@ -1,3 +1,10 @@
+[server]
+headless = true
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
+
 [theme]
 base = "dark"
 # The UI is primarily custom-CSS; this only sets a sane dark default for new installs.
