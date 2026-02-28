@@ -25,6 +25,11 @@ The **Taxes & Cash-out** panel includes an **Expert mode** switch. When off (def
 pip install -r requirements.txt
 ```
 
+For reproducible builds (CI / production):
+```bash
+pip install -r requirements.lock
+```
+
 ### 2) Run
 ```bash
 streamlit run app.py
