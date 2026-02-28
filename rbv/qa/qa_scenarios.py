@@ -95,34 +95,12 @@ def main() -> None:
         ("Deterministic baseline", {"use_volatility": False}),
         ("MC small", {"use_volatility": True, "num_sims": 50}),
         ("MC medium", {"use_volatility": True, "num_sims": 300}),
-        (
-            "Rent control annual",
-            {"rent_control_enabled": True, "rent_control_cap": 0.02, "rent_control_frequency_years": 1},
-        ),
-        (
-            "Rent control every 3y",
-            {"rent_control_enabled": True, "rent_control_cap": 0.02, "rent_control_frequency_years": 3},
-        ),
+        ("Rent control annual", {"rent_control_enabled": True, "rent_control_cap": 0.02, "rent_control_frequency_years": 1}),
+        ("Rent control every 3y", {"rent_control_enabled": True, "rent_control_cap": 0.02, "rent_control_frequency_years": 3}),
         ("Never move", {"moving_freq": 9999.0}),
         ("Move often", {"moving_freq": 2.0, "moving_cost": 2500.0}),
-        (
-            "Rate reset",
-            {
-                "rate_mode": "Reset every N years",
-                "rate_reset_years_eff": 5,
-                "rate_reset_to_eff": 6.0,
-                "rate_reset_step_pp_eff": 0.25,
-            },
-        ),
-        (
-            "Rate shock",
-            {
-                "rate_shock_enabled_eff": True,
-                "rate_shock_start_year_eff": 3,
-                "rate_shock_duration_years_eff": 2,
-                "rate_shock_pp_eff": 2.0,
-            },
-        ),
+        ("Rate reset", {"rate_mode": "Reset every N years", "rate_reset_years_eff": 5, "rate_reset_to_eff": 6.0, "rate_reset_step_pp_eff": 0.25}),
+        ("Rate shock", {"rate_shock_enabled_eff": True, "rate_shock_start_year_eff": 3, "rate_shock_duration_years_eff": 2, "rate_shock_pp_eff": 2.0}),
         ("Negative appreciation", {}),
         ("High inflation", {"general_inf": 0.05, "rent_inf": 0.05}),
         ("High price (uninsured)", {"price": 1_400_000.0, "down": 350_000.0, "mort": 1_050_000.0, "close": 60_000.0}),
@@ -151,7 +129,7 @@ def main() -> None:
         # Negative appreciation case via parameters, not cfg
         apprec = -1.0 if name == "Negative appreciation" else 3.0
 
-        budget_enabled = name == "Budget enabled"
+        budget_enabled = (name == "Budget enabled")
 
         df, close_cash, m_pmt, win_pct = run_simulation_core(
             cfg,

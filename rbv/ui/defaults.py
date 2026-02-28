@@ -139,6 +139,7 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 250.0,
         "r_util": 145.0,
     },
+
     # West (BC/AB)
     "Vancouver (BC) · Condo": {
         "id": "vancouver_bc_condo",
@@ -236,6 +237,7 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 230.0,
         "r_util": 135.0,
     },
+
     # Quebec
     "Montreal (QC) · Condo": {
         "id": "montreal_qc_condo",
@@ -269,6 +271,7 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
         "o_util": 240.0,
         "r_util": 140.0,
     },
+
     # Atlantic
     "Halifax (NS) · Condo": {
         "id": "halifax_ns_condo",
@@ -322,6 +325,7 @@ CITY_PRESETS: Dict[str, Dict[str, Any]] = {
 
 
 _CITY_PRESET_META_KEYS = {"id", "version", "region", "home_type", "province_code"}
+
 
 
 def city_preset_options() -> List[str]:
@@ -420,9 +424,7 @@ def city_preset_filter_type_options() -> List[str]:
     return ["All homes", "Condo", "Detached"]
 
 
-def city_preset_filtered_options(
-    *, region: str | None = None, home_type: str | None = None, query: str | None = None
-) -> List[str]:
+def city_preset_filtered_options(*, region: str | None = None, home_type: str | None = None, query: str | None = None) -> List[str]:
     """Return filtered preset options with Custom always first."""
     region = str(region or "All regions")
     home_type = str(home_type or "All homes")
@@ -443,17 +445,15 @@ def city_preset_filtered_options(
             continue
 
         if q:
-            hay = " ".join(
-                [
-                    str(name),
-                    str(meta.get("id", "") or ""),
-                    str(meta.get("city", "")),
-                    str(meta.get("province", "")),
-                    str(meta.get("province_code", "")),
-                    str(meta.get("region", "") or ""),
-                    str(meta.get("housing_type", "")),
-                ]
-            ).lower()
+            hay = " ".join([
+                str(name),
+                str(meta.get("id", "") or ""),
+                str(meta.get("city", "")),
+                str(meta.get("province", "")),
+                str(meta.get("province_code", "")),
+                str(meta.get("region", "") or ""),
+                str(meta.get("housing_type", "")),
+            ]).lower()
             if q not in hay:
                 continue
 
@@ -642,23 +642,28 @@ def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
         # Core scenario selector
         "scenario_select": scenario,
         "city_preset": CITY_PRESET_CUSTOM,
+
         # Core horizon + anchors
         "years": 25,
         "price": 800000.0,
         "down": 160000.0,
         "rent": 3000.0,
+
         # Region / eligibility (must be explicit so scenario export/import is location-correct)
         "province": "Ontario",
         "first_time": True,
         "toronto": False,
+
         # Mortgage
         "amort": 25,
+
         # One-time purchase closing costs (editable; do not hardcode in app logic)
         "purchase_legal_fee": 1800.0,
         "home_inspection": 500.0,
         "other_closing_costs": 0.0,
+
         # Pro realism defaults (additive; do not affect presets)
-        "condo_inf": None,  # Condo fees often outpace CPI; default = CPI + spread
+        "condo_inf": None,                 # Condo fees often outpace CPI; default = CPI + spread
         "condo_inf_mode": "CPI + spread",
         "condo_inf_spread": 1.5,
         "condo_inf_custom": 4.0,
@@ -669,6 +674,7 @@ def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
         "cg_tax_end": 22.5,
         "show_liquidation_view": True,
         "home_sale_legal_fee": 2000.0,
+
         # Keyed inputs added in v167 hotfix (improves cache correctness + avoids globals() reads)
         "use_volatility": False,
         "ret_std_pct": 15.0,
@@ -680,10 +686,12 @@ def build_session_defaults(scenario: str = "Baseline") -> Dict[str, Any]:
         "p_tax_rate_pct": 1.00,
         "maint_rate_pct": 1.0,
         "repair_rate_pct": 0.5,
+
         # Optional buyer - special assessment shock
         "special_assessment_amount": 0.0,
         "special_assessment_year": 0,
         "special_assessment_month_in_year": 1,
+
         # Tax sensitivity (Phase 4, opt-in)
         "expert_mode": False,
         "cg_inclusion_policy": "Current (50% inclusion)",

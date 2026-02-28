@@ -153,7 +153,6 @@ def _cmhc_premium_rate(price: float, down: float) -> float:
     """
     from rbv.core.policy_canada import insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
     import datetime as _dt
-
     loan = max(float(price) - float(down), 0.0)
     ltv = (loan / float(price)) if float(price) > 0 else 0.0
     price_cap = insured_mortgage_price_cap(_dt.date.today())
@@ -175,7 +174,6 @@ def _pst_rate_for_prov(prov: str) -> float:
     """
     from rbv.core.policy_canada import mortgage_default_insurance_sales_tax_rate
     import datetime as _dt
-
     return float(mortgage_default_insurance_sales_tax_rate(str(prov or ""), _dt.date.today()))
 
 
@@ -237,9 +235,7 @@ def _build_base_cfg() -> Dict[str, Any]:
     }
 
 
-def _apply_price_down(
-    cfg: Dict[str, Any], *, price: float, down: float, base_close: float = 25_000.0
-) -> Dict[str, Any]:
+def _apply_price_down(cfg: Dict[str, Any], *, price: float, down: float, base_close: float = 25_000.0) -> Dict[str, Any]:
     """Apply a price/down override and recompute PST and mortgage principal.
 
     Args:
@@ -266,9 +262,7 @@ def _apply_price_down(
     return out
 
 
-def _apply_toronto_close_delta(
-    cfg: Dict[str, Any], *, toronto_property: bool, first_time_buyer: bool = False, base_close: float = 25_000.0
-) -> Dict[str, Any]:
+def _apply_toronto_close_delta(cfg: Dict[str, Any], *, toronto_property: bool, first_time_buyer: bool = False, base_close: float = 25_000.0) -> Dict[str, Any]:
     """Adjust closing costs to reflect the Toronto land transfer tax (MLTT) differential.
 
     Args:
@@ -282,7 +276,6 @@ def _apply_toronto_close_delta(
         diagnostic fields ``_qa_tax_total`` and ``_qa_tax_delta`` used by golden tests.
     """
     from rbv.core.taxes import calc_transfer_tax
-
     price = float(cfg.get("price", 0.0))
     prov = str(cfg.get("province", "Ontario") or "Ontario")
     t_tor = calc_transfer_tax(prov, price, first_time_buyer=first_time_buyer, toronto_property=bool(toronto_property))
@@ -297,9 +290,7 @@ def _apply_toronto_close_delta(
     return out
 
 
-def _run(
-    cfg: Dict[str, Any], *, force_det: bool, force_use_vol: bool, num_sims: int, mc_seed: int = 123
-) -> Dict[str, float]:
+def _run(cfg: Dict[str, Any], *, force_det: bool, force_use_vol: bool, num_sims: int, mc_seed: int = 123) -> Dict[str, float]:
     """Run a simulation and return terminal metrics for golden testing.
 
     Uses ``run_simulation_core`` from the engine to compute the final buyer and renter
@@ -364,7 +355,7 @@ def _assert_close(actual: float, expected: float, *, tol_pct: float, tol_abs: fl
     if abs_err > tol_abs and rel_err > tol_pct:
         raise AssertionError(
             f"{label} outside tolerance: actual={actual:,.6f} expected={expected:,.6f} "
-            f"abs_err={abs_err:,.6f} rel_err={rel_err * 100:.3f}% (tol_abs={tol_abs}, tol_pct={tol_pct * 100:.2f}%)"
+            f"abs_err={abs_err:,.6f} rel_err={rel_err*100:.3f}% (tol_abs={tol_abs}, tol_pct={tol_pct*100:.2f}%)"
         )
 
 
@@ -378,11 +369,11 @@ def _run_and_check(name: str, cfg: Dict[str, Any], run_kw: Dict[str, Any], *, to
 
     # Tolerance profiles: keep public‑grade stability while allowing tiny float drift.
     if tol_profile == "det":
-        tol_net_pct = 0.010  # 1.0%
-        tol_pay_pct = 0.005  # 0.5%
+        tol_net_pct = 0.010   # 1.0%
+        tol_pay_pct = 0.005   # 0.5%
         tol_abs = 250.0
     elif tol_profile == "mc":
-        tol_net_pct = 0.015  # 1.5%
+        tol_net_pct = 0.015   # 1.5%
         tol_pay_pct = 0.0075  # 0.75%
         tol_abs = 600.0
     else:
@@ -436,18 +427,10 @@ def _build_cases() -> Dict[str, Tuple[Dict[str, Any], Dict[str, Any], str]]:
     cfg_ins = _apply_price_down(base, price=999_999.0, down=0.05 * 999_999.0, base_close=25_000.0)
     cases["insured_price_999k_ltv95"] = (cfg_ins, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
     cfg_unins = _apply_price_down(base, price=1_000_001.0, down=0.05 * 1_000_001.0, base_close=25_000.0)
-    cases["uninsured_price_1mplus_ltv95"] = (
-        cfg_unins,
-        {"force_det": True, "force_use_vol": False, "num_sims": 1},
-        "det",
-    )
+    cases["uninsured_price_1mplus_ltv95"] = (cfg_unins, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
     # NEW: $1.1M insured scenario (should apply CMHC since Dec‑2024 cap = $1.5M)
     cfg_ins_1m1 = _apply_price_down(dict(base), price=1_100_000.0, down=110_000.0, base_close=25_000.0)
-    cases["insured_price_1100k_ltv90"] = (
-        cfg_ins_1m1,
-        {"force_det": True, "force_use_vol": False, "num_sims": 1},
-        "det",
-    )
+    cases["insured_price_1100k_ltv90"] = (cfg_ins_1m1, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
     # 7) LTV 80% exact (no CMHC)
     cfg_ltv80 = _apply_price_down(base, price=900_000.0, down=0.20 * 900_000.0, base_close=25_000.0)
@@ -478,7 +461,6 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
     if args.print_baseline:
         import pprint
-
         pprint.pprint(_compute_baseline(), width=120, sort_dicts=True)
         return
     cases = _build_cases()
