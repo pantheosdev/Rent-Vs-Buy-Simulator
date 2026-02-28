@@ -117,11 +117,42 @@ def render_monthly_cost_table(cfg: Dict[str, Any], results: Any, st_module: Any)
 
     Notes
     -----
-    This function currently shows a placeholder message. When
-    implementing Phase 2 fully, port the existing cost table logic
-    from ``app.py`` to this function.
+    This function extracts the monthly cost breakdowns from ``results`` and
+    displays them as a DataFrame.  Each row corresponds to a cost
+    category (e.g., property taxes, insurance, utilities).  If the
+    expected data is missing, a warning is displayed.
     """
-    st_module.write("Monthly cost table placeholder. Implement actual table here.")
+    import pandas as pd
+
+    # Retrieve cost dictionaries from results
+    buyer_costs = None
+    renter_costs = None
+    if isinstance(results, dict):
+        buyer_costs = results.get('buyer_monthly_costs')
+        renter_costs = results.get('renter_monthly_costs')
+    else:
+        buyer_costs = getattr(results, 'buyer_monthly_costs', None)
+        renter_costs = getattr(results, 'renter_monthly_costs', None)
+
+    # Validate presence of cost data
+    if not buyer_costs or not renter_costs:
+        st_module.warning(
+            "Monthly cost breakdowns not found in simulation results. "
+            "Please ensure the engine returns 'buyer_monthly_costs' and "
+            "'renter_monthly_costs' dictionaries."
+        )
+        return
+
+    # Compute union of keys and build DataFrame
+    all_keys = sorted(set(buyer_costs.keys()) | set(renter_costs.keys()))
+    df = pd.DataFrame({
+        'Category': all_keys,
+        'Buyer ($/mo)': [buyer_costs.get(k, 0.0) for k in all_keys],
+        'Renter ($/mo)': [renter_costs.get(k, 0.0) for k in all_keys],
+    })
+
+    # Display the table in Streamlit
+    st_module.table(df)
 
 
 def render_heatmap(cfg: Dict[str, Any], results: Any, st_module: Any) -> None:
@@ -138,7 +169,43 @@ def render_heatmap(cfg: Dict[str, Any], results: Any, st_module: Any) -> None:
 
     Notes
     -----
-    This function is currently a placeholder. The heatmap computation
-    and visualisation logic from ``app.py`` should be migrated here.
+    This function attempts to display a heatmap using precomputed matrix
+    data in the ``results`` object.  The original application computed
+    sensitivity matrices for parameters like appreciation and rent
+    growth; those arrays should be made available as
+    ``results['heatmap_matrix']`` with corresponding axis labels
+    ``results['heatmap_x']`` and ``results['heatmap_y']``.
+    If these fields are missing, a placeholder message is displayed.
     """
-    st_module.write("Heatmap placeholder. Implement heatmap rendering.")
+    import numpy as np
+    import plotly.express as px
+
+    # Attempt to extract heatmap data from results
+    matrix = None
+    x_labels = None
+    y_labels = None
+    if isinstance(results, dict):
+        matrix = results.get('heatmap_matrix')
+        x_labels = results.get('heatmap_x')
+        y_labels = results.get('heatmap_y')
+    else:
+        matrix = getattr(results, 'heatmap_matrix', None)
+        x_labels = getattr(results, 'heatmap_x', None)
+        y_labels = getattr(results, 'heatmap_y', None)
+
+    if matrix is None or x_labels is None or y_labels is None:
+        st_module.info(
+            "Heatmap data not available. To display a heatmap, include "
+            "'heatmap_matrix', 'heatmap_x' and 'heatmap_y' in the results."
+        )
+        return
+
+    # Convert to numpy array for Plotly
+    matrix_np = np.array(matrix)
+    fig = px.imshow(matrix_np, x=x_labels, y=y_labels, color_continuous_scale='Viridis')
+    fig.update_layout(
+        title="Sensitivity Heatmap",
+        xaxis_title="Parameter X",
+        yaxis_title="Parameter Y",
+    )
+    st_module.plotly_chart(fig, use_container_width=True)
