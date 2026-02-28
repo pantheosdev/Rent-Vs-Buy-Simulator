@@ -4955,8 +4955,8 @@ def _df_mean(df_, candidates, default=0.0):
 # --- Liquidity / cashflow shortfall (Budget Mode) ---
 try:
     if bool(st.session_state.get("budget_enabled", False)):
-        b_sf = _df_last(df, ["Buyer Shortfall", "b_shortfall"], 0.0)
-        r_sf = _df_last(df, ["Renter Shortfall", "r_shortfall"], 0.0)
+        b_sf = _df_last(df, ["Buyer Shortfall (Cum)", "Buyer Shortfall", "b_shortfall"], 0.0)
+        r_sf = _df_last(df, ["Renter Shortfall (Cum)", "Renter Shortfall", "r_shortfall"], 0.0)
         if (b_sf > 0) or (r_sf > 0):
             s1, s2 = st.columns(2)
             with s1:
