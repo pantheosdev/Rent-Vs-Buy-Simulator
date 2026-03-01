@@ -50,3 +50,24 @@ def _monthly_rate_to_annual_nominal_pct(mr: float, canadian: bool) -> float:
 
 
 # Mortgage Payment
+
+
+def _pmt(principal: float, mr: float, n: int) -> float:
+    """Fixed monthly payment for a loan.
+
+    Args:
+        principal: Loan principal.
+        mr: Effective monthly rate (decimal).
+        n: Number of months.
+
+    Returns:
+        Monthly payment amount.
+    """
+    principal = float(principal)
+    mr = float(mr)
+    n = int(max(1, n))
+    if principal <= 0:
+        return 0.0
+    if mr <= 0:
+        return principal / float(n)
+    return principal * (mr * (1.0 + mr) ** n) / ((1.0 + mr) ** n - 1.0)

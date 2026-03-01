@@ -38,6 +38,7 @@ policies evolve (e.g. foreign buyer taxes, RRSP HBP limits).
 from __future__ import annotations
 
 import datetime as _dt
+import warnings as _warnings
 from typing import Iterable, List, Sequence
 
 from .policy_canada import (
@@ -152,3 +153,61 @@ def get_validation_warnings(cfg: dict) -> List[str]:
             )
 
     return warnings
+
+
+# ---------------------------------------------------------------------------
+# Rate / value clamping helpers
+# ---------------------------------------------------------------------------
+
+def clamp_rate(value: float, name: str, *, min_val: float = -10.0, max_val: float = 50.0) -> float:
+    """Clamp a percentage rate to a reasonable range, warning if adjusted."""
+    if value > max_val:
+        _warnings.warn(f"{name}={value:.1f}% exceeds maximum {max_val:.1f}%. Clamping to {max_val:.1f}%.")
+        return max_val
+    if value < min_val:
+        _warnings.warn(f"{name}={value:.1f}% is below minimum {min_val:.1f}%. Clamping to {min_val:.1f}%.")
+        return min_val
+    return value
+
+
+def clamp_positive(value: float, name: str, *, max_val: float | None = None) -> float:
+    """Ensure a value is non-negative, with optional upper bound."""
+    if value < 0:
+        _warnings.warn(f"{name}={value} is negative. Clamping to 0.")
+        return 0.0
+    if max_val is not None and value > max_val:
+        _warnings.warn(f"{name}={value} exceeds maximum {max_val}. Clamping to {max_val}.")
+        return max_val
+    return value
+
+
+def validate_simulation_params(
+    *,
+    rate_pct: float,
+    buyer_ret_pct: float,
+    renter_ret_pct: float,
+    apprec_pct: float,
+    general_inf: float,
+    rent_inf: float,
+    years: int,
+    price: float,
+    rent: float,
+    down: float,
+) -> dict:
+    """Validate and return clamped simulation parameters.
+
+    Returns a dict with the validated values. Issues warnings for any adjustments.
+    Does NOT raise exceptions.
+    """
+    return {
+        "rate_pct": clamp_rate(rate_pct, "Mortgage rate", min_val=0.0, max_val=25.0),
+        "buyer_ret_pct": clamp_rate(buyer_ret_pct, "Buyer investment return", min_val=-20.0, max_val=50.0),
+        "renter_ret_pct": clamp_rate(renter_ret_pct, "Renter investment return", min_val=-20.0, max_val=50.0),
+        "apprec_pct": clamp_rate(apprec_pct, "Home appreciation", min_val=-20.0, max_val=30.0),
+        "general_inf": clamp_rate(general_inf * 100, "General inflation", min_val=-5.0, max_val=20.0) / 100,
+        "rent_inf": clamp_rate(rent_inf * 100, "Rent inflation", min_val=-5.0, max_val=25.0) / 100,
+        "years": max(1, min(years, 50)),
+        "price": clamp_positive(price, "Home price", max_val=50_000_000.0),
+        "rent": clamp_positive(rent, "Monthly rent", max_val=100_000.0),
+        "down": clamp_positive(down, "Down payment", max_val=50_000_000.0),
+    }
