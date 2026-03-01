@@ -740,6 +740,16 @@ div[data-baseweb="popover"] * {
         line-height: 1.35;
         margin: 6px 0 2px 0;
     }
+    .rbv-warning-banner{
+        background: var(--rbv-panel, #1a1f2e);
+        border-left: 4px solid #F59E0B;
+        border-radius: 0 6px 6px 0;
+        padding: 0.6rem 0.85rem;
+        margin: 0.5rem 0;
+        font-size: 0.82rem;
+        color: var(--rbv-text-muted, #94a3b8);
+        line-height: 1.5;
+    }
     .rbv-pill-row{
         display:flex;
         flex-wrap: wrap;
