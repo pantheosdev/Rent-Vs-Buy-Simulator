@@ -24,6 +24,10 @@ This repo is a Streamlit application with a modular core.
   - Playwright-based snapshot harness
   - targets the UI areas most prone to regressions (focus states, tooltips, banners, tabs/tables)
 
+## Versioning
+
+Version policy (numbering scheme, CHANGELOG format, and bump rules) is documented in [`docs/CHANGELOG_POLICY.md`](CHANGELOG_POLICY.md).
+
 ## Key invariants
 - Do not break stable `st.session_state` keys; if you must evolve them, add backward-compatible fallbacks.
 - Volatility (Fast/Quality) may change Monte Carlo controls (sims/grid/caching) but must not change the meaning of financial assumptions.
