@@ -35,8 +35,7 @@ For the underlying mathematics see [METHODOLOGY.md](METHODOLOGY.md).
 
 - **No foreclosure / default modeling** — if the buyer's net worth goes deeply negative the
   simulation assumes they continue making payments.  No strategic default decision is modeled.
-- **No OSFI B-20 stress test** — the qualifying rate (contract rate + 2%, floor 5.25%) is not
-  enforced.  Users must self-screen for eligibility.  *(Planned for a future release.)*
+- **OSFI B-20 stress test (informational display only)** — the B-20 qualifying rate (contract rate + 2%, floor 5.25%) is displayed below the mortgage rate input as an informational hint. The simulator does not enforce this gate; users must self-screen for eligibility.
 - **No mortgage prepayment penalties** — breaking a fixed-rate mortgage early typically incurs an
   Interest Rate Differential (IRD) penalty.  This cost is not modeled.
 - **Insurance below 80% LTV** — some buyers opt for portfolio insurance at lower LTVs to access
