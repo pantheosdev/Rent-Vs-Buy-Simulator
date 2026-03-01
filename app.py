@@ -4874,10 +4874,9 @@ try:
     _equity_analysis = detect_negative_equity(df)
     _underwater_msg = format_underwater_warning(_equity_analysis)
     if _underwater_msg:
+        _msg_html = html.escape(_underwater_msg).replace("\n", "<br>")
         st.markdown(
-            f'<div class="rbv-warning-banner">'
-            f'{html.escape(_underwater_msg).replace("\n", "<br>")}'
-            f'</div>',
+            f'<div class="rbv-warning-banner">{_msg_html}</div>',
             unsafe_allow_html=True,
         )
 except Exception:
