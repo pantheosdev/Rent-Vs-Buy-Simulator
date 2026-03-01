@@ -1,8 +1,7 @@
 # Changelog
 ## v2.93.8
 
-- Engine: Input validation is now enforced in `run_simulation_core`. All user-supplied parameters (home price, monthly rent, down payment, mortgage rate, buyer/renter investment returns, home appreciation, general inflation, rent inflation, and simulation years) are validated and clamped to safe ranges at the start of every simulation run using the helpers in `rbv/core/validation.py`. Out-of-range values are clamped and surfaced as Python warnings rather than causing errors.
-- Tests: Added `tests/test_engine_validation.py` with coverage for clamping of negative prices, invalid rates, excessive return assumptions, and zero/negative years.
+- UI: Display **OSFI B-20 stress test qualifying rate** in the sidebar next to the mortgage rate input. The qualifying rate updates dynamically as the user adjusts their contract rate and is informational only (does not gate the simulation). Formula: `max(contract_rate + 2%, 5.25%)`.
 
 ## v2.93.7
 
