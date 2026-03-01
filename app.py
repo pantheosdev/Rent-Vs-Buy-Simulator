@@ -3462,7 +3462,7 @@ hbp_enabled = rbv_checkbox(
 hbp_withdrawal = 0.0
 if hbp_enabled:
     from rbv.core.government_programs import hbp_max_withdrawal as _hbp_max_fn
-    _hbp_limit = _hbp_max_fn(asof_date_v if 'asof_date_v' in dir() else None)
+    _hbp_limit = _hbp_max_fn(datetime.date.today())
     hbp_withdrawal = rbv_number_input(
         "HBP withdrawal ($)",
         tooltip=f"Amount withdrawn from RRSP under HBP (max ${_hbp_limit:,.0f} per person as of purchase date). Adds to down payment and creates a 15-year repayment obligation.",

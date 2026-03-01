@@ -1647,17 +1647,15 @@ def run_heatmap_mc_batch(
             m_special = float(special_assessment_amount) if (int(special_assessment_month) > 0 and m == int(special_assessment_month)) else 0.0
 
             # HBP repayment (monthly obligation within repayment window)
-            _hbp_repay = float(hbp_monthly_cost) if (
-                float(hbp_monthly_cost) > 0
-                and int(hbp_repayment_start_month) > 0
-                and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
-            ) else 0.0
+            # run_heatmap_mc_batch sweeps appreciation/rent axes; Phase D recurring
+            # costs (HBP repayment, IRD) are not parameterized at the heatmap level.
+            _hbp_repay = 0.0
+            _ird_cost = 0.0
 
             # Buyer outflows (arrays per sim×cell)
             b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
             b_out = b_pmt0 + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special + _hbp_repay
             # IRD is a sale cost (not monthly); tracked in b_op for unrecoverable accounting.
-            _ird_cost = float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == months) else 0.0
             b_op = float(inte) + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special + _hbp_repay + _ird_cost
 
             # Renter outflows (per cell, broadcast over sims)
@@ -1749,10 +1747,9 @@ def run_heatmap_mc_batch(
         exit_cost_final = (c_home * float(sell_cost)) if bool(assume_sale_end) else 0.0
         exit_legal_fee_final = float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
 
-        # IRD penalty: deducted from buyer equity at terminal (sale cost).
-        _ird_terminal = float(prepayment_penalty_amount) if float(prepayment_penalty_amount) > 0 else 0.0
-
-        b_last = (c_home - float(c_mort)) + b_nw - float(close) - exit_cost_final - float(exit_legal_fee_final) - _ird_terminal
+        # IRD penalty not parameterized in run_heatmap_mc_batch (heatmap sweeps
+        # appreciation/rent axes, not Phase D toggles); IRD defaults to 0 here.
+        b_last = (c_home - float(c_mort)) + b_nw - float(close) - exit_cost_final - float(exit_legal_fee_final)
         r_last = r_nw
 
         # Mask non-finite
