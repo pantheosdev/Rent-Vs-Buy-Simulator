@@ -3357,7 +3357,7 @@ try:
 except Exception:
     pass
 
-taxrow = st.columns([1.45, 0.95, 0.95])
+taxrow = st.columns([0.95, 0.75, 0.75, 1.05])
 with taxrow[0]:
     _prov_raw = str(vals.get("province", "Ontario") or "Ontario")
     _prov = _prov_raw if _prov_raw in PROVINCES else "Ontario"
@@ -3387,6 +3387,27 @@ with taxrow[2]:
     else:
         # Keep layout height stable while making it explicit that Toronto MLTT is Ontario-only.
         toronto = False
+        st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
+with taxrow[3]:
+    # Foreign buyer tax toggle (BC APTT / Ontario NRST)
+    _fb_provinces = ("British Columbia", "Ontario")
+    if str(province) in _fb_provinces:
+        is_foreign_buyer = rbv_checkbox(
+            "Foreign / non-resident buyer",
+            tooltip=(
+                "BC: Additional Property Transfer Tax (APTT) 20% of purchase price. "
+                "Ontario: Non-Resident Speculation Tax (NRST) 25% of purchase price. "
+                "Added to one-time closing costs."
+            ),
+            value=bool(vals.get("is_foreign_buyer", False)),
+            key="is_foreign_buyer",
+        )
+        if is_foreign_buyer:
+            _fb_pct = 0.20 if str(province) == "British Columbia" else 0.25
+            _fb_label = "BC APTT 20%" if str(province) == "British Columbia" else "ON NRST 25%"
+            sidebar_hint(f"{_fb_label} · ≈ ${price * _fb_pct:,.0f} on ${price:,.0f} purchase")
+    else:
+        is_foreign_buyer = False
         st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 
 
@@ -3421,6 +3442,152 @@ elif str(province) == "Nova Scotia":
     st.markdown('<div class="rbv-center-alert">', unsafe_allow_html=True)
     st.info("Rates vary by municipality (Nova Scotia). Adjust the deed transfer tax rate for your area.")
     st.markdown('</div>', unsafe_allow_html=True)
+
+# ── Government Programs & Prepayment Penalty ───────────────────────────────
+st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
+st.markdown('<div class="rbv-input-subhead">Government Programs & Penalties</div>', unsafe_allow_html=True)
+
+_prog_row = st.columns(3)
+with _prog_row[0]:
+    hbp_enabled = rbv_checkbox(
+        "RRSP HBP",
+        tooltip=(
+            "Model the RRSP HBP withdrawal (up to $60k post-April 2024, $35k prior) "
+            "used toward the down payment, plus the 15-year repayment obligation. "
+            "Only available to first-time buyers."
+        ),
+        value=bool(vals.get("hbp_enabled", False)),
+        key="hbp_enabled",
+    )
+with _prog_row[1]:
+    fhsa_enabled = rbv_checkbox(
+        "FHSA",
+        tooltip=(
+            "Model pre-purchase FHSA accumulation (up to $8k/yr, $40k lifetime). "
+            "Contributions are tax-deductible; growth and home-purchase withdrawals are tax-free. "
+            "Available since April 1, 2023 for first-time buyers."
+        ),
+        value=bool(vals.get("fhsa_enabled", False)),
+        key="fhsa_enabled",
+    )
+with _prog_row[2]:
+    ird_enabled = rbv_checkbox(
+        "IRD penalty",
+        tooltip=(
+            "If you sell before the mortgage term ends, a prepayment penalty applies. "
+            "Canadian lenders charge the greater of 3 months' interest or the Interest Rate Differential (IRD). "
+            "Only affects the simulation if the horizon is shorter than the mortgage term."
+        ),
+        value=bool(vals.get("ird_enabled", False)),
+        key="ird_enabled",
+    )
+
+# --- RRSP Home Buyers' Plan (HBP) sub-options ---
+hbp_withdrawal = 0.0
+if hbp_enabled:
+    from rbv.core.government_programs import hbp_max_withdrawal as _hbp_max_fn
+    _hbp_limit = _hbp_max_fn(datetime.date.today())
+    hbp_withdrawal = rbv_number_input(
+        "HBP withdrawal ($)",
+        tooltip=f"Amount withdrawn from RRSP under HBP (max ${_hbp_limit:,.0f} per person as of purchase date). Adds to down payment and creates a 15-year repayment obligation.",
+        min_value=0.0,
+        max_value=float(_hbp_limit),
+        value=float(min(vals.get("hbp_withdrawal", min(35_000.0, _hbp_limit)), _hbp_limit)),
+        step=1000.0,
+        key="hbp_withdrawal",
+    )
+    if hbp_withdrawal > 0:
+        _hbp_monthly = hbp_withdrawal / 15.0 / 12.0
+        sidebar_hint(f"Repayment: ${_hbp_monthly:.2f}/mo for 15 yrs (starting yr 3) · adds to down ↑")
+
+# --- FHSA (First Home Savings Account) sub-options ---
+fhsa_annual_contribution = 8_000.0
+fhsa_years_contributed = 0
+fhsa_return_pct = 5.0
+fhsa_marginal_tax_rate_pct = 40.0
+if fhsa_enabled:
+    fhsa_row = st.columns(2)
+    with fhsa_row[0]:
+        fhsa_years_contributed = int(rbv_number_input(
+            "Years saved in FHSA",
+            tooltip="Number of years you contributed to the FHSA before purchasing. Each full year adds up to $8k/year toward the down payment.",
+            min_value=0,
+            max_value=5,
+            value=int(vals.get("fhsa_years_contributed", 3)),
+            step=1,
+            key="fhsa_years_contributed",
+        ))
+    with fhsa_row[1]:
+        fhsa_annual_contribution = rbv_number_input(
+            "Annual FHSA contribution ($)",
+            tooltip="Annual contribution to the FHSA (max $8,000/yr, lifetime $40,000). Used to estimate the FHSA balance at purchase.",
+            min_value=0.0,
+            max_value=8_000.0,
+            value=float(vals.get("fhsa_annual_contribution", 8_000.0)),
+            step=500.0,
+            key="fhsa_annual_contribution",
+        )
+    fhsa_mtr_row = st.columns(2)
+    with fhsa_mtr_row[0]:
+        fhsa_return_pct = rbv_number_input(
+            "FHSA return (%)",
+            tooltip="Annual investment return earned inside the FHSA before purchase.",
+            min_value=0.0,
+            max_value=20.0,
+            value=float(vals.get("fhsa_return_pct", 5.0)),
+            step=0.5,
+            key="fhsa_return_pct",
+        )
+    with fhsa_mtr_row[1]:
+        fhsa_marginal_tax_rate_pct = rbv_number_input(
+            "Marginal tax rate (%)",
+            tooltip="Combined federal + provincial marginal tax rate for estimating FHSA contribution deduction benefit.",
+            min_value=0.0,
+            max_value=60.0,
+            value=float(vals.get("fhsa_marginal_tax_rate_pct", 40.0)),
+            step=1.0,
+            key="fhsa_marginal_tax_rate_pct",
+        )
+    try:
+        from rbv.core.government_programs import fhsa_balance as _fhsa_bal_fn, fhsa_tax_savings as _fhsa_ts_fn
+        _fbal, _fcont = _fhsa_bal_fn(fhsa_annual_contribution, fhsa_years_contributed, fhsa_return_pct)
+        _ftax = _fhsa_ts_fn(_fcont, fhsa_marginal_tax_rate_pct)
+        sidebar_hint(f"FHSA balance ≈ ${_fbal:,.0f} · tax savings ≈ ${_ftax:,.0f} · adds to down ↑")
+    except Exception:
+        pass
+
+# --- IRD prepayment penalty sub-options ---
+mortgage_term_months = 60  # default 5-year term
+ird_rate_drop_pp = 1.5
+if ird_enabled:
+    ird_row = st.columns(2)
+    with ird_row[0]:
+        _term_yrs_default = int(vals.get("mortgage_term_years", 5))
+        _mortgage_term_years = int(rbv_number_input(
+            "Mortgage term (years)",
+            tooltip="Length of the current mortgage term. IRD applies when selling before this term ends.",
+            min_value=1,
+            max_value=10,
+            value=_term_yrs_default,
+            step=1,
+            key="mortgage_term_years",
+        ))
+        mortgage_term_months = _mortgage_term_years * 12
+    with ird_row[1]:
+        ird_rate_drop_pp = rbv_number_input(
+            "Rate drop assumption (pp)",
+            tooltip="Assumed rate decrease since origination (percentage points). Used to estimate the comparison rate for the IRD calculation. Set to 0 if rates have risen since you locked in (IRD will be zero).",
+            min_value=0.0,
+            max_value=5.0,
+            value=float(vals.get("ird_rate_drop_pp", 1.5)),
+            step=0.25,
+            key="ird_rate_drop_pp",
+        )
+    _sim_yrs = int(st.session_state.get("years", 10))
+    if _sim_yrs * 12 >= mortgage_term_months:
+        sidebar_hint(f"ℹ️ Horizon ({_sim_yrs}yr) ≥ term ({_mortgage_term_years}yr): no IRD penalty applies (full term).")
+    else:
+        sidebar_hint(f"IRD will apply at sale in year {_sim_yrs} (term ends yr {_mortgage_term_years})")
 
 st.markdown('<div class="kpi-section-title rent-title">RENTING INPUTS</div>', unsafe_allow_html=True)
 
@@ -4002,6 +4169,19 @@ def _build_cfg():
         "prop_tax_growth_model": str(st.session_state.get("prop_tax_growth_model", "Hybrid (recommended for Toronto)")),
         "prop_tax_hybrid_addon_pct": float(st.session_state.get("prop_tax_hybrid_addon_pct", 0.5)),
         "investment_tax_mode": str(st.session_state.get("investment_tax_mode", "Pre-tax (no investment taxes)")),
+
+        # Phase D: Government Programs & Penalties
+        "is_foreign_buyer": bool(st.session_state.get("is_foreign_buyer", False)),
+        "hbp_enabled": bool(st.session_state.get("hbp_enabled", False)),
+        "hbp_withdrawal": float(st.session_state.get("hbp_withdrawal", 0.0) or 0.0),
+        "fhsa_enabled": bool(st.session_state.get("fhsa_enabled", False)),
+        "fhsa_annual_contribution": float(st.session_state.get("fhsa_annual_contribution", 8_000.0) or 8_000.0),
+        "fhsa_years_contributed": int(st.session_state.get("fhsa_years_contributed", 0) or 0),
+        "fhsa_return_pct": float(st.session_state.get("fhsa_return_pct", 5.0) or 5.0),
+        "fhsa_marginal_tax_rate_pct": float(st.session_state.get("fhsa_marginal_tax_rate_pct", 40.0) or 40.0),
+        "ird_enabled": bool(st.session_state.get("ird_enabled", False)),
+        "mortgage_term_months": int(st.session_state.get("mortgage_term_years", 5) or 5) * 12,
+        "ird_rate_drop_pp": float(st.session_state.get("ird_rate_drop_pp", 1.5) or 1.5),
     }
 def run_simulation(buyer_ret_pct, renter_ret_pct, apprec_pct, invest_diff, rent_closing, mkt_corr,
                    force_deterministic=False, mc_seed=None, rate_override_pct=None, rent_inf_override_pct=None,
