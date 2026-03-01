@@ -3357,7 +3357,7 @@ try:
 except Exception:
     pass
 
-taxrow = st.columns([1.45, 0.95, 0.95])
+taxrow = st.columns([0.95, 0.75, 0.75, 1.05])
 with taxrow[0]:
     _prov_raw = str(vals.get("province", "Ontario") or "Ontario")
     _prov = _prov_raw if _prov_raw in PROVINCES else "Ontario"
@@ -3388,27 +3388,27 @@ with taxrow[2]:
         # Keep layout height stable while making it explicit that Toronto MLTT is Ontario-only.
         toronto = False
         st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
-
-# Foreign buyer tax toggle (BC APTT / Ontario NRST)
-_fb_provinces = ("British Columbia", "Ontario")
-if str(province) in _fb_provinces:
-    is_foreign_buyer = rbv_checkbox(
-        "Foreign / non-resident buyer",
-        tooltip=(
-            "BC: Additional Property Transfer Tax (APTT) 20% of purchase price. "
-            "Ontario: Non-Resident Speculation Tax (NRST) 25% of purchase price. "
-            "Added to one-time closing costs."
-        ),
-        value=bool(vals.get("is_foreign_buyer", False)),
-        key="is_foreign_buyer",
-    )
-    if is_foreign_buyer:
-        from rbv.core.policy_canada import foreign_buyer_tax_amount as _fb_tax_fn
-        _fb_pct = 0.20 if str(province) == "British Columbia" else 0.25
-        _fb_label = "BC APTT 20%" if str(province) == "British Columbia" else "ON NRST 25%"
-        sidebar_hint(f"{_fb_label} · ≈ ${price * _fb_pct:,.0f} on ${price:,.0f} purchase")
-else:
-    is_foreign_buyer = False
+with taxrow[3]:
+    # Foreign buyer tax toggle (BC APTT / Ontario NRST)
+    _fb_provinces = ("British Columbia", "Ontario")
+    if str(province) in _fb_provinces:
+        is_foreign_buyer = rbv_checkbox(
+            "Foreign / non-resident buyer",
+            tooltip=(
+                "BC: Additional Property Transfer Tax (APTT) 20% of purchase price. "
+                "Ontario: Non-Resident Speculation Tax (NRST) 25% of purchase price. "
+                "Added to one-time closing costs."
+            ),
+            value=bool(vals.get("is_foreign_buyer", False)),
+            key="is_foreign_buyer",
+        )
+        if is_foreign_buyer:
+            _fb_pct = 0.20 if str(province) == "British Columbia" else 0.25
+            _fb_label = "BC APTT 20%" if str(province) == "British Columbia" else "ON NRST 25%"
+            sidebar_hint(f"{_fb_label} · ≈ ${price * _fb_pct:,.0f} on ${price:,.0f} purchase")
+    else:
+        is_foreign_buyer = False
+        st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 
 
 # Province-specific transfer tax inputs (only shown when relevant).
@@ -3447,18 +3447,42 @@ elif str(province) == "Nova Scotia":
 st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
 st.markdown('<div class="rbv-input-subhead">Government Programs & Penalties</div>', unsafe_allow_html=True)
 
-# --- RRSP Home Buyers' Plan (HBP) ---
-hbp_enabled = rbv_checkbox(
-    "RRSP Home Buyers' Plan (HBP)",
-    tooltip=(
-        "Model the RRSP HBP withdrawal (up to $60k post-April 2024, $35k prior) "
-        "used toward the down payment, plus the 15-year repayment obligation. "
-        "Only available to first-time buyers."
-    ),
-    value=bool(vals.get("hbp_enabled", False)),
-    key="hbp_enabled",
-)
+_prog_row = st.columns(3)
+with _prog_row[0]:
+    hbp_enabled = rbv_checkbox(
+        "RRSP HBP",
+        tooltip=(
+            "Model the RRSP HBP withdrawal (up to $60k post-April 2024, $35k prior) "
+            "used toward the down payment, plus the 15-year repayment obligation. "
+            "Only available to first-time buyers."
+        ),
+        value=bool(vals.get("hbp_enabled", False)),
+        key="hbp_enabled",
+    )
+with _prog_row[1]:
+    fhsa_enabled = rbv_checkbox(
+        "FHSA",
+        tooltip=(
+            "Model pre-purchase FHSA accumulation (up to $8k/yr, $40k lifetime). "
+            "Contributions are tax-deductible; growth and home-purchase withdrawals are tax-free. "
+            "Available since April 1, 2023 for first-time buyers."
+        ),
+        value=bool(vals.get("fhsa_enabled", False)),
+        key="fhsa_enabled",
+    )
+with _prog_row[2]:
+    ird_enabled = rbv_checkbox(
+        "IRD penalty",
+        tooltip=(
+            "If you sell before the mortgage term ends, a prepayment penalty applies. "
+            "Canadian lenders charge the greater of 3 months' interest or the Interest Rate Differential (IRD). "
+            "Only affects the simulation if the horizon is shorter than the mortgage term."
+        ),
+        value=bool(vals.get("ird_enabled", False)),
+        key="ird_enabled",
+    )
 
+# --- RRSP Home Buyers' Plan (HBP) sub-options ---
 hbp_withdrawal = 0.0
 if hbp_enabled:
     from rbv.core.government_programs import hbp_max_withdrawal as _hbp_max_fn
@@ -3476,20 +3500,7 @@ if hbp_enabled:
         _hbp_monthly = hbp_withdrawal / 15.0 / 12.0
         sidebar_hint(f"Repayment: ${_hbp_monthly:.2f}/mo for 15 yrs (starting yr 3) · adds to down ↑")
 
-st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
-# --- FHSA (First Home Savings Account) ---
-fhsa_enabled = rbv_checkbox(
-    "First Home Savings Account (FHSA)",
-    tooltip=(
-        "Model pre-purchase FHSA accumulation (up to $8k/yr, $40k lifetime). "
-        "Contributions are tax-deductible; growth and home-purchase withdrawals are tax-free. "
-        "Available since April 1, 2023 for first-time buyers."
-    ),
-    value=bool(vals.get("fhsa_enabled", False)),
-    key="fhsa_enabled",
-)
-
+# --- FHSA (First Home Savings Account) sub-options ---
 fhsa_annual_contribution = 8_000.0
 fhsa_years_contributed = 0
 fhsa_return_pct = 5.0
@@ -3545,20 +3556,7 @@ if fhsa_enabled:
     except Exception:
         pass
 
-st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
-# --- Mortgage Prepayment Penalty (IRD) ---
-ird_enabled = rbv_checkbox(
-    "Model IRD prepayment penalty",
-    tooltip=(
-        "If you sell before the mortgage term ends, a prepayment penalty applies. "
-        "Canadian lenders charge the greater of 3 months' interest or the Interest Rate Differential (IRD). "
-        "Only affects the simulation if the horizon is shorter than the mortgage term."
-    ),
-    value=bool(vals.get("ird_enabled", False)),
-    key="ird_enabled",
-)
-
+# --- IRD prepayment penalty sub-options ---
 mortgage_term_months = 60  # default 5-year term
 ird_rate_drop_pp = 1.5
 if ird_enabled:
