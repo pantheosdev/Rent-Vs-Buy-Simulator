@@ -156,6 +156,49 @@ def cmhc_premium_rate_from_ltv(ltv: float, down_payment_source: str | None = Non
     return 0.0
 
 
+def b20_stress_test_qualifying_rate(contract_rate_pct: float, *, floor_pct: float = 5.25) -> float:
+    """Compute the OSFI B-20 stress test qualifying rate.
+
+    Per OSFI Guideline B-20, the qualifying rate is the greater of:
+    - The contractual mortgage rate + 2 percentage points
+    - The stress test floor rate (currently 5.25%)
+
+    Args:
+        contract_rate_pct: The actual mortgage contract rate as a percentage (e.g., 4.5 for 4.5%)
+        floor_pct: The stress test floor rate as a percentage (default 5.25%)
+
+    Returns:
+        The qualifying rate as a percentage (e.g., 6.5 for 6.5%)
+
+    Reference:
+        OSFI Guideline B-20, Section 3.5 (Minimum Qualifying Rate)
+        https://www.osfi-bsif.gc.ca/en/guidance/guidance-library/residential-mortgage-underwriting-practices-and-procedures
+    """
+    return max(contract_rate_pct + 2.0, floor_pct)
+
+
+def b20_monthly_payment_at_qualifying_rate(
+    principal: float, contract_rate_pct: float, amortization_months: int = 300,
+    *, canadian_compounding: bool = True, floor_pct: float = 5.25
+) -> tuple[float, float, float]:
+    """Calculate the mortgage payment at the B-20 qualifying rate.
+
+    Returns:
+        Tuple of (qualifying_rate_pct, payment_at_qualifying_rate, payment_at_contract_rate)
+    """
+    from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _pmt
+
+    qual_rate = b20_stress_test_qualifying_rate(contract_rate_pct, floor_pct=floor_pct)
+
+    mr_qual = _annual_nominal_pct_to_monthly_rate(qual_rate, canadian=canadian_compounding)
+    mr_contract = _annual_nominal_pct_to_monthly_rate(contract_rate_pct, canadian=canadian_compounding)
+
+    pmt_qual = _pmt(principal, mr_qual, amortization_months)
+    pmt_contract = _pmt(principal, mr_contract, amortization_months)
+
+    return qual_rate, pmt_qual, pmt_contract
+
+
 def mortgage_default_insurance_sales_tax_rate(province: str, asof_date: dt.date) -> float:
     """Provincial sales tax on mortgage default insurance premiums (cash due at closing).
 
