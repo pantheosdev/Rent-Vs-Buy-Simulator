@@ -111,14 +111,30 @@ See `docs/RELEASE_CHECKLIST.md` for the full checklist (preflight, baselines, ta
 - `scripts/preflight.py`: repo sanity + QA checks before pushing
 
 
-## Live Demo
-
-**👉 [Try the live simulator →](https://rent-vs-buy-canada.streamlit.app/)**
-
-No installation required. The app runs on Streamlit Community Cloud.
-
 ## Screenshots
-_Screenshots coming soon — see `docs/media/` for planned assets._
+
+> **Note:** Screenshots are captured from the live app. To update, run the Playwright snapshot harness:
+> `python tools/visual_regression/vr_playwright.py --smoke`
+
+### Main Interface
+The dark fintech-themed interface with all core inputs visible:
+
+![Main Interface](docs/media/main.png)
+
+### Monte Carlo Analysis  
+Net worth trajectories with confidence bands from correlated Monte Carlo simulation:
+
+![Monte Carlo Chart](docs/media/mc.png)
+
+### Sensitivity Heatmap
+Dual-axis parameter sweep showing buy vs rent outcomes across different scenarios:
+
+![Heatmap](docs/media/heatmap.png)
+
+### Sidebar Settings
+Advanced configuration including province selection, mortgage parameters, and economic assumptions:
+
+![Sidebar](docs/media/sidebar.png)
 
 ## License
 MIT — see `LICENSE`.
