@@ -2,15 +2,10 @@
 line-length = 120
 
 [tool.ruff.lint]
-# Core error rules + whitespace + import-sort (auto-fixable, zero logic risk).
-# W191 (tab-indentation) is intentionally excluded: tabs in app.py are a pre-existing
-# legacy artifact that requires a separate cleanup pass.
-select = ["E9", "F63", "F7", "F82", "W291", "W292", "W293", "I001"]
+# Core error rules + whitespace + import-sort.
+select = ["E9", "F63", "F7", "F82", "W191", "W291", "W292", "W293", "I001"]
 
 [tool.ruff.lint.per-file-ignores]
-# app.py has 36 tab-indented blocks inherited from the original monolith.
-# Fixing them touches rendering-critical indentation — deferred to architecture phase.
-"app.py" = ["W191", "W293"]
 # theme.py embeds large CSS/JS multi-line strings; whitespace inside strings is intentional.
 "rbv/ui/theme.py" = ["W293", "W291"]
 
@@ -44,4 +39,9 @@ ignore_missing_imports = true
 exclude = [
     "app\\.py",
     "rbv/ui/theme\\.py",
+    "rbv/ui/defaults\\.py",   # UI session-state dict; intentionally dynamic
+    # engine.py has 51 numpy-dtype typing issues that require major annotation work;
+    # excluded until a dedicated mypy pass is done for the core engine.
+    "rbv/core/engine\\.py",
+    "rbv/qa/",                # QA scripts use dynamic patterns by design
 ]

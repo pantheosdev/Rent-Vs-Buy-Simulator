@@ -44,7 +44,7 @@ def _monthly_rate_to_annual_nominal_pct(mr: float, canadian: bool) -> float:
         base = 1.0 + mr_eff
         if base <= 0.0:
             base = 1e-12
-        return 100.0 * (2.0 * ((base**6.0) - 1.0))
+        return float(100.0 * (2.0 * ((base**6.0) - 1.0)))
 
     return 100.0 * (mr_f * 12.0)
 

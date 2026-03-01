@@ -50,7 +50,7 @@ def _safe_float(value: float | int | str | None, default: float = 0.0) -> float:
     contaminating downstream totals with NaN.
     """
     try:
-        x = float(value)
+        x = float(value)  # type: ignore[arg-type]
     except Exception:
         return float(default)
     return x if math.isfinite(x) else float(default)

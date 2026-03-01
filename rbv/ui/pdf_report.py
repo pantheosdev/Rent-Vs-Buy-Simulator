@@ -411,7 +411,7 @@ def build_pdf_report(
 </body>
 </html>"""
 
-    pdf_bytes = HTML(string=html_content).write_pdf(
+    pdf_bytes: bytes = HTML(string=html_content).write_pdf(
         stylesheets=[CSS(string=_PDF_CSS)],
     )
     return pdf_bytes

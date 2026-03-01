@@ -3221,48 +3221,48 @@ st.markdown('<div class="rbv-input-subhead">Ongoing Ownership Costs</div>', unsa
 
 brow3 = st.columns(4)
 with brow3[0]:
-	    sell_cost_pct = rbv_slider(
-	        "Selling costs (% of sale price)",
-	        tooltip="Transaction costs when selling (e.g., realtor commissions + closing costs) as a percent of sale price.",
-	        min_value=0.0,
-	        max_value=10.0,
-	        value=float(vals.get("sell_cost_pct", 5.0)),
-	        step=0.1,
-	        key="sell_cost_pct",
-	    )
+    sell_cost_pct = rbv_slider(
+        "Selling costs (% of sale price)",
+        tooltip="Transaction costs when selling (e.g., realtor commissions + closing costs) as a percent of sale price.",
+        min_value=0.0,
+        max_value=10.0,
+        value=float(vals.get("sell_cost_pct", 5.0)),
+        step=0.1,
+        key="sell_cost_pct",
+    )
 with brow3[1]:
-	    p_tax_rate_pct = rbv_slider(
-	        "Property tax (% / year)",
-	        tooltip=(
+    p_tax_rate_pct = rbv_slider(
+        "Property tax (% / year)",
+        tooltip=(
                     "Annual property tax rate as a % of assessed value. This varies a lot by municipality and year "
                     "(often roughly ~0.25%–1.25%). Use your city’s published tax rate / calculator."
                 ),
-	        min_value=0.0,
-	        max_value=3.0,
-	        value=float(vals.get("p_tax_rate_pct", 1.0)),
-	        step=0.05,
-	        key="p_tax_rate_pct",
-	    )
+        min_value=0.0,
+        max_value=3.0,
+        value=float(vals.get("p_tax_rate_pct", 1.0)),
+        step=0.05,
+        key="p_tax_rate_pct",
+    )
 with brow3[2]:
-	    maint_rate_pct = rbv_slider(
-	        "Maintenance (% / year)",
-	        tooltip="Ongoing maintenance budget as a percent of current home value (paid monthly in the model).",
-	        min_value=0.0,
-	        max_value=5.0,
-	        value=float(vals.get("maint_rate_pct", 1.0)),
-	        step=0.05,
-	        key="maint_rate_pct",
-	    )
+    maint_rate_pct = rbv_slider(
+        "Maintenance (% / year)",
+        tooltip="Ongoing maintenance budget as a percent of current home value (paid monthly in the model).",
+        min_value=0.0,
+        max_value=5.0,
+        value=float(vals.get("maint_rate_pct", 1.0)),
+        step=0.05,
+        key="maint_rate_pct",
+    )
 with brow3[3]:
-	    repair_rate_pct = rbv_slider(
-	        "Repairs / CapEx (% / year)",
-	        tooltip="Major repairs/capital expenditures as a percent of current home value (paid monthly in the model).",
-	        min_value=0.0,
-	        max_value=5.0,
-	        value=float(vals.get("repair_rate_pct", 0.5)),
-	        step=0.05,
-	        key="repair_rate_pct",
-	    )
+    repair_rate_pct = rbv_slider(
+        "Repairs / CapEx (% / year)",
+        tooltip="Major repairs/capital expenditures as a percent of current home value (paid monthly in the model).",
+        min_value=0.0,
+        max_value=5.0,
+        value=float(vals.get("repair_rate_pct", 0.5)),
+        step=0.05,
+        key="repair_rate_pct",
+    )
 
 
 st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
@@ -7118,7 +7118,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         renter_other_monthly = r_unrec_step - (r_rent_s + r_ins_s + r_util_s + r_move_s)
     else:
         renter_other_monthly = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
-    
+
     _buyer_frame = pd.DataFrame({l: _safe_series(buyer_map[l]) for l in active_b}, index=df.index)
     _renter_frame = pd.DataFrame({l: _safe_series(renter_map[l]) for l in active_r}, index=df.index)
 
