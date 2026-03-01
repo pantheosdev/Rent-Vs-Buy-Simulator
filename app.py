@@ -46,6 +46,7 @@ from rbv.core.policy_canada import (
     b20_monthly_payment_at_qualifying_rate,
 )
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
+from rbv.core.equity_monitor import detect_negative_equity, format_underwater_warning
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
 from rbv.ui.costs_utils import safe_numeric_series, safe_numeric_mean, normalize_month_like_series
 from rbv.ui.costs_tab import build_costs_core, build_cost_mix_dataframe
@@ -4867,6 +4868,19 @@ except Exception:
 
 
 st.markdown("<div style=\"height:18px\"></div>", unsafe_allow_html=True)
+
+# --- Negative equity warning ---
+try:
+    _equity_analysis = detect_negative_equity(df)
+    _underwater_msg = format_underwater_warning(_equity_analysis)
+    if _underwater_msg:
+        _msg_html = html.escape(_underwater_msg).replace("\n", "<br>")
+        st.markdown(
+            f'<div class="rbv-warning-banner">{_msg_html}</div>',
+            unsafe_allow_html=True,
+        )
+except Exception:
+    pass
 
 # --- KPI summary values (robust to column naming) ---
 def _df_last(df_, candidates, default=0.0):
