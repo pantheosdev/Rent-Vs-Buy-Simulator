@@ -1,4 +1,4 @@
-# Auto-extracted from v167_public_baseline_hotfix4.py
+"""Canadian mortgage compounding utilities."""
 
 
 def _annual_nominal_pct_to_monthly_rate(rate_pct: float, canadian: bool) -> float:

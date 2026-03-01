@@ -13,7 +13,6 @@ from __future__ import annotations
 import datetime as dt
 import math
 
-
 # ---------------------------------------------------------------------------
 # RRSP Home Buyers' Plan (HBP)
 # ---------------------------------------------------------------------------

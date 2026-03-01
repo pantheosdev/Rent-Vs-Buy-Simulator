@@ -1,56 +1,79 @@
-import streamlit as st
-import streamlit.components.v1 as components
-import pandas as pd
-import numpy as np
-import math
-import time
-import plotly.graph_objects as go
-import plotly.io as pio
+import hashlib
 import html
 import json
-import hashlib
+import math
+import os
 import random
 import re
-import os
 import sys
+import time
 import traceback
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
+import streamlit as st
+import streamlit.components.v1 as components
+
 # Ensure the local package (rbv/) is importable when running via an absolute path
 sys.path.insert(0, os.path.dirname(__file__))
 
-import datetime
-import io
-import zipfile
-import functools
 import contextlib
 import copy
+import datetime
+import functools
+import io
+import zipfile
+
+from rbv.core.engine import run_heatmap_mc_batch, run_simulation_core
+from rbv.core.equity_monitor import detect_negative_equity, format_underwater_warning
+from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
+from rbv.core.policy_canada import (
+    b20_monthly_payment_at_qualifying_rate,
+    b20_stress_test_qualifying_rate,
+    cmhc_premium_rate_from_ltv,
+    insured_amortization_rule_label,
+    insured_max_amortization_years,
+    insured_mortgage_price_cap,
+    min_down_payment_canada,
+    mortgage_default_insurance_sales_tax_rate,
+)
 
 # --- Global patch: strip Streamlit widget help tooltips (prevents sidebar "?" icons entirely)
 # and suppress "default value + Session State" warnings by removing default kwargs when a key already exists.
 # v167: Keep UI stable by avoiding Streamlit/BaseWeb native help tooltips and redundant defaults.
-
 # --- Modular imports (v1 split) ---
 from rbv.core.taxes import (
-    PROVINCES,
     PROV_TAX_RULES_MD,
-    calc_deed_transfer_tax_nova_scotia_default, calc_land_title_fee_alberta, calc_land_title_fee_saskatchewan, calc_land_transfer_tax_manitoba, calc_ltt_ontario, calc_ltt_toronto_municipal, calc_property_transfer_tax_new_brunswick, calc_ptt_bc, calc_real_property_transfer_tax_pei, calc_registration_fee_newfoundland, calc_transfer_duty_quebec_standard, calc_transfer_tax,
+    PROVINCES,
+    calc_deed_transfer_tax_nova_scotia_default,
+    calc_land_title_fee_alberta,
+    calc_land_title_fee_saskatchewan,
+    calc_land_transfer_tax_manitoba,
+    calc_ltt_ontario,
+    calc_ltt_toronto_municipal,
+    calc_property_transfer_tax_new_brunswick,
+    calc_ptt_bc,
+    calc_real_property_transfer_tax_pei,
+    calc_registration_fee_newfoundland,
+    calc_transfer_duty_quebec_standard,
+    calc_transfer_tax,
 )
-from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
-from rbv.core.policy_canada import (
-    min_down_payment_canada,
-    insured_mortgage_price_cap,
-    cmhc_premium_rate_from_ltv,
-    mortgage_default_insurance_sales_tax_rate,
-    insured_max_amortization_years,
-    insured_amortization_rule_label,
-    b20_stress_test_qualifying_rate,
-    b20_monthly_payment_at_qualifying_rate,
-)
-from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
-from rbv.core.equity_monitor import detect_negative_equity, format_underwater_warning
-from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
-from rbv.ui.costs_utils import safe_numeric_series, safe_numeric_mean, normalize_month_like_series
-from rbv.ui.costs_tab import build_costs_core, build_cost_mix_dataframe
+from rbv.ui.costs_tab import build_cost_mix_dataframe, build_costs_core
+from rbv.ui.costs_utils import normalize_month_like_series, safe_numeric_mean, safe_numeric_series
 from rbv.ui.sidebar_inputs import RBV_SIDEBAR_TOOLTIPS, sidebar_hint, sidebar_pills
+from rbv.ui.theme import (
+    BG_BLACK,
+    BORDER,
+    BUY_COLOR,
+    RENT_COLOR,
+    SURFACE_CARD,
+    SURFACE_INPUT,
+    TEXT_MUTED,
+    inject_global_css,
+)
+
 # Deploy-safe imports: Streamlit Cloud can briefly run app.py during partial rollouts.
 # Fail gracefully (UI error) instead of crashing on import.
 try:
@@ -66,8 +89,8 @@ except Exception:
 # City presets are optional; if they fail to import during rollout, degrade to Custom-only.
 try:
     from rbv.ui.defaults import (
-        CITY_PRESETS,
         CITY_PRESET_CUSTOM,
+        CITY_PRESETS,
         apply_city_preset_values,
         build_city_preset_change_summary,
         city_preset_filter_region_options,
@@ -1571,6 +1594,7 @@ def _rbv_render_compare_preview() -> None:
 # Encodes the allowed scenario state into a URL-safe token stored in query param `s`.
 import base64
 import zlib
+
 
 def _rbv_state_to_share_token(state: dict) -> str:
     raw = json.dumps(state or {}, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -3549,7 +3573,8 @@ if fhsa_enabled:
             key="fhsa_marginal_tax_rate_pct",
         )
     try:
-        from rbv.core.government_programs import fhsa_balance as _fhsa_bal_fn, fhsa_tax_savings as _fhsa_ts_fn
+        from rbv.core.government_programs import fhsa_balance as _fhsa_bal_fn
+        from rbv.core.government_programs import fhsa_tax_savings as _fhsa_ts_fn
         _fbal, _fcont = _fhsa_bal_fn(fhsa_annual_contribution, fhsa_years_contributed, fhsa_return_pct)
         _ftax = _fhsa_ts_fn(_fcont, fhsa_marginal_tax_rate_pct)
         sidebar_hint(f"FHSA balance ≈ ${_fbal:,.0f} · tax savings ≈ ${_ftax:,.0f} · adds to down ↑")
@@ -5062,6 +5087,38 @@ try:
 except Exception:
     pass
 
+# --- PDF Report Export ---
+try:
+    from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
+    _pdf_cfg = {
+        k: st.session_state.get(k, v)
+        for k, v in {
+            "years": 25, "province": "Ontario", "price": 800000.0,
+            "down": 160000.0, "rent": 3000.0, "rate": 5.0, "nm": 300,
+        }.items()
+    }
+    _pdf_bytes = _build_pdf_report(
+        df,
+        _pdf_cfg,
+        buyer_ret_pct=float(st.session_state.get("buyer_ret_pct", 7.0)),
+        renter_ret_pct=float(st.session_state.get("renter_ret_pct", 7.0)),
+        apprec_pct=float(st.session_state.get("apprec_pct", 3.0)),
+        close_cash=close_cash,
+        monthly_pmt=m_pmt,
+        win_pct=win_pct,
+        scenario_name=str(st.session_state.get("scenario_select", "Custom Scenario")),
+    )
+    st.download_button(
+        "📄 Download PDF Report",
+        data=_pdf_bytes,
+        file_name="rent_vs_buy_report.pdf",
+        mime="application/pdf",
+        use_container_width=False,
+        help="Download a printable PDF summary of this analysis.",
+    )
+except Exception:
+    pass
+
 # --- KPI summary values (robust to column naming) ---
 def _df_last(df_, candidates, default=0.0):
     for c in candidates:
@@ -5390,7 +5447,8 @@ except Exception:
 # Debug / reproducibility pane
 # -----------------------------
 try:
-    import hashlib, json as _json
+    import hashlib
+    import json as _json
 
     _last_cfg = st.session_state.get("_rbv_last_cfg")
     _last_params = st.session_state.get("_rbv_last_params") or {}

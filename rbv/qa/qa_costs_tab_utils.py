@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-
 import sys
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from rbv.ui.costs_utils import safe_numeric_series, safe_numeric_mean, has_finite_signal, normalize_month_like_series
+from rbv.ui.costs_utils import has_finite_signal, normalize_month_like_series, safe_numeric_mean, safe_numeric_series
 
 
 def main(argv=None):

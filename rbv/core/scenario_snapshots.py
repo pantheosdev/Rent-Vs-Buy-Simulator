@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import csv
 import datetime as _dt
 import hashlib
 import io
 import json
 import math
+from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 try:  # optional, keep module usable without numpy at import time

@@ -1,12 +1,23 @@
 import math
 import re
 import warnings as _warnings
+
 import numpy as np
 import pandas as pd
 
-from .mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct, ird_penalty_for_simulation
-from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate, foreign_buyer_tax_amount
-from .government_programs import hbp_repayment_monthly_schedule, fhsa_balance, fhsa_tax_savings
+from .government_programs import fhsa_balance, fhsa_tax_savings, hbp_repayment_monthly_schedule
+from .mortgage import (
+    _annual_nominal_pct_to_monthly_rate,
+    _monthly_rate_to_annual_nominal_pct,
+    ird_penalty_for_simulation,
+)
+from .policy_canada import (
+    cmhc_premium_rate_from_ltv,
+    foreign_buyer_tax_amount,
+    insured_mortgage_price_cap,
+    min_down_payment_canada,
+    mortgage_default_insurance_sales_tax_rate,
+)
 from .validation import validate_simulation_params
 
 
@@ -946,13 +957,13 @@ def _run_monte_carlo_vectorized(
             df.attrs["mc_win_n_finite"] = int(np.count_nonzero(finite))
         except Exception:
             pass
-        
+
         # Guardrails: non-finite end values and any NaN/Inf in key MC paths (when present).
         try:
             df.attrs["mc_end_n_nonfinite"] = int(np.count_nonzero(~finite))
         except Exception:
             pass
-        
+
         try:
             _nf = 0
             if buyer_nw_paths is not None:
@@ -969,7 +980,7 @@ def _run_monte_carlo_vectorized(
                     df.attrs["mc_error"] = (_prev + (" " if _prev else "") + _msg).strip()
         except Exception:
             pass
-        
+
         # Make failures explicit (never silently emit 0%)
         if win_pct is None:
             if not np.any(finite):
@@ -2130,7 +2141,7 @@ def run_simulation_core(
         _hbp_max = _f(cfg.get("hbp_max_withdrawal", 60_000.0), 60_000.0)
         hbp_withdrawal = min(max(0.0, _f(cfg.get("hbp_withdrawal", 0.0), 0.0)), _hbp_max)
         if hbp_withdrawal > 0:
-            from .government_programs import HBP_REPAYMENT_YEARS, HBP_GRACE_YEARS, hbp_monthly_repayment
+            from .government_programs import HBP_GRACE_YEARS, HBP_REPAYMENT_YEARS, hbp_monthly_repayment
             hbp_monthly_cost = hbp_monthly_repayment(hbp_withdrawal)
             _grace = max(0, _i(cfg.get("hbp_grace_years", HBP_GRACE_YEARS), HBP_GRACE_YEARS))
             hbp_repayment_start_month = _grace * 12 + 1

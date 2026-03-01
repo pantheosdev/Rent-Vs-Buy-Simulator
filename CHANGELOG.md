@@ -70,6 +70,19 @@
 - UX: Add an itemized **Cash to Close** breakdown (down payment, transfer tax, legal/closing, inspection, other closing costs, PST on CMHC premium where applicable).
 - UX: Surface province transfer-tax notes (e.g., BC FTHB exemption) alongside the breakdown for easier verification.
 
+## v2.93.2
+
+_(no changelog entry — internal patch)_
+
+## v2.93.1
+
+_(no changelog entry — internal patch)_
+
+## v2.93.0
+
+- Buying inputs: add an explicit **Province** selector (drives land transfer / welcome tax rules).
+- Guardrail: **Toronto MLTT** toggle now only appears for Ontario; it is auto-cleared when switching provinces.
+- QA: add cross-province transfer-tax reference anchors (ON/BC/MB/AB) to truth tables.
 
 ## v2.92.10
 
@@ -77,12 +90,6 @@
 - Heatmap: add base-case marker and improve colorbar labeling for clarity.
 - Tooltips (mobile): add horizontal auto-flip and overflow hardening to prevent clipping.
 - Sidebar: reduce overwhelm by collapsing Economic Scenario by default and clarifying Expert-mode lock wording.
-
-## v2.93.0
-
-- Buying inputs: add an explicit **Province** selector (drives land transfer / welcome tax rules).
-- Guardrail: **Toronto MLTT** toggle now only appears for Ontario; it is auto-cleared when switching provinces.
-- QA: add cross-province transfer-tax reference anchors (ON/BC/MB/AB) to truth tables.
 
 ## v2.92.9
 

@@ -17,7 +17,6 @@ import math
 import sys
 from pathlib import Path
 
-
 # Ensure repo root is on sys.path regardless of where this script is invoked from.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -616,10 +615,11 @@ def _tt_mc_seed_reproducible() -> None:
 
 def _tt_reference_numbers_regression() -> None:
     """Regression targets from independent calculations (audit report)."""
+    import datetime as _dt
+
     from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate
     from rbv.core.policy_canada import cmhc_premium_rate_from_ltv, min_down_payment_canada
     from rbv.core.taxes import calc_transfer_tax
-    import datetime as _dt
 
     asof = _dt.date(2026, 2, 20)
 
@@ -807,8 +807,9 @@ def _tt_transfer_tax_examples_multi_province() -> None:
 
 def _tt_bc_fthb_exemption_date_aware() -> None:
     """BC FTHB exemption should be date-aware and bounded by the $8,000 max benefit."""
-    from rbv.core.taxes import calc_transfer_tax
     import datetime as _dt
+
+    from rbv.core.taxes import calc_transfer_tax
 
     # Post Apr 1, 2024 schedule (current)
     asof = _dt.date(2026, 2, 20)
@@ -953,7 +954,8 @@ def _tt_purchase_closing_costs_reduce_buyer_nw() -> None:
 
 def _tt_insured_30yr_amortization_policy_schedule() -> None:
     import datetime as dt
-    from rbv.core.policy_canada import insured_max_amortization_years, insured_30yr_amortization_policy_stage
+
+    from rbv.core.policy_canada import insured_30yr_amortization_policy_stage, insured_max_amortization_years
 
     # Stage transitions
     assert insured_30yr_amortization_policy_stage(dt.date(2024, 7, 31)) == "pre_2024_08_01"
@@ -987,8 +989,8 @@ def _tt_policy_and_snapshot_input_guardrails() -> None:
     from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
     from rbv.core.policy_canada import (
         cmhc_premium_rate_from_ltv,
-        insured_mortgage_price_cap,
         insured_30yr_amortization_policy_stage,
+        insured_mortgage_price_cap,
         mortgage_default_insurance_sales_tax_rate,
     )
     from rbv.core.scenario_snapshots import (
