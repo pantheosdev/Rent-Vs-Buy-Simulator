@@ -37,6 +37,10 @@ jobs:
         run: |
           python run_all_qa.py
 
+      - name: pytest (with coverage)
+        run: |
+          python -m pytest tests/ -v --tb=short --cov=rbv --cov-report=term-missing
+
   vr_smoke:
     # Run a lightweight visual smoke only when explicitly requested.
     if: github.event_name == 'workflow_dispatch'
