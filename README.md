@@ -1,3 +1,7 @@
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-rent--vs--buy--canada.streamlit.app-14D8FF?style=for-the-badge)](https://rent-vs-buy-canada.streamlit.app/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 # Rent vs Buy Simulator (Canada-focused)
 
 A Streamlit-based **Rent vs Buy** financial simulator with a premium dark fintech UI and both deterministic + Monte Carlo analysis.
@@ -107,32 +111,14 @@ See `docs/RELEASE_CHECKLIST.md` for the full checklist (preflight, baselines, ta
 - `scripts/preflight.py`: repo sanity + QA checks before pushing
 
 
-## Demo & screenshots (recommended for public launch)
-Add media under `docs/media/` and update this section.
+## Live Demo
 
-- `docs/media/demo.gif` (10–15s: toggle volatility → compute → show MC band)
-- `docs/media/main.png` (main inputs)
-- `docs/media/mc.png` (Monte Carlo net worth chart + band)
-- `docs/media/sidebar.png` (sidebar settings)
+**👉 [Try the live simulator →](https://rent-vs-buy-canada.streamlit.app/)**
 
-```text
-docs/
-  media/
-    demo.gif
-    main.png
-    mc.png
-    sidebar.png
-```
+No installation required. The app runs on Streamlit Community Cloud.
 
-Once added, you can embed them like:
-
-```md
-![Demo](docs/media/demo.gif)
-
-![Main](docs/media/main.png)
-![Monte Carlo](docs/media/mc.png)
-![Sidebar](docs/media/sidebar.png)
-```
+## Screenshots
+_Screenshots coming soon — see `docs/media/` for planned assets._
 
 ## License
 MIT — see `LICENSE`.
