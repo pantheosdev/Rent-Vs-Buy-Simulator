@@ -1,10 +1,12 @@
 import math
 import re
+import warnings as _warnings
 import numpy as np
 import pandas as pd
 
 from .mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
 from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate
+from .validation import validate_simulation_params
 
 
 def _f(x, default=0.0):
@@ -1803,6 +1805,40 @@ def run_simulation_core(
     # Stable column names expected by the UI (keep consistent across MC pathways)
     _LIQ_B = "Buyer Liquidation NW"
     _LIQ_R = "Renter Liquidation NW"
+
+    # --- Validate and clamp all user inputs before any calculations ---
+    _raw_general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
+    if _raw_general_inf > 1.0:  # handle percent-like values (e.g. 2.5 instead of 0.025)
+        _raw_general_inf = _raw_general_inf / 100.0
+    with _warnings.catch_warnings(record=True) as _validation_warns:
+        _warnings.simplefilter("always")
+        _vp = validate_simulation_params(
+            rate_pct=_f(cfg.get("rate", 0.0), 0.0),
+            buyer_ret_pct=_f(buyer_ret_pct),
+            renter_ret_pct=_f(renter_ret_pct),
+            apprec_pct=_f(apprec_pct),
+            general_inf=_raw_general_inf,
+            rent_inf=_f(cfg.get("rent_inf", 0.0), 0.0),
+            years=_i(cfg.get("years", 1), 1),
+            price=_f(cfg.get("price", 0.0), 0.0),
+            rent=_f(cfg.get("rent", 0.0), 0.0),
+            down=_f(cfg.get("down", 0.0), 0.0),
+        )
+    for _w in _validation_warns:
+        _warnings.warn_explicit(
+            _w.message, _w.category, _w.filename, _w.lineno, source=_w.source
+        )
+    buyer_ret_pct = _vp["buyer_ret_pct"]
+    renter_ret_pct = _vp["renter_ret_pct"]
+    apprec_pct = _vp["apprec_pct"]
+    cfg = dict(cfg)  # defensive copy — never mutate caller's dict
+    cfg["price"] = _vp["price"]
+    cfg["rent"] = _vp["rent"]
+    cfg["down"] = _vp["down"]
+    cfg["rate"] = _vp["rate_pct"]
+    cfg["rent_inf"] = _vp["rent_inf"]
+    cfg["general_inf"] = _vp["general_inf"]
+    cfg["years"] = _vp["years"]
 
     # Convert percentages to monthly decimals
     years = max(1, _i(cfg.get("years", 1), 1))
