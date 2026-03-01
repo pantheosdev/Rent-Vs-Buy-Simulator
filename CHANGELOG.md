@@ -1,4 +1,8 @@
 # Changelog
+## v2.93.9
+
+- UI: Restyled **OSFI B-20 qualifying rate** display to match the premium dark fintech theme. Replaced the out-of-place `st.info()` blue box with a compact, muted hint line (same `.rbv-hint` pattern as the "≈ x% down" annotation) placed directly below the mortgage rate input. Now shows qualifying rate and payment comparison (`$X,XXX/mo at qualifying rate vs $X,XXX/mo contract`). Added a ℹ️ tooltip (using the app's standard `rbv_help_html` system) with the full B-20 rule explanation. Added `"B-20 Qualifying Rate"` entry to `RBV_SIDEBAR_TOOLTIPS`.
+
 ## v2.93.8
 
 - UI: Display **OSFI B-20 stress test qualifying rate** in the sidebar next to the mortgage rate input. The qualifying rate updates dynamically as the user adjusts their contract rate and is informational only (does not gate the simulation). Formula: `max(contract_rate + 2%, 5.25%)`.

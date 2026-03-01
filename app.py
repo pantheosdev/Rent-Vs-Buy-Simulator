@@ -43,6 +43,7 @@ from rbv.core.policy_canada import (
     insured_max_amortization_years,
     insured_amortization_rule_label,
     b20_stress_test_qualifying_rate,
+    b20_monthly_payment_at_qualifying_rate,
 )
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
@@ -3083,10 +3084,25 @@ with brow1[2]:
         step=0.05,
         key="rate",
     )
+    _b20_tip = RBV_SIDEBAR_TOOLTIPS.get("B-20 Qualifying Rate", "")
     _b20_qualifying_rate = b20_stress_test_qualifying_rate(float(rate))
-    st.info(
-        f"🏦 OSFI B-20 Qualifying Rate: **{_b20_qualifying_rate:.2f}%**\n\n"
-        "Under OSFI B-20 rules, you must qualify at the higher of your contract rate + 2% or 5.25%.",
+    _b20_icon = rbv_help_html(_b20_tip, small=True) if _b20_tip else ""
+    _b20_principal = max(float(price) - float(down), 0.0)
+    _b20_amort_months = int(vals.get("amort", 25)) * 12
+    _b20_canadian = bool(st.session_state.get("canadian_compounding", True))
+    if _b20_principal > 0 and _b20_amort_months > 0:
+        _, _b20_pmt_qual, _b20_pmt_contract = b20_monthly_payment_at_qualifying_rate(
+            _b20_principal, float(rate), _b20_amort_months, canadian_compounding=_b20_canadian
+        )
+        _b20_pmt_line = (
+            f' &nbsp;<span style="opacity:0.75;">'
+            f'(${_b20_pmt_qual:,.0f}/mo vs ${_b20_pmt_contract:,.0f}/mo contract)</span>'
+        )
+    else:
+        _b20_pmt_line = ""
+    st.markdown(
+        f'<div class="rbv-hint">B-20 qualifying rate: {_b20_qualifying_rate:.2f}%{_b20_pmt_line} {_b20_icon}</div>',
+        unsafe_allow_html=True,
     )
 with brow1[3]:
     amort = rbv_number_input(

@@ -44,6 +44,7 @@ RBV_SIDEBAR_TOOLTIPS: dict[str, str] = {
     "Home Inspection ($)": "One-time inspection cost at purchase.",
     "Mortgage Rate Mode": "Choose how the mortgage rate behaves (fixed vs resets/renewals).",
     "Mortgage Rate (Fixed %)": "Nominal annual mortgage rate used for the payment calculation.",
+    "B-20 Qualifying Rate": "Under OSFI B-20 rules, all mortgage applicants must qualify at the higher of: (1) the contract rate + 2 percentage points, or (2) the stress test floor rate (subject to OSFI policy updates; currently 5.25%). This is informational — the simulator does not enforce this gate.",
     "Canadian mortgage compounding (semi-annual)": "If enabled, converts the nominal rate using Canadian semi-annual compounding before monthly payments.",
     "Amortization Period (Years)": "Total amortization length used to compute the monthly mortgage payment. Note: 30-year amortization has eligibility restrictions in Canada (policy-dependent).",
     "Reset Frequency (Years)": "How often the mortgage rate resets/renews (approximation).",
