@@ -42,6 +42,7 @@ from rbv.core.policy_canada import (
     mortgage_default_insurance_sales_tax_rate,
     insured_max_amortization_years,
     insured_amortization_rule_label,
+    b20_stress_test_qualifying_rate,
 )
 from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
 from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
@@ -3081,6 +3082,11 @@ with brow1[2]:
         value=float(vals.get("rate", 4.75)),
         step=0.05,
         key="rate",
+    )
+    _b20_qualifying_rate = b20_stress_test_qualifying_rate(float(rate))
+    st.info(
+        f"🏦 OSFI B-20 Qualifying Rate: **{_b20_qualifying_rate:.2f}%**\n\n"
+        "Under OSFI B-20 rules, you must qualify at the higher of your contract rate + 2% or 5.25%.",
     )
 with brow1[3]:
     amort = rbv_number_input(

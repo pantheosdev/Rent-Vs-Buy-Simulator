@@ -1,4 +1,8 @@
 # Changelog
+## v2.93.8
+
+- UI: Display **OSFI B-20 stress test qualifying rate** in the sidebar next to the mortgage rate input. The qualifying rate updates dynamically as the user adjusts their contract rate and is informational only (does not gate the simulation). Formula: `max(contract_rate + 2%, 5.25%)`.
+
 ## v2.93.7
 
 - PR7: Added **New construction** toggle and simplified **net GST/HST** estimate (with manual override field) for cash-to-close planning.
