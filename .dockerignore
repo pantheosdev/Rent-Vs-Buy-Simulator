@@ -1,0 +1,15 @@
+.git
+.github
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+*.egg-info
+.devcontainer
+tools/visual_regression/output/
+tools/visual_regression/diffs/
+tools/visual_regression/baseline/
+*.patch
+docs/
+tests/

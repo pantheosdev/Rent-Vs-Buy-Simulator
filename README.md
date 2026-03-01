@@ -35,6 +35,21 @@ pip install -r requirements.lock
 streamlit run app.py
 ```
 
+## Docker
+
+Build and run with Docker:
+```bash
+docker build -t rbv-simulator .
+docker run -p 8501:8501 rbv-simulator
+```
+
+Or use Docker Compose:
+```bash
+docker-compose up
+```
+
+Then open http://localhost:8501.
+
 ## QA
 Run the full QA suite:
 ```bash
