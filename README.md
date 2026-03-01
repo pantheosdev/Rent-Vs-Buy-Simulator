@@ -1,3 +1,7 @@
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-rent--vs--buy--canada.streamlit.app-14D8FF?style=for-the-badge)](https://rent-vs-buy-canada.streamlit.app/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 # Rent vs Buy Simulator (Canada-focused)
 
 A Streamlit-based **Rent vs Buy** financial simulator with a premium dark fintech UI and both deterministic + Monte Carlo analysis.
