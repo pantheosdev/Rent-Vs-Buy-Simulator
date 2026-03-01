@@ -4,8 +4,9 @@ import warnings as _warnings
 import numpy as np
 import pandas as pd
 
-from .mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
-from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate
+from .mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct, ird_penalty_for_simulation
+from .policy_canada import insured_mortgage_price_cap, min_down_payment_canada, cmhc_premium_rate_from_ltv, mortgage_default_insurance_sales_tax_rate, foreign_buyer_tax_amount
+from .government_programs import hbp_repayment_monthly_schedule, fhsa_balance, fhsa_tax_savings
 from .validation import validate_simulation_params
 
 
@@ -262,6 +263,10 @@ def _run_monte_carlo_vectorized(
     reg_shelter_enabled: bool = False,
     reg_initial_room: float = 0.0,
     reg_annual_room: float = 0.0,
+    hbp_monthly_cost: float = 0.0,
+    hbp_repayment_start_month: int = 0,
+    hbp_repayment_end_month: int = 0,
+    prepayment_penalty_amount: float = 0.0,
     mc_seed=None,
     progress_cb=None,
     summary_only: bool = False,
@@ -487,8 +492,16 @@ def _run_monte_carlo_vectorized(
         o_util_paid = float(c_o_util)
 
         b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
-        b_out = b_pmt0 + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special
-        b_op = float(inte) + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special
+        # HBP repayment (monthly obligation within repayment window)
+        _hbp_repay_det = float(hbp_monthly_cost) if (
+            float(hbp_monthly_cost) > 0
+            and int(hbp_repayment_start_month) > 0
+            and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
+        ) else 0.0
+        b_out = b_pmt0 + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special + _hbp_repay_det
+        # IRD is a sale cost; tracked in b_op but not in monthly cash flows.
+        _ird_det = float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == months) else 0.0
+        b_op = float(inte) + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special + _hbp_repay_det + _ird_det
 
         # Renter outflows (deterministic)
         rent_paid = float(c_rent)
@@ -638,7 +651,9 @@ def _run_monte_carlo_vectorized(
         cum_r_op += float(r_out)
 
         # Buyer net worth should reflect closing costs paid at purchase.
-        b_val = (c_home - float(c_mort)) + b_nw - float(close) - exit_cost - float(exit_legal_fee)
+        # IRD penalty is deducted from equity at the terminal month (sale cost).
+        _ird_det_deduct = _ird_det if m == months else 0.0
+        b_val = (c_home - float(c_mort)) + b_nw - float(close) - exit_cost - float(exit_legal_fee) - _ird_det_deduct
         b_unrec = cum_b_op + float(close) + exit_cost + float(exit_legal_fee)
 
         # Store paths (full output mode only)
@@ -1631,10 +1646,19 @@ def run_heatmap_mc_batch(
             # Special assessment (one-time buyer shock)
             m_special = float(special_assessment_amount) if (int(special_assessment_month) > 0 and m == int(special_assessment_month)) else 0.0
 
+            # HBP repayment (monthly obligation within repayment window)
+            _hbp_repay = float(hbp_monthly_cost) if (
+                float(hbp_monthly_cost) > 0
+                and int(hbp_repayment_start_month) > 0
+                and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
+            ) else 0.0
+
             # Buyer outflows (arrays per sim×cell)
             b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
-            b_out = b_pmt0 + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special
-            b_op = float(inte) + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special
+            b_out = b_pmt0 + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special + _hbp_repay
+            # IRD is a sale cost (not monthly); tracked in b_op for unrecoverable accounting.
+            _ird_cost = float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == months) else 0.0
+            b_op = float(inte) + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special + _hbp_repay + _ird_cost
 
             # Renter outflows (per cell, broadcast over sims)
             skip_last_move = bool(assume_sale_end) and (m == months)
@@ -1725,7 +1749,10 @@ def run_heatmap_mc_batch(
         exit_cost_final = (c_home * float(sell_cost)) if bool(assume_sale_end) else 0.0
         exit_legal_fee_final = float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
 
-        b_last = (c_home - float(c_mort)) + b_nw - float(close) - exit_cost_final - float(exit_legal_fee_final)
+        # IRD penalty: deducted from buyer equity at terminal (sale cost).
+        _ird_terminal = float(prepayment_penalty_amount) if float(prepayment_penalty_amount) > 0 else 0.0
+
+        b_last = (c_home - float(c_mort)) + b_nw - float(close) - exit_cost_final - float(exit_legal_fee_final) - _ird_terminal
         r_last = r_nw
 
         # Mask non-finite
@@ -2079,6 +2106,132 @@ def run_simulation_core(
     reg_initial_room = _f(cfg.get("reg_initial_room", 0.0), 0.0)
     reg_annual_room = _f(cfg.get("reg_annual_room", 0.0), 0.0)
 
+    # --- Phase D: Government Programs & Penalties ---
+
+    # Foreign buyer tax (BC APTT / Ontario NRST)
+    is_foreign_buyer = bool(cfg.get("is_foreign_buyer", False))
+    _fb_tax_amount = 0.0
+    if is_foreign_buyer:
+        _fb_province = str(cfg.get("province", "") or "").strip()
+        _fb_asof = None
+        _asof_raw2 = cfg.get("asof_date", None)
+        if _asof_raw2:
+            try:
+                import datetime as _dt2
+                _fb_asof = _asof_raw2 if hasattr(_asof_raw2, "year") else _dt2.date.fromisoformat(str(_asof_raw2)[:10])
+            except Exception:
+                pass
+        _fb_tax_amount = foreign_buyer_tax_amount(price_use, _fb_province, _fb_asof)
+
+    # RRSP Home Buyers' Plan (HBP)
+    hbp_enabled = bool(cfg.get("hbp_enabled", False))
+    hbp_withdrawal = 0.0
+    hbp_monthly_cost = 0.0
+    hbp_repayment_start_month = 0
+    hbp_repayment_end_month = 0
+    if hbp_enabled:
+        _hbp_max = _f(cfg.get("hbp_max_withdrawal", 60_000.0), 60_000.0)
+        hbp_withdrawal = min(max(0.0, _f(cfg.get("hbp_withdrawal", 0.0), 0.0)), _hbp_max)
+        if hbp_withdrawal > 0:
+            from .government_programs import HBP_REPAYMENT_YEARS, HBP_GRACE_YEARS, hbp_monthly_repayment
+            hbp_monthly_cost = hbp_monthly_repayment(hbp_withdrawal)
+            _grace = max(0, _i(cfg.get("hbp_grace_years", HBP_GRACE_YEARS), HBP_GRACE_YEARS))
+            hbp_repayment_start_month = _grace * 12 + 1
+            hbp_repayment_end_month = (_grace + HBP_REPAYMENT_YEARS) * 12
+
+    # FHSA (First Home Savings Account)
+    fhsa_enabled = bool(cfg.get("fhsa_enabled", False))
+    fhsa_supplement = 0.0
+    fhsa_tax_saving = 0.0
+    if fhsa_enabled:
+        _fhsa_contrib = _f(cfg.get("fhsa_annual_contribution", 8_000.0), 8_000.0)
+        _fhsa_years = _i(cfg.get("fhsa_years_contributed", 0), 0)
+        _fhsa_ret = _f(cfg.get("fhsa_return_pct", 5.0), 5.0)
+        _fhsa_mtr = _f(cfg.get("fhsa_marginal_tax_rate_pct", 40.0), 40.0)
+        _fhsa_asof = None
+        _asof_raw3 = cfg.get("asof_date", None)
+        if _asof_raw3:
+            try:
+                import datetime as _dt3
+                _fhsa_asof = _asof_raw3 if hasattr(_asof_raw3, "year") else _dt3.date.fromisoformat(str(_asof_raw3)[:10])
+            except Exception:
+                pass
+        fhsa_supplement, _fhsa_cumulative = fhsa_balance(
+            _fhsa_contrib, _fhsa_years, _fhsa_ret, asof_date=_fhsa_asof
+        )
+        fhsa_tax_saving = fhsa_tax_savings(_fhsa_cumulative, _fhsa_mtr)
+
+    # Adjust down payment and mortgage for HBP + FHSA supplements
+    _extra_down = hbp_withdrawal + fhsa_supplement
+    if _extra_down > 0:
+        _new_down = min(down_use + _extra_down, price_use)
+        _down_delta = _new_down - down_use
+        down_use = _new_down
+        # Recompute loan and mortgage principal
+        loan_use = max(price_use - down_use, 0.0)
+        ltv_use = (loan_use / price_use) if price_use > 0 else 0.0
+        # Re-check CMHC eligibility with new LTV
+        _asof_hbp = None
+        _asof_raw4 = cfg.get("asof_date", None)
+        if _asof_raw4:
+            try:
+                import datetime as _dt4
+                _asof_hbp = _asof_raw4 if hasattr(_asof_raw4, "year") else _dt4.date.fromisoformat(str(_asof_raw4)[:10])
+            except Exception:
+                pass
+        if _asof_hbp is None:
+            import datetime as _dt5
+            _asof_hbp = _dt5.date.today()
+        _price_cap_hbp = insured_mortgage_price_cap(_asof_hbp)
+        _min_down_hbp = min_down_payment_canada(price_use, _asof_hbp)
+        _cmhc_elig = (price_use > 0) and (ltv_use > 0.8) and (price_use < _price_cap_hbp) and (down_use + 1e-9 >= _min_down_hbp)
+        if _cmhc_elig:
+            _dp_src = str(cfg.get("down_payment_source", "Traditional") or "Traditional")
+            _cmhc_r = cmhc_premium_rate_from_ltv(ltv_use, _dp_src)
+            _prem = loan_use * _cmhc_r
+            _prov2 = str(cfg.get("province", "") or "").strip()
+            _pst2 = mortgage_default_insurance_sales_tax_rate(_prov2, _asof_hbp)
+            _pst_amt2 = _prem * _pst2
+            close_use = (close_use - pst) + _pst_amt2
+            mort_use = loan_use + _prem
+        else:
+            mort_use = loan_use
+        # Recompute payment
+        mr_use = _clamp_monthly_rate(float(_annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding)))
+        if mort_use > 0:
+            pmt_use = _mortgage_payment(float(mort_use), float(mr_use), int(nm))
+        else:
+            pmt_use = 0.0
+
+    # Add foreign buyer tax to closing costs
+    close_use += _fb_tax_amount
+
+    # FHSA tax savings reduce effective closing cost (treat as a credit at purchase)
+    close_use = max(0.0, close_use - fhsa_tax_saving)
+
+    # IRD prepayment penalty
+    ird_enabled = bool(cfg.get("ird_enabled", False))
+    prepayment_penalty_amount = 0.0
+    if ird_enabled and mort_use > 0:
+        _mort_term_months = _i(cfg.get("mortgage_term_months", 60), 60)
+        _sim_months = years * 12
+        if _sim_months < _mort_term_months:
+            _ird_comparison_rate = _f(cfg.get("ird_comparison_rate_pct", -1.0), -1.0)
+            _ird_rate_drop = _f(cfg.get("ird_rate_drop_pp", 1.5), 1.5)
+            if _ird_comparison_rate < 0:
+                _ird_comparison_rate = None
+            prepayment_penalty_amount = ird_penalty_for_simulation(
+                original_principal=mort_use,
+                contract_rate_pct=mort_rate_nominal_pct_use,
+                monthly_payment=pmt_use,
+                months_elapsed=_sim_months,
+                term_months=_mort_term_months,
+                comparison_rate_pct=_ird_comparison_rate,
+                rate_drop_pp=_ird_rate_drop,
+                canadian_compounding=bool(canadian_compounding),
+            )
+
+
     prop_tax_growth_model = str(cfg.get("prop_tax_growth_model", "Hybrid (recommended for Toronto)"))
     prop_tax_hybrid_addon_pct = _f(cfg.get("prop_tax_hybrid_addon_pct", 0.5), 0.5)
     investment_tax_mode = str(cfg.get("investment_tax_mode", "Pre-tax (no investment taxes)"))
@@ -2163,6 +2316,10 @@ def run_simulation_core(
                 reg_shelter_enabled=reg_shelter_enabled,
                 reg_initial_room=reg_initial_room,
                 reg_annual_room=reg_annual_room,
+                hbp_monthly_cost=hbp_monthly_cost,
+                hbp_repayment_start_month=hbp_repayment_start_month,
+                hbp_repayment_end_month=hbp_repayment_end_month,
+                prepayment_penalty_amount=prepayment_penalty_amount,
                 mc_seed=mc_seed,
                 progress_cb=progress_cb,
                 summary_only=bool(mc_summary_only),
@@ -2213,6 +2370,10 @@ def run_simulation_core(
                     reg_initial_room,
                     reg_annual_room,
                     is_principal_residence_cfg,
+                    hbp_monthly_cost,
+                    hbp_repayment_start_month,
+                    hbp_repayment_end_month,
+                    prepayment_penalty_amount,
                 )
 
                 if bool(show_liquidation_view):
@@ -2414,7 +2575,22 @@ def run_simulation_core(
             reg_initial_room,
             reg_annual_room,
             is_principal_residence_cfg,
+            hbp_monthly_cost,
+            hbp_repayment_start_month,
+            hbp_repayment_end_month,
+            prepayment_penalty_amount,
         )
+
+    # Attach Phase D metadata to df for UI consumption
+    try:
+        df.attrs["phase_d_foreign_buyer_tax"] = float(_fb_tax_amount)
+        df.attrs["phase_d_hbp_withdrawal"] = float(hbp_withdrawal)
+        df.attrs["phase_d_hbp_monthly_cost"] = float(hbp_monthly_cost)
+        df.attrs["phase_d_fhsa_supplement"] = float(fhsa_supplement)
+        df.attrs["phase_d_fhsa_tax_saving"] = float(fhsa_tax_saving)
+        df.attrs["phase_d_ird_penalty"] = float(prepayment_penalty_amount)
+    except Exception:
+        pass
 
     # PV series (discounted net worth delta)
     disc_annual = _f(cfg.get("discount_rate", 0.0), 0.0)
@@ -2521,6 +2697,10 @@ def simulate_single(
     reg_initial_room=0.0,
     reg_annual_room=0.0,
     is_principal_residence=True,
+    hbp_monthly_cost=0.0,
+    hbp_repayment_start_month=0,
+    hbp_repayment_end_month=0,
+    prepayment_penalty_amount=0.0,
 ):
     res = []
 
@@ -2652,8 +2832,17 @@ def simulate_single(
         if princ > c_mort:
             princ = c_mort
 
-        b_out = (pmt if c_mort > 0 else 0.0) + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special
-        b_op = inte + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special
+        # HBP repayment (monthly obligation within repayment window)
+        _hbp_repay = float(hbp_monthly_cost) if (
+            float(hbp_monthly_cost) > 0
+            and int(hbp_repayment_start_month) > 0
+            and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
+        ) else 0.0
+
+        b_out = (pmt if c_mort > 0 else 0.0) + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special + _hbp_repay
+        # IRD is a sale cost (not monthly cashflow); tracked separately for unrecoverable accounting.
+        _ird_cost = float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == years * 12) else 0.0
+        b_op = inte + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special + _hbp_repay + _ird_cost
 
         rent_paid = c_rent
         condo_paid = c_condo
@@ -2788,7 +2977,9 @@ def simulate_single(
 
         exit_cost = (c_home * sell_cost) if (assume_sale_end and m == years * 12) else 0.0
         exit_legal_fee = float(home_sale_legal_fee) if (assume_sale_end and m == years * 12 and home_sale_legal_fee is not None) else 0.0
-        b_val = (c_home - c_mort) + b_nw - float(close) - exit_cost - exit_legal_fee
+        # IRD prepayment penalty: deducted from equity at the terminal month (a sale cost).
+        _ird_deduct = _ird_cost if m == years * 12 else 0.0
+        b_val = (c_home - c_mort) + b_nw - float(close) - exit_cost - exit_legal_fee - _ird_deduct
 
         # Optional after-tax liquidation view at horizon
         b_liq = None

@@ -199,6 +199,87 @@ def b20_monthly_payment_at_qualifying_rate(
     return qual_rate, pmt_qual, pmt_contract
 
 
+def foreign_buyer_tax_rate(province: str, asof_date: dt.date | None = None) -> float:
+    """Additional property transfer tax rate for foreign/non-resident buyers.
+
+    BC: Additional Property Transfer Tax (APTT)
+      - 2016-08-02: introduced at 15%
+      - 2018-02-21: raised to 20%
+
+    Ontario: Non-Resident Speculation Tax (NRST)
+      - 2017-04-21: introduced at 15%
+      - 2022-03-30: raised to 20%
+      - 2023-03-29: raised to 25%
+
+    All other provinces: 0% (not modeled).
+
+    Args:
+        province: Province name (full name or two-letter code).
+        asof_date: The date for which to look up the rate (defaults to today).
+
+    Returns:
+        Tax rate as a decimal fraction (e.g., 0.20 for 20%).
+
+    Reference:
+        BC: https://www2.gov.bc.ca/gov/content/taxes/property-taxes/property-transfer-tax/additional-property-transfer-tax
+        ON: https://www.ontario.ca/page/non-resident-speculation-tax
+    """
+    d = _coerce_date(asof_date)
+    prov_raw = (province or "").strip().lower()
+    prov = {
+        "bc": "british columbia",
+        "on": "ontario",
+        "ab": "alberta",
+        "sk": "saskatchewan",
+        "mb": "manitoba",
+        "qc": "quebec",
+        "ns": "nova scotia",
+        "nb": "new brunswick",
+        "pe": "prince edward island",
+        "nl": "newfoundland and labrador",
+        "nt": "northwest territories",
+        "nu": "nunavut",
+        "yt": "yukon",
+    }.get(prov_raw, prov_raw)
+
+    if prov == "british columbia":
+        if d >= dt.date(2018, 2, 21):
+            return 0.20
+        if d >= dt.date(2016, 8, 2):
+            return 0.15
+        return 0.0
+
+    if prov == "ontario":
+        if d >= dt.date(2023, 3, 29):
+            return 0.25
+        if d >= dt.date(2022, 3, 30):
+            return 0.20
+        if d >= dt.date(2017, 4, 21):
+            return 0.15
+        return 0.0
+
+    return 0.0
+
+
+def foreign_buyer_tax_amount(price: float, province: str, asof_date: dt.date | None = None) -> float:
+    """Compute the foreign buyer additional tax on a purchase.
+
+    Args:
+        price: Purchase price in dollars.
+        province: Province name (full name or two-letter code).
+        asof_date: As-of date for the applicable rate.
+
+    Returns:
+        Tax amount in dollars.
+    """
+    try:
+        p = max(0.0, float(price))
+    except Exception:
+        p = 0.0
+    rate = foreign_buyer_tax_rate(province, asof_date)
+    return p * rate
+
+
 def mortgage_default_insurance_sales_tax_rate(province: str, asof_date: dt.date) -> float:
     """Provincial sales tax on mortgage default insurance premiums (cash due at closing).
 

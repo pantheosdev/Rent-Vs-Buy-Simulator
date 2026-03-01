@@ -1,4 +1,29 @@
 # Changelog
+## v2.94.0 — Phase D: Missing Financial Features
+
+### New Features
+
+- **Foreign buyer taxes** (`rbv/core/policy_canada.py`): Added `foreign_buyer_tax_rate()` and `foreign_buyer_tax_amount()` helpers modeling BC's Additional Property Transfer Tax (APTT, 20% as of 2018) and Ontario's Non-Resident Speculation Tax (NRST, 25% as of 2023). Full date-aware history from 2016 (BC) / 2017 (ON). UI: "Foreign / non-resident buyer" checkbox in the Taxes & Eligibility section; only shown when province is BC or Ontario. Tax is added to one-time closing costs in the engine.
+
+- **RRSP Home Buyers' Plan (HBP)** (`rbv/core/government_programs.py`): New module modeling the HBP withdrawal (up to $35k pre-2024-04-16, $60k post) applied toward the down payment, plus the 15-year repayment obligation (1/15th per year, 2-year grace period). Engine wires repayment as a monthly buyer cash outflow. UI: opt-in checkbox + withdrawal amount input with inline repayment hint.
+
+- **FHSA (First Home Savings Account)** (`rbv/core/government_programs.py`): Models tax-advantaged pre-purchase accumulation ($8k/yr, $40k lifetime, available since 2023-04-01). Balance (contributions + growth) added to down payment supplement; contribution tax deduction estimated as a credit at purchase. UI: opt-in checkbox + years contributed, annual contribution, return %, and marginal tax rate inputs.
+
+- **IRD mortgage prepayment penalty** (`rbv/core/mortgage.py`): Added `ird_prepayment_penalty()` and `ird_penalty_for_simulation()` implementing the Canadian standard: max(3 months' interest, IRD). IRD = remaining_balance × (contract_rate − comparison_rate) × remaining_term_years. Engine deducts the penalty from buyer equity at the terminal month when `years < mortgage_term`. UI: opt-in checkbox + term length + assumed rate-drop inputs.
+
+### Engine Changes
+
+- `rbv/core/engine.py`: All four Phase D features wired into `run_simulation_core()`. New cfg keys: `is_foreign_buyer`, `hbp_enabled`, `hbp_withdrawal`, `fhsa_enabled`, `fhsa_annual_contribution`, `fhsa_years_contributed`, `fhsa_return_pct`, `fhsa_marginal_tax_rate_pct`, `ird_enabled`, `mortgage_term_months`, `ird_rate_drop_pp`. Phase D metadata attached to `df.attrs` for UI consumption.
+- `simulate_single()` and `_run_monte_carlo_vectorized()`: Extended with `hbp_monthly_cost`, `hbp_repayment_start_month`, `hbp_repayment_end_month`, `prepayment_penalty_amount` optional parameters (all default to 0/0).
+
+### Tests
+
+- `tests/test_phase_d.py`: 49 new tests covering all four Phase D modules and engine integration.
+
+### Docs
+
+- `docs/ASSUMPTIONS.md`: Updated to remove HBP, FHSA, foreign buyer taxes, and mortgage prepayment penalties from the "Not Modeled" list.
+
 ## v2.93.10
 
 - UI: Surface **negative equity warning** in the results area when the buyer goes underwater during the simulation. Calls `detect_negative_equity(df)` and `format_underwater_warning()` from `rbv/core/equity_monitor.py` after `run_simulation_core()` returns. Displays a styled `⚠️` banner using the new `.rbv-warning-banner` CSS class (amber left-border accent on dark panel) added to `rbv/ui/theme.py`. Warning only appears when `has_negative_equity` is `True`.
