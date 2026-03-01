@@ -58,8 +58,9 @@ def detect_negative_equity(df: pd.DataFrame) -> dict[str, Any]:
         return result
 
     result["has_negative_equity"] = True
-    result["months_underwater"] = int(underwater_mask.sum())
-    result["pct_months_underwater"] = result["months_underwater"] / len(df)
+    months_underwater = int(underwater_mask.sum())
+    result["months_underwater"] = months_underwater
+    result["pct_months_underwater"] = months_underwater / len(df)
     result["max_negative_equity"] = float(equity[underwater_mask].min())
     result["underwater_at_horizon"] = bool(underwater_mask.iloc[-1])
 
