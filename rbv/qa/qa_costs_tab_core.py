@@ -11,7 +11,7 @@ _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from rbv.ui.costs_tab import build_costs_core, build_cost_mix_dataframe
+from rbv.ui.costs_tab import build_cost_mix_dataframe, build_costs_core
 
 
 def main(argv=None):

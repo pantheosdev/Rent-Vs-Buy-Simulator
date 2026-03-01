@@ -23,7 +23,6 @@ import time
 import urllib.request
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_DIR = ROOT / "tools" / "visual_regression" / "baseline"
 OUT_DIR = ROOT / "tools" / "visual_regression" / "output"
@@ -150,8 +149,8 @@ def _img_diff(a: Path, b: Path, out: Path) -> float:
 def _looks_blank_dark(path: Path) -> bool:
     """Heuristic: detect near-solid dark captures that usually indicate a bad snapshot."""
     try:
-        from PIL import Image  # type: ignore
         import numpy as np  # type: ignore
+        from PIL import Image  # type: ignore
     except Exception:
         return False
 
@@ -168,8 +167,8 @@ def _looks_blank_dark(path: Path) -> bool:
 def _is_suspicious_black_capture(path: Path) -> bool:
     """Broader guard for near-black captures (baseline or output)."""
     try:
-        from PIL import Image  # type: ignore
         import numpy as np  # type: ignore
+        from PIL import Image  # type: ignore
     except Exception:
         return False
 

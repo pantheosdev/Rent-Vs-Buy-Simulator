@@ -10,7 +10,7 @@ _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from rbv.core.validation import clamp_rate, clamp_positive, validate_simulation_params
+from rbv.core.validation import clamp_positive, clamp_rate, validate_simulation_params
 
 
 def _test_clamp_rate_normal_passthrough():

@@ -6,7 +6,7 @@ first-load defaults match the selected preset (single source of truth).
 
 from __future__ import annotations
 
-from typing import Dict, Any, MutableMapping, List
+from typing import Any, Dict, List, MutableMapping
 
 # Economic scenario presets (only includes parameters that should shift with the scenario).
 PRESETS: Dict[str, Dict[str, float]] = {

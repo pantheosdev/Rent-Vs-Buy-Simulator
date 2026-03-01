@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-
 # Ensure repo root is on sys.path regardless of where this script is invoked from.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -36,8 +35,8 @@ def _load_expected() -> Dict[str, Any]:
 
 
 def _compute_actual() -> Dict[str, Any]:
-    from rbv.ui.defaults import CITY_PRESETS, city_preset_identity, city_preset_patch_values
     from rbv.core.scenario_snapshots import canonicalize_jsonish
+    from rbv.ui.defaults import CITY_PRESETS, city_preset_identity, city_preset_patch_values
 
     out: Dict[str, Any] = {"schema": "rbv.city_presets_golden.v1", "presets": {}}
     for name in CITY_PRESETS.keys():

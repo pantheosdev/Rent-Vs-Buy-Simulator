@@ -6,6 +6,7 @@ exceeds the home value). They are designed to be called AFTER simulation,
 not during.
 """
 from __future__ import annotations
+
 from typing import Any
 
 import pandas as pd

@@ -42,9 +42,9 @@ import warnings as _warnings
 from typing import Iterable, List, Sequence
 
 from .policy_canada import (
+    insured_max_amortization_years,
     insured_mortgage_price_cap,
     min_down_payment_canada,
-    insured_max_amortization_years,
 )
 
 

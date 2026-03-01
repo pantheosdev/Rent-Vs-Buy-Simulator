@@ -151,8 +151,9 @@ def _cmhc_premium_rate(price: float, down: float) -> float:
 
     Updated 2025‑01 to reflect the Dec 2024 cap increase from $1,000,000 to $1,500,000.
     """
-    from rbv.core.policy_canada import insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
     import datetime as _dt
+
+    from rbv.core.policy_canada import cmhc_premium_rate_from_ltv, insured_mortgage_price_cap
     loan = max(float(price) - float(down), 0.0)
     ltv = (loan / float(price)) if float(price) > 0 else 0.0
     price_cap = insured_mortgage_price_cap(_dt.date.today())
@@ -172,8 +173,9 @@ def _pst_rate_for_prov(prov: str) -> float:
     the engine and regulatory policy.  Aligning the helper with the engine
     ensures that golden tests reflect the correct tax regime.
     """
-    from rbv.core.policy_canada import mortgage_default_insurance_sales_tax_rate
     import datetime as _dt
+
+    from rbv.core.policy_canada import mortgage_default_insurance_sales_tax_rate
     return float(mortgage_default_insurance_sales_tax_rate(str(prov or ""), _dt.date.today()))
 
 

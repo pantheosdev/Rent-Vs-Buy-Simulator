@@ -6,6 +6,7 @@ important context for users — the simulator assumes the buyer keeps paying
 even when underwater, which may not reflect real behavior.
 """
 from __future__ import annotations
+
 from typing import Any
 
 import numpy as np

@@ -17,8 +17,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Foreign Buyer Taxes
 # ---------------------------------------------------------------------------
-
-from rbv.core.policy_canada import foreign_buyer_tax_rate, foreign_buyer_tax_amount
+from rbv.core.policy_canada import foreign_buyer_tax_amount, foreign_buyer_tax_rate
 
 
 class TestForeignBuyerTax:
@@ -80,12 +79,12 @@ class TestForeignBuyerTax:
 # ---------------------------------------------------------------------------
 
 from rbv.core.government_programs import (
-    hbp_max_withdrawal,
+    HBP_GRACE_YEARS,
+    HBP_REPAYMENT_YEARS,
     hbp_annual_repayment,
+    hbp_max_withdrawal,
     hbp_monthly_repayment,
     hbp_repayment_monthly_schedule,
-    HBP_REPAYMENT_YEARS,
-    HBP_GRACE_YEARS,
 )
 
 
@@ -149,7 +148,7 @@ class TestHBP:
 # FHSA
 # ---------------------------------------------------------------------------
 
-from rbv.core.government_programs import fhsa_balance, fhsa_tax_savings, FHSA_START_DATE
+from rbv.core.government_programs import FHSA_START_DATE, fhsa_balance, fhsa_tax_savings
 
 
 class TestFHSA:
@@ -193,7 +192,7 @@ class TestFHSA:
 # IRD Mortgage Prepayment Penalty
 # ---------------------------------------------------------------------------
 
-from rbv.core.mortgage import ird_prepayment_penalty, ird_penalty_for_simulation
+from rbv.core.mortgage import ird_penalty_for_simulation, ird_prepayment_penalty
 
 
 class TestIRD:
@@ -256,7 +255,6 @@ class TestIRD:
 # ---------------------------------------------------------------------------
 
 from rbv.core.engine import run_simulation_core
-
 
 _BASE_CFG = {
     "years": 5,

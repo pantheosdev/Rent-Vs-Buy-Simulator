@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from rbv.ui.costs_utils import safe_numeric_series, has_finite_signal
+from rbv.ui.costs_utils import has_finite_signal, safe_numeric_series
 
 
 def build_costs_core(df: pd.DataFrame) -> dict:

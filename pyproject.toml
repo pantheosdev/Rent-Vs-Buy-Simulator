@@ -2,14 +2,39 @@
 line-length = 120
 
 [tool.ruff.lint]
-# Keep lint extremely lightweight to avoid noisy public CI.
-select = ["E9", "F63", "F7", "F82"]
+# Core error rules + whitespace + import-sort (auto-fixable, zero logic risk).
+# W191 (tab-indentation) is intentionally excluded: tabs in app.py are a pre-existing
+# legacy artifact that requires a separate cleanup pass.
+select = ["E9", "F63", "F7", "F82", "W291", "W292", "W293", "I001"]
+
+[tool.ruff.lint.per-file-ignores]
+# app.py has 36 tab-indented blocks inherited from the original monolith.
+# Fixing them touches rendering-critical indentation — deferred to architecture phase.
+"app.py" = ["W191", "W293"]
+# theme.py embeds large CSS/JS multi-line strings; whitespace inside strings is intentional.
+"rbv/ui/theme.py" = ["W293", "W291"]
 
 [tool.ruff.format]
 quote-style = "preserve"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["rbv"]
+omit = [
+    "rbv/ui/theme.py",
+    "rbv/qa/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
 
 [tool.mypy]
 python_version = "3.10"

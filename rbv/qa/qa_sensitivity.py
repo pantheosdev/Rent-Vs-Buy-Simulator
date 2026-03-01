@@ -25,10 +25,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 import copy
+import datetime
 import math
 import sys
-import datetime
-
 
 MONEY_EPS = 1.0          # $1 threshold for "changed"
 SMALL_EPS = 1e-6         # fallback for unitless values
