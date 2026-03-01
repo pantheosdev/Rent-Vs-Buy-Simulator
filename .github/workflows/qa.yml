@@ -41,6 +41,12 @@ jobs:
         run: |
           python -m pytest tests/ -v --tb=short --cov=rbv --cov-report=term-missing
 
+      - name: Run mypy type checking
+        continue-on-error: true
+        run: |
+          pip install mypy>=1.5
+          python -m mypy rbv/core/ rbv/qa/ --ignore-missing-imports
+
   vr_smoke:
     # Run a lightweight visual smoke only when explicitly requested.
     if: github.event_name == 'workflow_dispatch'
