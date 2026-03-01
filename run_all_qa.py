@@ -44,6 +44,8 @@ def _run_suite(name: str) -> int:
         from rbv.qa.qa_costs_tab_utils import main as _main
     elif name == "costs_core":
         from rbv.qa.qa_costs_tab_core import main as _main
+    elif name == "equity_monitor":
+        from rbv.qa.qa_equity_monitor import main as _main
     else:
         raise ValueError(f"Unknown suite: {name}")
 
@@ -70,7 +72,7 @@ def _run_suite(name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     _ensure_repo_root_on_syspath()
 
-    suites = ["smoke", "scenarios", "sensitivity", "golden", "city_presets", "truth_tables", "costs_utils", "costs_core"]
+    suites = ["smoke", "scenarios", "sensitivity", "golden", "city_presets", "truth_tables", "costs_utils", "costs_core", "equity_monitor"]
 
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("--list", action="store_true", help="List available suites and exit.")
