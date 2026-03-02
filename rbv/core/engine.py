@@ -1993,7 +1993,7 @@ def run_simulation_core(
             )
         try:
             from .purchase_derivations import derive_purchase_fields
-        
+
             _d = derive_purchase_fields(
                 dict(cfg, price=float(price_use), down=float(down_use)),
                 strict=False,
