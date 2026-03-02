@@ -1842,6 +1842,13 @@ def run_simulation_core(
     (used by bias flip-points and heatmaps) without mutating globals.
     """
 
+    # Headless-derived purchase metadata (non-UI callers missing cfg.mort/pst/close)
+    # Defaults are attached to df.attrs for observability.
+    _purchase_autoderived = False
+    _purchase_autoderived_pst = False
+    _purchase_autoderived_premium = 0.0
+    _purchase_autoderived_ltv = 0.0
+
     # Stable column names expected by the UI (keep consistent across MC pathways)
     _LIQ_B = "Buyer Liquidation NW"
     _LIQ_R = "Renter Liquidation NW"
@@ -1958,6 +1965,50 @@ def run_simulation_core(
     pst = _f(cfg.get("pst", 0.0), 0.0)
 
     nm = max(1, _i(cfg.get("nm", 1), 1))
+
+    # ---------------------------------------------------------------------
+    # Headless safety: derive missing purchase-time fields
+    # ---------------------------------------------------------------------
+    # The Streamlit UI pre-computes and passes derived purchase fields (mort/close/pst).
+    # Headless callers may omit them. If we run with mort=0 while price>down, the simulation
+    # becomes silently mortgage-free.
+    try:
+        _loan0 = max(float(price_use) - float(down_use), 0.0)
+        _ltv0 = (_loan0 / float(price_use)) if float(price_use) > 0 else 0.0
+        _purchase_autoderived_ltv = float(_ltv0)
+    except Exception:
+        _loan0 = 0.0
+        _purchase_autoderived_ltv = 0.0
+
+    if _loan0 > 0.0 and float(mort) <= 0.0:
+    # Avoid emitting warnings by default (tests/CI expect clean runs).
+    # Opt-in via cfg["warn_on_autoderive_purchase_fields"]=True if desired.
+        _warn_autoderive = bool(cfg.get("warn_on_autoderive_purchase_fields", False))
+        if _warn_autoderive:
+            _warnings.warn(
+            "Engine cfg missing 'mort' (mortgage principal) while price > down. "
+            "Auto-deriving purchase fields for headless callers. For full fidelity, "
+            "supply 'mort', 'close', and 'pst' (as the UI does).",
+            stacklevel=2,
+            )
+        try:
+            from .purchase_derivations import derive_purchase_fields
+
+            _d = derive_purchase_fields(
+                dict(cfg, price=float(price_use), down=float(down_use)),
+                strict=False,
+            )
+            mort = float(_d.mort)
+            _purchase_autoderived = True
+            _purchase_autoderived_premium = float(_d.premium)
+            if float(pst) <= 0.0 and float(_d.pst) > 0.0:
+                pst = float(_d.pst)
+                _purchase_autoderived_pst = True
+            if float(close) <= 0.0 and float(_d.close) > 0.0:
+                close = float(_d.close)
+        except Exception:
+            # Best-effort only. If derivation fails, proceed with original inputs.
+            pass
 
     # Apply override knobs
     rate_use = _f(_overrides.get("rate", rate), rate)
@@ -2602,6 +2653,12 @@ def run_simulation_core(
         df.attrs["phase_d_fhsa_supplement"] = float(fhsa_supplement)
         df.attrs["phase_d_fhsa_tax_saving"] = float(fhsa_tax_saving)
         df.attrs["phase_d_ird_penalty"] = float(prepayment_penalty_amount)
+
+        # Headless-derived purchase metadata (non-UI callers missing cfg.mort/pst/close)
+        df.attrs["purchase_autoderived"] = bool(_purchase_autoderived)
+        df.attrs["purchase_autoderived_pst"] = bool(_purchase_autoderived_pst)
+        df.attrs["purchase_autoderived_premium"] = float(_purchase_autoderived_premium)
+        df.attrs["purchase_autoderived_ltv"] = float(_purchase_autoderived_ltv)
     except Exception:
         pass
 

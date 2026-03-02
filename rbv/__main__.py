@@ -18,6 +18,7 @@ for all supported keys and their default values.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
 import sys
 from pathlib import Path
@@ -63,6 +64,15 @@ _DEFAULT_CFG: dict = {
     # Moving costs
     "moving_cost": 2000.0,
     "moving_freq": 5.0,
+
+    # Purchase / closing cost knobs (used by CLI derivations; UI already computes close/mort/pst)
+    "first_time": True,
+    "toronto": False,
+    "transfer_tax_override": 0.0,
+    "purchase_legal_fee": 1800.0,
+    "home_inspection": 500.0,
+    "other_closing_costs": 0.0,
+    "down_payment_source": "Traditional",
 }
 
 _DEFAULT_RUN: dict = {
@@ -80,12 +90,16 @@ _DEFAULT_RUN: dict = {
 
 def _build_example() -> dict:
     """Return a complete example scenario dict (cfg + run parameters merged)."""
+    cfg = _DEFAULT_CFG.copy()
+    # Policy-dependent rules (transfer taxes, insured premium PST) are date-sensitive.
+    # Pin an as-of date into the scenario file so results are auditable/reproducible.
+    cfg.setdefault("asof_date", _dt.date.today().isoformat())
     return {
         "_comment": (
             "RBV CLI scenario file. 'cfg' keys feed the engine directly; "
             "'run' keys are top-level simulation parameters."
         ),
-        "cfg": _DEFAULT_CFG.copy(),
+        "cfg": cfg,
         "run": _DEFAULT_RUN.copy(),
     }
 
@@ -181,12 +195,19 @@ def main(argv: list[str] | None = None) -> int:
     # Import engine (deferred so --example works without heavy deps installed)
     try:
         from rbv.core.engine import run_simulation_core
+        from rbv.core.purchase_derivations import enrich_cfg_with_purchase_derivations
     except ImportError as exc:
         print(f"Error importing engine: {exc}", file=sys.stderr)
         print("Ensure all dependencies are installed: pip install -r requirements.txt", file=sys.stderr)
         return 1
 
-    cfg = scenario["cfg"]
+    # The Streamlit UI pre-computes derived purchase fields and stores them in cfg.
+    # Headless callers often omit them; enrich missing fields to avoid silent mortgage-free runs.
+    try:
+        cfg = enrich_cfg_with_purchase_derivations(scenario["cfg"], strict=True)
+    except ValueError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 1
     run = scenario["run"]
 
     print(
@@ -217,12 +238,24 @@ def main(argv: list[str] | None = None) -> int:
         print("Error: simulation returned no data.", file=sys.stderr)
         return 1
 
+    # Engine returns cash-at-closing (down + closing). For CLI reporting, also expose
+    # closing costs excluding down for clarity.
+    try:
+        price_eff = float(cfg.get("price", 0.0) or 0.0)
+        down_eff = float(cfg.get("down", 0.0) or 0.0)
+        down_eff = max(0.0, min(down_eff, price_eff)) if price_eff > 0 else max(0.0, down_eff)
+    except Exception:
+        down_eff = float(cfg.get("down", 0.0) or 0.0)
+    close_only = (float(close_cash) - float(down_eff)) if close_cash is not None else None
+
     pmt_str = f"${monthly_pmt:,.2f}" if monthly_pmt is not None else "n/a"
-    close_str = f"${close_cash:,.2f}" if close_cash is not None else "n/a"
+    close_str = f"${close_only:,.2f}" if close_only is not None else "n/a"
+    cash_str = f"${close_cash:,.2f}" if close_cash is not None else "n/a"
     win_str = f"{win_pct:.1f}%" if win_pct is not None else "n/a"
     print(
         f"Complete. Monthly payment: {pmt_str}  |  "
-        f"Closing costs: {close_str}  |  "
+        f"Closing costs (excl. down): {close_str}  |  "
+        f"Cash at closing (down + closing): {cash_str}  |  "
         f"Buyer wins: {win_str}",
         file=sys.stderr,
     )
@@ -235,7 +268,8 @@ def main(argv: list[str] | None = None) -> int:
         summary = {
             "horizon_years": cfg["years"],
             "monthly_payment": round(monthly_pmt, 2) if monthly_pmt is not None else None,
-            "closing_costs": round(close_cash, 2) if close_cash is not None else None,
+            "closing_costs": round(close_only, 2) if close_only is not None else None,
+            "cash_at_closing": round(close_cash, 2) if close_cash is not None else None,
             "buyer_win_pct": round(win_pct, 2) if win_pct is not None else None,
             "final_buyer_net_worth": round(float(last[buyer_nw_col]), 2) if buyer_nw_col else None,
             "final_renter_net_worth": round(float(last[renter_nw_col]), 2) if renter_nw_col else None,
