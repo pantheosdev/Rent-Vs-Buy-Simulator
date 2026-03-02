@@ -1892,6 +1892,59 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
         pass
     close_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in close_rows)
 
+    # Assumptions/policy snapshot and compare-session summary (when present).
+    assumptions_rows = [
+        ("Tax rules as-of", state.get("tax_rules_asof", "—")),
+        ("Amortization", f"{int(state.get('amort'))} years" if str(state.get("amort", "")).isdigit() else "—"),
+        ("Province", state.get("province", "—")),
+        ("First-time buyer", "Yes" if bool(state.get("first_time", False)) else "No"),
+        ("Toronto municipal tax", "Yes" if bool(state.get("toronto", False)) else "No"),
+        ("Simulation mode", state.get("sim_mode", "—")),
+        ("Monte Carlo sims", state.get("num_sims", "—")),
+        ("MC randomize", "Yes" if bool(state.get("mc_randomize", False)) else "No"),
+        ("MC seed", state.get("mc_seed", "—")),
+        ("Budget mode", "Enabled" if bool(state.get("budget_enabled", False)) else "Disabled"),
+        ("Crisis mode", "Enabled" if bool(state.get("crisis_enabled", False)) else "Disabled"),
+    ]
+    assumptions_html = "".join(
+        f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>"
+        for k, v in assumptions_rows
+    )
+
+    compare_html = ""
+    try:
+        _cmp = st.session_state.get("_rbv_compare_last_export")
+        if isinstance(_cmp, dict):
+            _metrics_rows = list(_cmp.get("metrics_rows") or [])
+            _diff_rows = list(_cmp.get("state_diff_rows") or [])
+            _meta = dict(_cmp.get("meta") or {})
+            _rows = [
+                ("Compare metrics rows", len(_metrics_rows)),
+                ("Compare changed-input rows", len(_diff_rows)),
+                ("Scenario A hash", _meta.get("a_hash", "")),
+                ("Scenario B hash", _meta.get("b_hash", "")),
+            ]
+            compare_html = "".join(
+                f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>"
+                for k, v in _rows
+            )
+    except Exception:
+        compare_html = ""
+
+    # Simple sanity indicators for readability.
+    sanity_rows = []
+    try:
+        sanity_rows.append(("Winner at horizon", "Buy" if buyer_nw > renter_nw else ("Rent" if renter_nw > buyer_nw else "Tie")))
+        sanity_rows.append(("Absolute net-worth gap", _rbv_pdf_money(abs(buyer_nw - renter_nw))))
+        if "Buyer Net Worth" in df.columns and "Renter Net Worth" in df.columns:
+            _gap = (df["Buyer Net Worth"] - df["Renter Net Worth"]).astype(float)
+            _cross = _gap[_gap >= 0]
+            _first_cross_year = int(df.loc[_cross.index[0], "Year"]) if (len(_cross) > 0 and "Year" in df.columns) else None
+            sanity_rows.append(("First non-negative buyer gap year", _first_cross_year if _first_cross_year is not None else "Not reached"))
+    except Exception:
+        pass
+    sanity_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in sanity_rows)
+
     report_html = f"""
     <html>
       <head>
@@ -1926,6 +1979,15 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
 
         <h2>Closing-cost breakdown</h2>
         <table>{close_html or '<tr><td colspan="2">No closing-cost details available.</td></tr>'}</table>
+
+        <h2>Assumptions & policy snapshot</h2>
+        <table>{assumptions_html}</table>
+
+        <h2>Result sanity checks</h2>
+        <table>{sanity_html or '<tr><td colspan="2">No sanity indicators available.</td></tr>'}</table>
+
+        <h2>A/B compare summary</h2>
+        <table>{compare_html or '<tr><td colspan="2">No compare export available in this session.</td></tr>'}</table>
 
         <h2>Year-by-year outputs</h2>
         {timeseries_html or '<div class="muted">No timeline columns available in this run.</div>'}
