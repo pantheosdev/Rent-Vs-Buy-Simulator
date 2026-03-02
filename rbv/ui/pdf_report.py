@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import datetime
+import html
 import io
 from base64 import b64encode
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -74,6 +74,18 @@ def _fmt_pct(val: float | None, decimals: int = 1) -> str:
         return "—"
 
 
+def _fmt_input_pct(val: float | None, decimals: int = 2) -> str:
+    if val is None:
+        return "—"
+    try:
+        x = float(val)
+        if abs(x) <= 1.0:
+            x *= 100.0
+        return f"{x:.{decimals}f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _safe_last(df: pd.DataFrame, candidates: list[str], default: float = 0.0) -> float:
     for col in candidates:
         if col in df.columns:
@@ -99,14 +111,18 @@ def _time_axis_years(df: pd.DataFrame) -> pd.Series:
     return pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype="float64")
 
 
-def _fig_to_uri(fig: Any) -> str:
+def _fig_to_uri(fig: Any, plt_mod: Any) -> str:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
+    plt_mod.close(fig)
     return f"data:image/png;base64,{b64encode(buf.getvalue()).decode('utf-8')}"
 
 
 def _line_chart(df: pd.DataFrame, title: str, s1: pd.Series, s2: pd.Series, l1: str, l2: str) -> str:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return ""
     x = _time_axis_years(df)
     fig, ax = plt.subplots(figsize=(5.3, 2.5))
     ax.plot(x, s1, color="#1460a8", linewidth=1.8, label=l1)
@@ -116,41 +132,42 @@ def _line_chart(df: pd.DataFrame, title: str, s1: pd.Series, s2: pd.Series, l1: 
     ax.tick_params(labelsize=8)
     ax.set_xlabel("Years", fontsize=8)
     ax.legend(loc="best", fontsize=7)
-    return _fig_to_uri(fig)
+    return _fig_to_uri(fig, plt)
 
 
 def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
     fields = [
-        ("price", "Home price", "money"),
-        ("down", "Down payment", "money"),
-        ("rate", "Mortgage rate", "pct"),
-        ("rent", "Monthly rent", "money"),
-        ("years", "Horizon", "years"),
-        ("amort", "Amortization", "years"),
-        ("province", "Province", "text"),
-        ("property_tax_rate_annual", "Property tax", "pct"),
-        ("maintenance_rate_annual", "Maintenance", "pct"),
-        ("repair_rate_annual", "Repairs", "pct"),
-        ("selling_cost_pct", "Selling costs", "pct"),
-        ("condo_fee_monthly", "Condo fees", "money"),
-        ("home_insurance_monthly", "Home insurance", "money"),
-        ("rent_insurance_monthly", "Renter insurance", "money"),
-        ("rent_inflation_rate_annual", "Rent inflation", "pct"),
-        ("general_inflation_rate_annual", "General inflation", "pct"),
+        (("price",), "Home price", "money"),
+        (("down",), "Down payment", "money"),
+        (("rate",), "Mortgage rate", "pct"),
+        (("rent",), "Monthly rent", "money"),
+        (("years",), "Horizon", "years"),
+        (("amort",), "Amortization", "years"),
+        (("province",), "Province", "text"),
+        (("sell_cost_pct", "selling_cost_pct"), "Selling costs", "pct"),
+        (("p_tax_rate_pct", "property_tax_rate_annual"), "Property tax", "pct"),
+        (("maint_rate_pct", "maintenance_rate_annual"), "Maintenance", "pct"),
+        (("repair_rate_pct", "repair_rate_annual"), "Repairs", "pct"),
+        (("condo_fees", "condo_fee_monthly"), "Condo fees", "money"),
+        (("home_ins", "home_insurance_monthly"), "Home insurance", "money"),
+        (("renter_ins", "rent_insurance_monthly"), "Renter insurance", "money"),
+        (("rent_inf", "rent_inflation_rate_annual"), "Rent inflation", "pct"),
+        (("general_inf", "general_inflation_rate_annual"), "General inflation", "pct"),
     ]
     rows: list[tuple[str, str]] = []
-    for key, label, kind in fields:
-        if key not in cfg or cfg.get(key) is None:
+    for keys, label, kind in fields:
+        key = next((k for k in keys if k in cfg and cfg.get(k) is not None), None)
+        if key is None:
             continue
         val = cfg.get(key)
         if kind == "money":
             disp = _fmt_currency(float(val))
         elif kind == "pct":
-            disp = _fmt_pct(float(val))
+            disp = _fmt_input_pct(float(val))
         elif kind == "years":
             disp = f"{int(float(val))} years"
         else:
-            disp = str(val)
+            disp = html.escape(str(val))
         rows.append((label, disp))
     return rows
 
@@ -168,6 +185,9 @@ def build_pdf_report(
     scenario_name: str = "Custom Scenario",
     bias_result: dict[str, Any] | None = None,
 ) -> bytes:
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        raise RuntimeError("PDF export requires a non-empty simulation dataframe.")
+
     try:
         from weasyprint import CSS, HTML
     except ImportError as exc:
@@ -176,7 +196,7 @@ def build_pdf_report(
     price = float(cfg.get("price", 0.0) or 0.0)
     down = float(cfg.get("down", 0.0) or 0.0)
     years = int(float(cfg.get("years", 25) or 25))
-    province = cfg.get("province", "—")
+    province = html.escape(str(cfg.get("province", "—")))
 
     buyer_nw = _safe_last(df, ["Buyer Net Worth", "Buyer NW", "buyer_nw"])
     renter_nw = _safe_last(df, ["Renter Net Worth", "Renter NW", "renter_nw"])
@@ -225,7 +245,7 @@ def build_pdf_report(
         f"<td style='font-weight:600;color:{'#1a8a2e' if float(m['buyer_nw']) >= float(m['renter_nw']) else '#c0392b'}'>{_fmt_currency(float(m['buyer_nw']) - float(m['renter_nw']))}</td>"
         f"<td>{_fmt_currency(float(m['buyer_unrec']))}</td><td>{_fmt_currency(float(m['renter_unrec']))}</td></tr>"
         for m in milestones
-    )
+    ) or "<tr><td colspan='7'>No milestone data available for this run.</td></tr>"
 
     win_display = _fmt_pct(win_pct) if win_pct is not None else "Deterministic"
     delta_cls = "positive" if delta > 0 else ("negative" if delta < 0 else "neutral")
@@ -233,21 +253,24 @@ def build_pdf_report(
 
     input_rows = _compact_input_rows(cfg)
     input_html = "".join(
-        f"<div class='param-row'><span class='param-label'>{k}</span><span class='param-value'>{v}</span></div>"
+        f"<div class='param-row'><span class='param-label'>{html.escape(k)}</span><span class='param-value'>{v}</span></div>"
         for k, v in input_rows
     )
 
     bias_html = ""
     if isinstance(bias_result, dict) and bias_result:
+        adv_flips = bias_result.get("adv_flips") if isinstance(bias_result.get("adv_flips"), dict) else {}
         bias_values = [
-            ("Current net-worth gap", _fmt_currency(float(bias_result.get("base_val", 0.0)))),
+            ("Current net-worth gap", _fmt_currency(float(bias_result.get("base_val", 0.0) or 0.0))),
             ("Flip rent", _fmt_currency(bias_result.get("flip_rent"))),
-            ("Flip appreciation", _fmt_pct(bias_result.get("flip_app"))),
-            ("Flip mortgage rate", _fmt_pct(bias_result.get("flip_rate"))),
-            ("Flip renter return", _fmt_pct(bias_result.get("flip_renter_ret"))),
+            ("Flip appreciation", _fmt_input_pct(bias_result.get("flip_app"))),
+            ("Flip mortgage rate", _fmt_input_pct(bias_result.get("flip_rate"))),
+            ("Flip renter return", _fmt_input_pct(bias_result.get("flip_renter_ret"))),
         ]
+        for k, v in list(adv_flips.items())[:4]:
+            bias_values.append((f"Flip {k}", _fmt_input_pct(v) if "rate" in str(k).lower() or "pct" in str(k).lower() else _fmt_currency(v)))
         cards = "".join(
-            f"<div class='kpi-card'><div class='kpi-label'>{k}</div><div class='kpi-value neutral'>{v}</div></div>"
+            f"<div class='kpi-card'><div class='kpi-label'>{html.escape(k)}</div><div class='kpi-value neutral'>{html.escape(v)}</div></div>"
             for k, v in bias_values
         )
         bias_html = (
@@ -257,9 +280,9 @@ def build_pdf_report(
         )
 
     html_content = f"""<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Rent vs Buy Analysis</title></head><body>
-<div class='report-header'><div class='report-title'>Rent vs Buy Analysis</div><div class='report-subtitle'>{scenario_name} · {province} · {years}-Year Horizon</div><div class='report-date'>Generated: {now}</div></div>
+<div class='report-header'><div class='report-title'>Rent vs Buy Analysis</div><div class='report-subtitle'>{html.escape(str(scenario_name))} · {province} · {years}-Year Horizon</div><div class='report-date'>Generated: {now}</div></div>
 <p class='disclaimer'>Educational purposes only. Not financial, legal, or tax advice. Results depend on assumptions and will vary.</p>
-<div class='verdict-box {verdict_cls}'>{verdict_text}</div>
+<div class='verdict-box {verdict_cls}'>{html.escape(verdict_text)}</div>
 
 <h2>Key Results</h2>
 <div class='kpi-grid'>
@@ -275,8 +298,8 @@ def build_pdf_report(
 
 <h2>Trends & Milestones</h2>
 <div class='chart-grid'>
-<div class='chart-card'><div class='chart-title'>Net worth trajectory</div><img src='{nw_chart}' alt='Net worth chart' /></div>
-<div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div><img src='{unrec_chart}' alt='Costs chart' /></div>
+<div class='chart-card'><div class='chart-title'>Net worth trajectory</div>{(f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
+<div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div>{(f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
 </div>
 <table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>
 
@@ -284,9 +307,9 @@ def build_pdf_report(
 <div class='params-grid'>{input_html}
 <div class='param-row'><span class='param-label'>Down Payment Share</span><span class='param-value'>{_fmt_pct((down / price * 100.0) if price else None)}</span></div>
 <div class='param-row'><span class='param-label'>Cash to Close</span><span class='param-value'>{_fmt_currency(close_cash)}</span></div>
-<div class='param-row'><span class='param-label'>Buyer Return</span><span class='param-value'>{_fmt_pct(buyer_ret_pct)}/yr</span></div>
-<div class='param-row'><span class='param-label'>Renter Return</span><span class='param-value'>{_fmt_pct(renter_ret_pct)}/yr</span></div>
-<div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_pct(apprec_pct)}/yr</span></div>
+<div class='param-row'><span class='param-label'>Buyer Return</span><span class='param-value'>{_fmt_input_pct(buyer_ret_pct)}/yr</span></div>
+<div class='param-row'><span class='param-label'>Renter Return</span><span class='param-value'>{_fmt_input_pct(renter_ret_pct)}/yr</span></div>
+<div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_input_pct(apprec_pct)}/yr</span></div>
 </div>
 
 {bias_html}
