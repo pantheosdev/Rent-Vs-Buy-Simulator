@@ -93,16 +93,19 @@ body, .stMarkdown, .stText, .stCaption, .stDataFrame, .stTable{
 }
 
 .rbv-label-row{
-  display:flex; align-items:center; justify-content:space-between;
-  gap:10px; margin: 10px 0 6px 0;
-  min-height: 20px;
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:10px; margin: 12px 0 8px 0;
+  min-height: 24px;
   overflow: visible;
 }
 .rbv-label-text{
   font-weight: 500;
   font-size: 0.95rem;
   color: var(--rbv-text-2);
-  line-height: 1.2;
+  line-height: 1.35;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 8px;
 }
 .rbv-help{ position:relative; display:inline-flex; align-items:center; justify-content:center; overflow: visible; z-index: 1000000; }
 .rbv-help:hover{ z-index: 1000001; }
@@ -416,7 +419,7 @@ div[data-baseweb="popover"] div[role="tooltip"] p{
   font-weight: 800;
   letter-spacing: 0.02em;
   font-size: 0.82rem;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 999px;
   background: rgba(230,184,0,0.12);
   border: 1px solid rgba(230,184,0,0.35);
@@ -736,6 +739,16 @@ div[data-baseweb="popover"] * {
         font-size: 0.86rem;
         line-height: 1.35;
         margin: 6px 0 2px 0;
+    }
+    .rbv-warning-banner{
+        background: var(--rbv-panel, #1a1f2e);
+        border-left: 4px solid #F59E0B;
+        border-radius: 0 6px 6px 0;
+        padding: 0.6rem 0.85rem;
+        margin: 0.5rem 0;
+        font-size: 0.82rem;
+        color: var(--rbv-text-muted, #94a3b8);
+        line-height: 1.5;
     }
     .rbv-pill-row{
         display:flex;
@@ -1079,6 +1092,7 @@ div[data-testid="stTabs"]{
         font-size: 13px;
     }
     .fin-table thead th{
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.10);
         position: sticky;
         top: 0;
         z-index: 2;
@@ -1308,11 +1322,16 @@ div[data-testid="stNumberInput"] input{
 .kpi-card:before{
   content:"";
   position:absolute;
-  left:0; top:0;
-  height:4px; width:100%;
-  background: linear-gradient(90deg, var(--accent, rgba(255,255,255,0.32)), rgba(255,255,255,0.20));
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
+  left:1px; right:1px; top:1px;
+  height:3px;
+  /* Keep accent fully integrated with card edge; avoid transparent tail artifacts. */
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent, rgba(255,255,255,0.36)) 92%, transparent) 0%,
+    color-mix(in srgb, var(--accent, rgba(255,255,255,0.36)) 80%, rgba(255,255,255,0.10)) 58%,
+    color-mix(in srgb, var(--accent, rgba(255,255,255,0.36)) 92%, transparent) 100%);
+  border-top-left-radius: calc(var(--rbv-radius-md) - 2px);
+  border-top-right-radius: calc(var(--rbv-radius-md) - 2px);
+  opacity: 0.95;
 }
 .kpi-card.kpi-neutral:before{
   display:none;
@@ -1385,7 +1404,7 @@ section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] button div{
   letter-spacing:0.045em;
   padding:10px 12px;
   border-radius:14px;
-  margin:10px 0 14px 0;
+  margin:14px 0 18px 0;
   text-transform:none;
   border:1px solid rgba(255,255,255,0.16);
   background:linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
@@ -1394,14 +1413,18 @@ section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] button div{
 .kpi-section-title.buy-title{
   color: var(--buy, #2F8BFF);
   border-color: var(--buy-border, rgba(47,139,255,0.42));
-  background: rgba(47,139,255,0.10);
-  box-shadow:none;
+  background:
+    linear-gradient(180deg, rgba(47,139,255,0.16) 0%, rgba(47,139,255,0.08) 100%),
+    linear-gradient(90deg, rgba(47,139,255,0.36) 0%, rgba(47,139,255,0.18) 52%, rgba(47,139,255,0.30) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .kpi-section-title.rent-title{
   color: var(--rent, #E6B800);
   border-color: var(--rent-border, rgba(230,184,0,0.42));
-  background: rgba(230,184,0,0.10);
-  box-shadow:none;
+  background:
+    linear-gradient(180deg, rgba(230,184,0,0.16) 0%, rgba(230,184,0,0.08) 100%),
+    linear-gradient(90deg, rgba(230,184,0,0.36) 0%, rgba(230,184,0,0.18) 52%, rgba(230,184,0,0.30) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .kpi-title{display:flex; align-items:center; gap:8px;}
 
@@ -2167,8 +2190,9 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
 /* v2.14: Neutral dark theme + softer buy/rent accents */
 .verdict-banner{
   margin-bottom: 16px !important;
-  background: var(--badge-bg) !important;
-  border: 1px solid var(--badge-color) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--badge-bg) 92%, rgba(255,255,255,0.05)) 0%, var(--badge-bg) 100%) !important;
+  border: 1px solid color-mix(in srgb, var(--badge-color) 70%, rgba(255,255,255,0.14)) !important;
   border-radius: 16px !important;
   padding: 16px 16px !important;
   text-align: center !important;
@@ -2176,8 +2200,11 @@ div[data-testid="stTooltipContent"] div[role="tooltip"]{
   font-size: 32px !important;
   letter-spacing: 0.2px !important;
   line-height: 1.10 !important;
-  box-shadow: 0 12px 26px rgba(0,0,0,0.42) !important;
+  box-shadow: 0 12px 26px rgba(0,0,0,0.42) !important, inset 0 1px 0 rgba(255,255,255,0.08) !important;
+  position: relative !important;
+  overflow: hidden !important;
 }
+.verdict-banner::before{ display: none !important; }
 .verdict-banner, .verdict-banner *{
   color: var(--badge-color) !important;
 }
@@ -2897,14 +2924,14 @@ div[data-testid="stProgress"] div[role="progressbar"] > div{
 .rbv-input-panel div[data-testid="stSlider"],
 .rbv-input-panel div[data-testid="stCheckbox"],
 .rbv-input-panel div[data-testid="stRadio"]{
-  margin-top: 0.15rem !important;
-  margin-bottom: 0.15rem !important;
+  margin-top: 0.28rem !important;
+  margin-bottom: 0.35rem !important;
 }
 
 
 /* --- Micro group separators inside input panels (premium density without changing inputs) --- */
 .rbv-input-subhead{
-  margin: 4px 2px 6px 2px;
+  margin: 10px 2px 10px 2px;
   padding: 6px 10px;
   border-radius: 14px;
   background: rgba(255,255,255,0.03);
@@ -3591,6 +3618,8 @@ h1{ font-size: clamp(1.65rem, 2.7vw, 2.15rem) !important; margin-bottom: 18px !i
   border: 1px solid rgba(255,255,255,0.13) !important;
   box-shadow: 0 14px 30px rgba(0,0,0,0.30) !important;
   border-radius: var(--rbv-radius-md) !important;
+  overflow: hidden !important; /* hide corner seams between sticky col/header and wrapper */
+  isolation: isolate !important;
 }
 
 /* Inputs were visually flat; add clear focus and hover affordances. */
@@ -3902,10 +3931,10 @@ def _apply_palette(css: str, buy_color: str, rent_color: str) -> str:
 def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_COLOR) -> None:
     """Inject the RBV global stylesheet.
 
-    Phase 1 performance hardening:
-    - Avoid reinjecting identical CSS on every rerun (reduces style recalculation churn).
-    - Periodically refresh the style block as a safety net for rare DOM rebuilds that can
-      drop previously injected tags during Streamlit reruns.
+    IMPORTANT STABILITY NOTE:
+    Streamlit reruns (especially after dynamic sidebar toggles) can recreate parts of the
+    page DOM and drop previously injected <style> tags. We therefore inject CSS on every
+    rerun for deterministic formatting stability.
     """
 
     css = _dynamic_palette_vars_css(buy_color, rent_color) + _apply_palette(
@@ -3914,24 +3943,14 @@ def inject_global_css(st, *, buy_color: str = BUY_COLOR, rent_color: str = RENT_
         rent_color,
     )
 
+    # Keep a hash in session_state for diagnostics/inspection, but do not gate injection.
     css_hash = hashlib.sha256(css.encode("utf-8")).hexdigest()
-    state = st.session_state
-    counter_key = "_rbv_css_inject_counter"
-    hash_key = "_rbv_css_last_hash"
-    state[counter_key] = int(state.get(counter_key, 0)) + 1
+    st.session_state["_rbv_css_last_hash"] = css_hash
 
-    should_inject = (
-        state.get(hash_key) != css_hash
-        or state[counter_key] <= 2
-        or (state[counter_key] % 25 == 0)
+    st.markdown(
+        "<style id=\"rbv-global-css\">\n" + css + "\n</style>",
+        unsafe_allow_html=True,
     )
-
-    if should_inject:
-        st.markdown(
-            "<style id=\"rbv-global-css\">\n" + css + "\n</style>",
-            unsafe_allow_html=True,
-        )
-        state[hash_key] = css_hash
 
 
 # Backwards-compatible alias (older app.py variants called this)

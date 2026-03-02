@@ -1,4 +1,41 @@
 # Changelog
+## v2.94.0 — Phase D: Missing Financial Features
+
+### New Features
+
+- **Foreign buyer taxes** (`rbv/core/policy_canada.py`): Added `foreign_buyer_tax_rate()` and `foreign_buyer_tax_amount()` helpers modeling BC's Additional Property Transfer Tax (APTT, 20% as of 2018) and Ontario's Non-Resident Speculation Tax (NRST, 25% as of 2023). Full date-aware history from 2016 (BC) / 2017 (ON). UI: "Foreign / non-resident buyer" checkbox in the Taxes & Eligibility section; only shown when province is BC or Ontario. Tax is added to one-time closing costs in the engine.
+
+- **RRSP Home Buyers' Plan (HBP)** (`rbv/core/government_programs.py`): New module modeling the HBP withdrawal (up to $35k pre-2024-04-16, $60k post) applied toward the down payment, plus the 15-year repayment obligation (1/15th per year, 2-year grace period). Engine wires repayment as a monthly buyer cash outflow. UI: opt-in checkbox + withdrawal amount input with inline repayment hint.
+
+- **FHSA (First Home Savings Account)** (`rbv/core/government_programs.py`): Models tax-advantaged pre-purchase accumulation ($8k/yr, $40k lifetime, available since 2023-04-01). Balance (contributions + growth) added to down payment supplement; contribution tax deduction estimated as a credit at purchase. UI: opt-in checkbox + years contributed, annual contribution, return %, and marginal tax rate inputs.
+
+- **IRD mortgage prepayment penalty** (`rbv/core/mortgage.py`): Added `ird_prepayment_penalty()` and `ird_penalty_for_simulation()` implementing the Canadian standard: max(3 months' interest, IRD). IRD = remaining_balance × (contract_rate − comparison_rate) × remaining_term_years. Engine deducts the penalty from buyer equity at the terminal month when `years < mortgage_term`. UI: opt-in checkbox + term length + assumed rate-drop inputs.
+
+### Engine Changes
+
+- `rbv/core/engine.py`: All four Phase D features wired into `run_simulation_core()`. New cfg keys: `is_foreign_buyer`, `hbp_enabled`, `hbp_withdrawal`, `fhsa_enabled`, `fhsa_annual_contribution`, `fhsa_years_contributed`, `fhsa_return_pct`, `fhsa_marginal_tax_rate_pct`, `ird_enabled`, `mortgage_term_months`, `ird_rate_drop_pp`. Phase D metadata attached to `df.attrs` for UI consumption.
+- `simulate_single()` and `_run_monte_carlo_vectorized()`: Extended with `hbp_monthly_cost`, `hbp_repayment_start_month`, `hbp_repayment_end_month`, `prepayment_penalty_amount` optional parameters (all default to 0/0).
+
+### Tests
+
+- `tests/test_phase_d.py`: 49 new tests covering all four Phase D modules and engine integration.
+
+### Docs
+
+- `docs/ASSUMPTIONS.md`: Updated to remove HBP, FHSA, foreign buyer taxes, and mortgage prepayment penalties from the "Not Modeled" list.
+
+## v2.93.10
+
+- UI: Surface **negative equity warning** in the results area when the buyer goes underwater during the simulation. Calls `detect_negative_equity(df)` and `format_underwater_warning()` from `rbv/core/equity_monitor.py` after `run_simulation_core()` returns. Displays a styled `⚠️` banner using the new `.rbv-warning-banner` CSS class (amber left-border accent on dark panel) added to `rbv/ui/theme.py`. Warning only appears when `has_negative_equity` is `True`.
+
+## v2.93.9
+
+- UI: Restyled **OSFI B-20 qualifying rate** display to match the premium dark fintech theme. Replaced the out-of-place `st.info()` blue box with a compact, muted hint line (same `.rbv-hint` pattern as the "≈ x% down" annotation) placed directly below the mortgage rate input. Now shows qualifying rate and payment comparison (`$X,XXX/mo at qualifying rate vs $X,XXX/mo contract`). Added a ℹ️ tooltip (using the app's standard `rbv_help_html` system) with the full B-20 rule explanation. Added `"B-20 Qualifying Rate"` entry to `RBV_SIDEBAR_TOOLTIPS`.
+
+## v2.93.8
+
+- UI: Display **OSFI B-20 stress test qualifying rate** in the sidebar next to the mortgage rate input. The qualifying rate updates dynamically as the user adjusts their contract rate and is informational only (does not gate the simulation). Formula: `max(contract_rate + 2%, 5.25%)`.
+
 ## v2.93.7
 
 - PR7: Added **New construction** toggle and simplified **net GST/HST** estimate (with manual override field) for cash-to-close planning.
@@ -33,6 +70,19 @@
 - UX: Add an itemized **Cash to Close** breakdown (down payment, transfer tax, legal/closing, inspection, other closing costs, PST on CMHC premium where applicable).
 - UX: Surface province transfer-tax notes (e.g., BC FTHB exemption) alongside the breakdown for easier verification.
 
+## v2.93.2
+
+_(no changelog entry — internal patch)_
+
+## v2.93.1
+
+_(no changelog entry — internal patch)_
+
+## v2.93.0
+
+- Buying inputs: add an explicit **Province** selector (drives land transfer / welcome tax rules).
+- Guardrail: **Toronto MLTT** toggle now only appears for Ontario; it is auto-cleared when switching provinces.
+- QA: add cross-province transfer-tax reference anchors (ON/BC/MB/AB) to truth tables.
 
 ## v2.92.10
 
@@ -40,12 +90,6 @@
 - Heatmap: add base-case marker and improve colorbar labeling for clarity.
 - Tooltips (mobile): add horizontal auto-flip and overflow hardening to prevent clipping.
 - Sidebar: reduce overwhelm by collapsing Economic Scenario by default and clarifying Expert-mode lock wording.
-
-## v2.93.0
-
-- Buying inputs: add an explicit **Province** selector (drives land transfer / welcome tax rules).
-- Guardrail: **Toronto MLTT** toggle now only appears for Ontario; it is auto-cleared when switching provinces.
-- QA: add cross-province transfer-tax reference anchors (ON/BC/MB/AB) to truth tables.
 
 ## v2.92.9
 

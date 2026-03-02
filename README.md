@@ -1,3 +1,7 @@
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-rent--vs--buy--canada.streamlit.app-14D8FF?style=for-the-badge)](https://rent-vs-buy-canada.streamlit.app/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 # Rent vs Buy Simulator (Canada-focused)
 
 A Streamlit-based **Rent vs Buy** financial simulator with a premium dark fintech UI and both deterministic + Monte Carlo analysis.
@@ -25,10 +29,30 @@ The **Taxes & Cash-out** panel includes an **Expert mode** switch. When off (def
 pip install -r requirements.txt
 ```
 
+For reproducible builds (CI / production):
+```bash
+pip install -r requirements.lock
+```
+
 ### 2) Run
 ```bash
 streamlit run app.py
 ```
+
+## Docker
+
+Build and run with Docker:
+```bash
+docker build -t rbv-simulator .
+docker run -p 8501:8501 rbv-simulator
+```
+
+Or use Docker Compose:
+```bash
+docker-compose up
+```
+
+Then open http://localhost:8501.
 
 ## QA
 Run the full QA suite:
@@ -87,32 +111,30 @@ See `docs/RELEASE_CHECKLIST.md` for the full checklist (preflight, baselines, ta
 - `scripts/preflight.py`: repo sanity + QA checks before pushing
 
 
-## Demo & screenshots (recommended for public launch)
-Add media under `docs/media/` and update this section.
+## Screenshots
 
-- `docs/media/demo.gif` (10–15s: toggle volatility → compute → show MC band)
-- `docs/media/main.png` (main inputs)
-- `docs/media/mc.png` (Monte Carlo net worth chart + band)
-- `docs/media/sidebar.png` (sidebar settings)
+> **Note:** Screenshots are captured from the live app. To update, run the Playwright snapshot harness:
+> `python tools/visual_regression/vr_playwright.py --smoke`
 
-```text
-docs/
-  media/
-    demo.gif
-    main.png
-    mc.png
-    sidebar.png
-```
+### Main Interface
+The dark fintech-themed interface with all core inputs visible:
 
-Once added, you can embed them like:
+![Main Interface](docs/media/main.png)
 
-```md
-![Demo](docs/media/demo.gif)
+### Monte Carlo Analysis  
+Net worth trajectories with confidence bands from correlated Monte Carlo simulation:
 
-![Main](docs/media/main.png)
-![Monte Carlo](docs/media/mc.png)
+![Monte Carlo Chart](docs/media/mc.png)
+
+### Sensitivity Heatmap
+Dual-axis parameter sweep showing buy vs rent outcomes across different scenarios:
+
+![Heatmap](docs/media/heatmap.png)
+
+### Sidebar Settings
+Advanced configuration including province selection, mortgage parameters, and economic assumptions:
+
 ![Sidebar](docs/media/sidebar.png)
-```
 
 ## License
 MIT — see `LICENSE`.

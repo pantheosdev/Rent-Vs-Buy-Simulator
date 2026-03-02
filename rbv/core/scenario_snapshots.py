@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import csv
 import datetime as _dt
 import hashlib
 import io
 import json
 import math
+from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 try:  # optional, keep module usable without numpy at import time
-    import numpy as _np  # type: ignore
+    import numpy as _np  # type: ignore[import]
 except Exception:  # pragma: no cover
-    _np = None
+    _np = None  # type: ignore[assignment]
 
 SCENARIO_CONFIG_SCHEMA = "rbv.scenario_config.v1"
 SCENARIO_SNAPSHOT_SCHEMA = "rbv.scenario_snapshot.v1"
@@ -114,7 +114,7 @@ class ScenarioConfig:
 
     @property
     def canonical_state(self) -> dict[str, Any]:
-        return canonicalize_jsonish(self.state)
+        return canonicalize_jsonish(self.state)  # type: ignore[no-any-return]
 
     def canonical_json(self) -> str:
         return json.dumps(self.canonical_state, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -200,7 +200,7 @@ class ScenarioSnapshot:
             app=str(obj.get("app") or "Rent vs Buy Simulator"),
             version=(None if obj.get("version") is None else str(obj.get("version"))),
             exported_at=str(obj.get("exported_at") or _dt.datetime.now().isoformat(timespec="seconds")),
-            meta=(dict(obj.get("meta")) if isinstance(obj.get("meta"), dict) else {}),
+            meta=(dict(obj.get("meta")) if isinstance(obj.get("meta"), dict) else {}),  # type: ignore[arg-type]
             schema=str(obj.get("schema") or SCENARIO_SNAPSHOT_SCHEMA),
         )
 
@@ -445,7 +445,7 @@ def build_compare_export_payload(
     def _snap_meta(payload: dict[str, Any] | None) -> dict[str, Any]:
         try:
             _state, _meta = parse_scenario_payload(payload or {})
-            return canonicalize_jsonish(_meta) if isinstance(_meta, dict) else {}
+            return canonicalize_jsonish(_meta) if isinstance(_meta, dict) else {}  # type: ignore[no-any-return]
         except Exception:
             return {}
 

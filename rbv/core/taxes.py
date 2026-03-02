@@ -1,8 +1,7 @@
-# Auto-extracted from v167_public_baseline_hotfix4.py
+"""Canadian transfer tax and closing-cost utilities."""
 
-import math
 import datetime
-
+import math
 
 # Policy freshness marker (used by CI reminder workflows)
 TAX_RULES_LAST_REVIEWED = datetime.date(2026, 2, 22)
@@ -51,7 +50,7 @@ def _safe_float(value: float | int | str | None, default: float = 0.0) -> float:
     contaminating downstream totals with NaN.
     """
     try:
-        x = float(value)
+        x = float(value)  # type: ignore[arg-type]
     except Exception:
         return float(default)
     return x if math.isfinite(x) else float(default)
@@ -523,6 +522,3 @@ def calc_transfer_tax(
 
     total = prov + muni
     return {"prov": prov, "muni": muni, "total": total, "note": note}
-
-
-# --- v113: RESTORE DARK INPUTS (surgical; does not touch tooltips) ---
