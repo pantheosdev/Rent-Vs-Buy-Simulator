@@ -1715,6 +1715,240 @@ def _rbv_build_results_bundle_bytes(df: pd.DataFrame, close_cash=None, m_pmt=Non
 
     return buf.getvalue()
 
+
+def _rbv_pdf_money(v) -> str:
+    try:
+        x = float(v)
+        return f"${x:,.0f}"
+    except Exception:
+        return "—"
+
+
+def _rbv_pct(v) -> str:
+    try:
+        x = float(v)
+        return f"{x:.2f}%"
+    except Exception:
+        return "—"
+
+
+def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, win_pct=None):
+    try:
+        from weasyprint import HTML
+    except Exception as e:
+        return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
+
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return None, "Run a simulation first to enable PDF export."
+
+    payload = _rbv_make_scenario_payload()
+    state = payload.get("state") if isinstance(payload, dict) else {}
+    state = state if isinstance(state, dict) else {}
+    meta = payload.get("meta") if isinstance(payload, dict) else {}
+    meta = meta if isinstance(meta, dict) else {}
+    last = df.iloc[-1]
+
+    summary_rows = [
+        ("Scenario", state.get("scenario_select", "—")),
+        ("Province", state.get("province", "—")),
+        ("Purchase price", _rbv_pdf_money(state.get("price"))),
+        ("Down payment", _rbv_pdf_money(state.get("down"))),
+        ("Monthly rent", _rbv_pdf_money(state.get("rent"))),
+        ("Mortgage rate", _rbv_pct(state.get("rate"))),
+        ("Home appreciation", _rbv_pct(state.get("apprec"))),
+        ("Renter return", _rbv_pct(state.get("renter_ret"))),
+        ("Horizon", f"{int(state.get('years'))} years" if str(state.get("years", "")).isdigit() else "—"),
+        ("Cash to close", _rbv_pdf_money(close_cash)),
+        ("Monthly mortgage payment", _rbv_pdf_money(m_pmt)),
+        ("Buyer win rate", _rbv_pct(win_pct)),
+    ]
+
+    buyer_nw = float(last.get("Buyer Net Worth", 0) or 0)
+    renter_nw = float(last.get("Renter Net Worth", 0) or 0)
+    terminal_rows = [
+        ("Final buyer net worth", _rbv_pdf_money(last.get("Buyer Net Worth"))),
+        ("Final renter net worth", _rbv_pdf_money(last.get("Renter Net Worth"))),
+        ("Final net advantage (buyer - renter)", _rbv_pdf_money(buyer_nw - renter_nw)),
+        ("Final buyer present-value NW", _rbv_pdf_money(last.get("Buyer PV NW"))),
+        ("Final renter present-value NW", _rbv_pdf_money(last.get("Renter PV NW"))),
+        ("Final buyer unrecoverable costs", _rbv_pdf_money(last.get("Buyer Unrecoverable"))),
+        ("Final renter unrecoverable costs", _rbv_pdf_money(last.get("Renter Unrecoverable"))),
+    ]
+
+    table_cols = ["Year", "Home Value", "Mortgage Balance", "Buyer Net Worth", "Renter Net Worth", "Buyer Unrecoverable", "Renter Unrecoverable"]
+    available_cols = [c for c in table_cols if c in df.columns]
+    timeseries_html = ""
+    if available_cols:
+        rows_html = []
+        for _, row in df[available_cols].iterrows():
+            cells = []
+            for col in available_cols:
+                val = row.get(col)
+                if col == "Year":
+                    try:
+                        cells.append(str(int(val)))
+                    except Exception:
+                        cells.append(html.escape(str(val)))
+                elif isinstance(val, (int, float, np.integer, np.floating)):
+                    cells.append(_rbv_pdf_money(val))
+                else:
+                    cells.append(html.escape(str(val)))
+            rows_html.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>")
+        header = "".join(f"<th>{html.escape(str(c))}</th>" for c in available_cols)
+        timeseries_html = f"<table class='tight full'><thead><tr>{header}</tr></thead><tbody>{''.join(rows_html)}</tbody></table>"
+
+    summary_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in summary_rows)
+    terminal_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in terminal_rows)
+
+    # Closing-cost breakdown (helps explain cash-to-close and province tax impact).
+    close_rows = []
+    try:
+        province = str(state.get("province") or "Ontario")
+        price = float(state.get("price") or 0.0)
+        first_time = bool(state.get("first_time", True))
+        toronto = bool(state.get("toronto", False))
+        transfer_override = state.get("transfer_tax_override", 0.0)
+        assessed_value = state.get("assessed_value", None)
+        ns_rate = state.get("ns_deed_transfer_rate", None)
+        tt = calc_transfer_tax(
+            province,
+            price,
+            first_time,
+            toronto,
+            override_amount=transfer_override,
+            assessed_value=assessed_value,
+            ns_deed_transfer_rate=ns_rate,
+        )
+        close_rows.append(("Transfer tax (provincial)", _rbv_pdf_money((tt or {}).get("prov"))))
+        close_rows.append(("Transfer tax (municipal)", _rbv_pdf_money((tt or {}).get("muni"))))
+        close_rows.append(("Transfer tax (total)", _rbv_pdf_money((tt or {}).get("total"))))
+    except Exception:
+        pass
+
+    try:
+        close_rows.extend(
+            [
+                ("Legal & closing", _rbv_pdf_money(state.get("purchase_legal_fee"))),
+                ("Home inspection", _rbv_pdf_money(state.get("home_inspection"))),
+                ("Other closing costs", _rbv_pdf_money(state.get("other_closing_costs"))),
+                ("Cash to close (engine)", _rbv_pdf_money(close_cash)),
+            ]
+        )
+    except Exception:
+        pass
+    close_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in close_rows)
+
+    # Assumptions/policy snapshot and compare-session summary (when present).
+    assumptions_rows = [
+        ("Tax rules as-of", state.get("tax_rules_asof", "—")),
+        ("Amortization", f"{int(state.get('amort'))} years" if str(state.get("amort", "")).isdigit() else "—"),
+        ("Province", state.get("province", "—")),
+        ("First-time buyer", "Yes" if bool(state.get("first_time", False)) else "No"),
+        ("Toronto municipal tax", "Yes" if bool(state.get("toronto", False)) else "No"),
+        ("Simulation mode", state.get("sim_mode", "—")),
+        ("Monte Carlo sims", state.get("num_sims", "—")),
+        ("MC randomize", "Yes" if bool(state.get("mc_randomize", False)) else "No"),
+        ("MC seed", state.get("mc_seed", "—")),
+        ("Budget mode", "Enabled" if bool(state.get("budget_enabled", False)) else "Disabled"),
+        ("Crisis mode", "Enabled" if bool(state.get("crisis_enabled", False)) else "Disabled"),
+    ]
+    assumptions_html = "".join(
+        f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>"
+        for k, v in assumptions_rows
+    )
+
+    compare_html = ""
+    try:
+        _cmp = st.session_state.get("_rbv_compare_last_export")
+        if isinstance(_cmp, dict):
+            _metrics_rows = list(_cmp.get("metrics_rows") or [])
+            _diff_rows = list(_cmp.get("state_diff_rows") or [])
+            _meta = dict(_cmp.get("meta") or {})
+            _rows = [
+                ("Compare metrics rows", len(_metrics_rows)),
+                ("Compare changed-input rows", len(_diff_rows)),
+                ("Scenario A hash", _meta.get("a_hash", "")),
+                ("Scenario B hash", _meta.get("b_hash", "")),
+            ]
+            compare_html = "".join(
+                f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>"
+                for k, v in _rows
+            )
+    except Exception:
+        compare_html = ""
+
+    # Simple sanity indicators for readability.
+    sanity_rows = []
+    try:
+        sanity_rows.append(("Winner at horizon", "Buy" if buyer_nw > renter_nw else ("Rent" if renter_nw > buyer_nw else "Tie")))
+        sanity_rows.append(("Absolute net-worth gap", _rbv_pdf_money(abs(buyer_nw - renter_nw))))
+        if "Buyer Net Worth" in df.columns and "Renter Net Worth" in df.columns:
+            _gap = (df["Buyer Net Worth"] - df["Renter Net Worth"]).astype(float)
+            _cross = _gap[_gap >= 0]
+            _first_cross_year = int(df.loc[_cross.index[0], "Year"]) if (len(_cross) > 0 and "Year" in df.columns) else None
+            sanity_rows.append(("First non-negative buyer gap year", _first_cross_year if _first_cross_year is not None else "Not reached"))
+    except Exception:
+        pass
+    sanity_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in sanity_rows)
+
+    report_html = f"""
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          @page {{ size: A4; margin: 16mm 12mm; }}
+          body {{ font-family: Inter, Arial, sans-serif; color: #0f172a; font-size: 11px; }}
+          h1 {{ font-size: 24px; margin: 0 0 4px 0; }}
+          h2 {{ font-size: 14px; margin: 16px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }}
+          .hero {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 12px; }}
+          table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+          th, td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }}
+          th {{ width: 38%; background: #f8fafc; }}
+          .tight th, .tight td {{ font-size: 10px; padding: 4px; }}
+          table.full th {{ width: auto; }}
+          .muted {{ color: #475569; margin-top: 6px; }}
+          .footer {{ margin-top: 12px; color: #64748b; font-size: 9px; }}
+        </style>
+      </head>
+      <body>
+        <h1>Rent vs Buy Report</h1>
+        <div class="hero">
+          <div><b>Generated:</b> {html.escape(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</div>
+          <div><b>Version:</b> {html.escape(str(_rbv_version_line()))} &nbsp; • &nbsp; <b>Scenario hash:</b> {html.escape(str(meta.get('scenario_hash', 'n/a')))}</div>
+        </div>
+
+        <h2>Scenario summary</h2>
+        <table>{summary_html}</table>
+
+        <h2>Terminal outcomes</h2>
+        <table>{terminal_html}</table>
+
+        <h2>Closing-cost breakdown</h2>
+        <table>{close_html or '<tr><td colspan="2">No closing-cost details available.</td></tr>'}</table>
+
+        <h2>Assumptions & policy snapshot</h2>
+        <table>{assumptions_html}</table>
+
+        <h2>Result sanity checks</h2>
+        <table>{sanity_html or '<tr><td colspan="2">No sanity indicators available.</td></tr>'}</table>
+
+        <h2>A/B compare summary</h2>
+        <table>{compare_html or '<tr><td colspan="2">No compare export available in this session.</td></tr>'}</table>
+
+        <h2>Year-by-year outputs</h2>
+        {timeseries_html or '<div class="muted">No timeline columns available in this run.</div>'}
+
+        <div class="footer">This report is generated from the active session snapshot and latest computed simulation outputs.</div>
+      </body>
+    </html>
+    """
+
+    try:
+        pdf_bytes = HTML(string=report_html).write_pdf()
+        return pdf_bytes, None
+    except Exception as e:
+        return None, f"Failed to build PDF: {e}"
+
 # --- CALLBACKS ---
 def apply_preset():
     """Applies values from the selected dropdown preset."""
@@ -8841,21 +9075,21 @@ except Exception:
 # --- Public release: Export / Share ---
 try:
     with st.expander("Export / Share", expanded=False):
-        # PDF report (built above; available when WeasyPrint OS deps are present)
-        try:
-            if _pdf_bytes is not None:
-                st.download_button(
-                    "Download PDF report (.pdf)",
-                    data=_pdf_bytes,
-                    file_name="rent_vs_buy_report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    help="Printable summary of this analysis.",
-                )
-        except Exception:
-            pass
+        # PDF report first (same visual treatment as other download buttons).
+        _pdf_bytes, _pdf_err = _rbv_build_pdf_report_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
+        _pdf_ok = isinstance(_pdf_bytes, (bytes, bytearray)) and len(_pdf_bytes) > 0
+        st.download_button(
+            "Download report (.pdf)",
+            data=(bytes(_pdf_bytes) if _pdf_ok else b""),
+            file_name="rbv_report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            disabled=(not _pdf_ok),
+        )
+        if (not _pdf_ok) and _pdf_err:
+            st.caption(_pdf_err)
 
-        # Results bundle (everything in one ZIP)
+        # Keep bundle directly under PDF: expected export order is PDF -> ZIP -> CSV -> JSON -> Compare.
         try:
             _bundle = _rbv_build_results_bundle_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
             _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -8870,46 +9104,41 @@ try:
         except Exception:
             st.caption("Run a simulation first to enable exports.")
 
-        # Core timeseries CSV
-        try:
-            if isinstance(df, pd.DataFrame) and len(df) > 0:
-                st.download_button(
-                    "Download core outputs (.csv)",
-                    data=df.to_csv(index=False),
-                    file_name="rbv_core_outputs.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-        except Exception:
-            pass
-
-        # Scenario JSON snapshots
-        try:
-            _payload = _rbv_make_scenario_payload()
-            _json = json.dumps(_payload, indent=2, default=str)
+        # PR11: explicit CSV outputs export (not only inside the ZIP bundle).
+        if isinstance(df, pd.DataFrame) and len(df) > 0:
             st.download_button(
-                "Download active snapshot (.json)",
-                data=_json,
-                file_name="rbv_scenario_active.json",
+                "Download core outputs (.csv)",
+                data=df.to_csv(index=False),
+                file_name="rbv_core_outputs.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        _payload = _rbv_make_scenario_payload()
+        _json = json.dumps(_payload, indent=2, default=str)
+        st.download_button(
+            "Download active snapshot (.json)",
+            data=_json,
+            file_name="rbv_scenario_active.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+        # PR11: explicit JSON snapshot exports for compare slots (A/B), if present.
+        for _slot in ("A", "B"):
+            _slot_payload = st.session_state.get(_rbv_compare_slot_key(_slot))
+            if not isinstance(_slot_payload, dict):
+                continue
+            _slot_json = json.dumps(_slot_payload, indent=2, default=str)
+            st.download_button(
+                f"Download Scenario {_slot} snapshot (.json)",
+                data=_slot_json,
+                file_name=f"rbv_scenario_{_slot}.json",
                 mime="application/json",
                 use_container_width=True,
             )
-            for _slot in ("A", "B"):
-                _slot_payload = st.session_state.get(_rbv_compare_slot_key(_slot))
-                if not isinstance(_slot_payload, dict):
-                    continue
-                _slot_json = json.dumps(_slot_payload, indent=2, default=str)
-                st.download_button(
-                    f"Download Scenario {_slot} snapshot (.json)",
-                    data=_slot_json,
-                    file_name=f"rbv_scenario_{_slot}.json",
-                    mime="application/json",
-                    use_container_width=True,
-                )
-        except Exception:
-            pass
 
-        # A/B compare exports (available after rendering the compare preview)
+        # PR11: compare export bundle + CSVs (available after rendering the A/B compare preview once).
         try:
             _cmp = st.session_state.get("_rbv_compare_last_export")
             if isinstance(_cmp, dict):
@@ -8969,6 +9198,9 @@ try:
                 st.caption("Compare exports are generated from the latest rendered A/B preview on this session.")
         except Exception:
             pass
+
+        if not (isinstance(df, pd.DataFrame) and len(df) > 0):
+            st.caption("Run a simulation first to enable CSV and richer report outputs.")
 except Exception:
     pass
 
