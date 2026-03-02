@@ -9076,60 +9076,69 @@ except Exception:
 try:
     with st.expander("Export / Share", expanded=False):
         # PDF report first (same visual treatment as other download buttons).
-        try:
-            _pdf_bytes, _pdf_err = _rbv_build_pdf_report_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
-            _pdf_ok = isinstance(_pdf_bytes, (bytes, bytearray)) and len(_pdf_bytes) > 0
-            st.download_button(
-                "Download report (.pdf)",
-                data=(bytes(_pdf_bytes) if _pdf_ok else b""),
-                file_name="rbv_report.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-                disabled=(not _pdf_ok),
-            )
-            if (not _pdf_ok) and _pdf_err:
-                st.caption(_pdf_err)
-        except Exception:
-            pass
+        _pdf_bytes, _pdf_err = _rbv_build_pdf_report_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
+        _pdf_ok = isinstance(_pdf_bytes, (bytes, bytearray)) and len(_pdf_bytes) > 0
+        st.download_button(
+            "Download report (.pdf)",
+            data=(bytes(_pdf_bytes) if _pdf_ok else b""),
+            file_name="rbv_report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            disabled=(not _pdf_ok),
+        )
+        if (not _pdf_ok) and _pdf_err:
+            st.caption(_pdf_err)
 
+        # Keep bundle directly under PDF: expected export order is PDF -> ZIP -> CSV -> JSON -> Compare.
         try:
-            _payload = _rbv_make_scenario_payload()
-            _json = json.dumps(_payload, indent=2, default=str)
+            _bundle = _rbv_build_results_bundle_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
+            _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             st.download_button(
-                "Download active snapshot (.json)",
-                data=_json,
-                file_name="rbv_scenario_active.json",
+                "Download results bundle (.zip)",
+                data=_bundle,
+                file_name=f"rbv_results_{_ts}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+            st.caption("Includes scenario JSON, core timeseries, last heatmap matrix (if computed), last bias dashboard outputs (if computed), and diagnostics snapshot.")
+        except Exception:
+            st.caption("Run a simulation first to enable exports.")
+
+        # PR11: explicit CSV outputs export (not only inside the ZIP bundle).
+        if isinstance(df, pd.DataFrame) and len(df) > 0:
+            st.download_button(
+                "Download core outputs (.csv)",
+                data=df.to_csv(index=False),
+                file_name="rbv_core_outputs.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        _payload = _rbv_make_scenario_payload()
+        _json = json.dumps(_payload, indent=2, default=str)
+        st.download_button(
+            "Download active snapshot (.json)",
+            data=_json,
+            file_name="rbv_scenario_active.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+        # PR11: explicit JSON snapshot exports for compare slots (A/B), if present.
+        for _slot in ("A", "B"):
+            _slot_payload = st.session_state.get(_rbv_compare_slot_key(_slot))
+            if not isinstance(_slot_payload, dict):
+                continue
+            _slot_json = json.dumps(_slot_payload, indent=2, default=str)
+            st.download_button(
+                f"Download Scenario {_slot} snapshot (.json)",
+                data=_slot_json,
+                file_name=f"rbv_scenario_{_slot}.json",
                 mime="application/json",
                 use_container_width=True,
             )
 
-        # Scenario JSON snapshots
-        try:
-            _payload = _rbv_make_scenario_payload()
-            _json = json.dumps(_payload, indent=2, default=str)
-            st.download_button(
-                "Download active snapshot (.json)",
-                data=_json,
-                file_name="rbv_scenario_active.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-            for _slot in ("A", "B"):
-                _slot_payload = st.session_state.get(_rbv_compare_slot_key(_slot))
-                if not isinstance(_slot_payload, dict):
-                    continue
-                _slot_json = json.dumps(_slot_payload, indent=2, default=str)
-                st.download_button(
-                    f"Download Scenario {_slot} snapshot (.json)",
-                    data=_slot_json,
-                    file_name=f"rbv_scenario_{_slot}.json",
-                    mime="application/json",
-                    use_container_width=True,
-                )
-        except Exception:
-            pass
-
-        # A/B compare exports (available after rendering the compare preview)
+        # PR11: compare export bundle + CSVs (available after rendering the A/B compare preview once).
         try:
             _cmp = st.session_state.get("_rbv_compare_last_export")
             if isinstance(_cmp, dict):
@@ -9190,19 +9199,8 @@ try:
         except Exception:
             pass
 
-        try:
-            _bundle = _rbv_build_results_bundle_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
-            _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            st.download_button(
-                "Download results bundle (.zip)",
-                data=_bundle,
-                file_name=f"rbv_results_{_ts}.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
-            st.caption("Includes scenario JSON, core timeseries, last heatmap matrix (if computed), last bias dashboard outputs (if computed), and diagnostics snapshot.")
-        except Exception:
-            st.caption("Run a simulation first to enable exports.")
+        if not (isinstance(df, pd.DataFrame) and len(df) > 0):
+            st.caption("Run a simulation first to enable CSV and richer report outputs.")
 except Exception:
     pass
 
