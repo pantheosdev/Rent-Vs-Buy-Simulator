@@ -2052,17 +2052,7 @@ with st.sidebar:
         try:
             _payload = _rbv_make_scenario_payload()
             _json = json.dumps(_payload, indent=2, default=str)
-            try:
-                st.download_button(
-                    "Download scenario (.json)",
-                    data=_json,
-                    file_name="rbv_scenario.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    type="primary",
-                )
-            except TypeError:
-                st.download_button(
+            st.download_button(
                     "Download scenario (.json)",
                     data=_json,
                     file_name="rbv_scenario.json",
@@ -5087,7 +5077,8 @@ try:
 except Exception:
     pass
 
-# --- PDF Report Export ---
+# --- PDF Report bytes (built here so they're available in the Export section below) ---
+_pdf_bytes: bytes | None = None
 try:
     from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
     _pdf_cfg = {
@@ -5107,14 +5098,6 @@ try:
         monthly_pmt=m_pmt,
         win_pct=win_pct,
         scenario_name=str(st.session_state.get("scenario_select", "Custom Scenario")),
-    )
-    st.download_button(
-        "📄 Download PDF Report",
-        data=_pdf_bytes,
-        file_name="rent_vs_buy_report.pdf",
-        mime="application/pdf",
-        use_container_width=False,
-        help="Download a printable PDF summary of this analysis.",
     )
 except Exception:
     pass
@@ -8858,28 +8841,59 @@ except Exception:
 # --- Public release: Export / Share ---
 try:
     with st.expander("Export / Share", expanded=False):
+        # PDF report (built above; available when WeasyPrint OS deps are present)
+        try:
+            if _pdf_bytes is not None:
+                st.download_button(
+                    "Download PDF report (.pdf)",
+                    data=_pdf_bytes,
+                    file_name="rent_vs_buy_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    help="Printable summary of this analysis.",
+                )
+        except Exception:
+            pass
+
+        # Results bundle (everything in one ZIP)
+        try:
+            _bundle = _rbv_build_results_bundle_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
+            _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                "Download results bundle (.zip)",
+                data=_bundle,
+                file_name=f"rbv_results_{_ts}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+            st.caption("Includes scenario JSON, core timeseries, last heatmap matrix (if computed), last bias dashboard outputs (if computed), and diagnostics snapshot.")
+        except Exception:
+            st.caption("Run a simulation first to enable exports.")
+
+        # Core timeseries CSV
+        try:
+            if isinstance(df, pd.DataFrame) and len(df) > 0:
+                st.download_button(
+                    "Download core outputs (.csv)",
+                    data=df.to_csv(index=False),
+                    file_name="rbv_core_outputs.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        except Exception:
+            pass
+
+        # Scenario JSON snapshots
         try:
             _payload = _rbv_make_scenario_payload()
             _json = json.dumps(_payload, indent=2, default=str)
-            try:
-                st.download_button(
-                    "Download active snapshot (.json)",
-                    data=_json,
-                    file_name="rbv_scenario_active.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    type="primary",
-                )
-            except TypeError:
-                st.download_button(
-                    "Download active snapshot (.json)",
-                    data=_json,
-                    file_name="rbv_scenario_active.json",
-                    mime="application/json",
-                    use_container_width=True,
-                )
-
-            # PR11: explicit JSON snapshot exports for compare slots (A/B), if present.
+            st.download_button(
+                "Download active snapshot (.json)",
+                data=_json,
+                file_name="rbv_scenario_active.json",
+                mime="application/json",
+                use_container_width=True,
+            )
             for _slot in ("A", "B"):
                 _slot_payload = st.session_state.get(_rbv_compare_slot_key(_slot))
                 if not isinstance(_slot_payload, dict):
@@ -8895,20 +8909,7 @@ try:
         except Exception:
             pass
 
-        # PR11: explicit CSV outputs export (not only inside the ZIP bundle).
-        try:
-            if isinstance(df, pd.DataFrame) and len(df) > 0:
-                st.download_button(
-                    "Download core outputs (.csv)",
-                    data=df.to_csv(index=False),
-                    file_name="rbv_core_outputs.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-        except Exception:
-            pass
-
-        # PR11: compare export bundle + CSVs (available after rendering the A/B compare preview once).
+        # A/B compare exports (available after rendering the compare preview)
         try:
             _cmp = st.session_state.get("_rbv_compare_last_export")
             if isinstance(_cmp, dict):
@@ -8917,7 +8918,6 @@ try:
                 _payload_a = _cmp.get("payload_a") if isinstance(_cmp.get("payload_a"), dict) else None
                 _payload_b = _cmp.get("payload_b") if isinstance(_cmp.get("payload_b"), dict) else None
                 _cmp_meta = dict(_cmp.get("meta") or {})
-
                 _cmp_json = json.dumps(
                     build_compare_export_payload(
                         payload_a=_payload_a,
@@ -8969,30 +8969,6 @@ try:
                 st.caption("Compare exports are generated from the latest rendered A/B preview on this session.")
         except Exception:
             pass
-
-        try:
-            _bundle = _rbv_build_results_bundle_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
-            _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            try:
-                st.download_button(
-                    "Download results bundle (.zip)",
-                    data=_bundle,
-                    file_name=f"rbv_results_{_ts}.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                    type="primary",
-                )
-            except TypeError:
-                st.download_button(
-                    "Download results bundle (.zip)",
-                    data=_bundle,
-                    file_name=f"rbv_results_{_ts}.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
-            st.caption("Includes scenario JSON, core timeseries, last heatmap matrix (if computed), last bias dashboard outputs (if computed), and diagnostics snapshot.")
-        except Exception:
-            st.caption("Run a simulation first to enable exports.")
 except Exception:
     pass
 
