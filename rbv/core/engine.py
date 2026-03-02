@@ -1981,15 +1981,19 @@ def run_simulation_core(
         _purchase_autoderived_ltv = 0.0
 
     if _loan0 > 0.0 and float(mort) <= 0.0:
-        _warnings.warn(
+    # Avoid emitting warnings by default (tests/CI expect clean runs).
+    # Opt-in via cfg["warn_on_autoderive_purchase_fields"]=True if desired.
+        _warn_autoderive = bool(cfg.get("warn_on_autoderive_purchase_fields", False))
+        if _warn_autoderive:
+            _warnings.warn(
             "Engine cfg missing 'mort' (mortgage principal) while price > down. "
             "Auto-deriving purchase fields for headless callers. For full fidelity, "
             "supply 'mort', 'close', and 'pst' (as the UI does).",
             stacklevel=2,
-        )
+            )
         try:
             from .purchase_derivations import derive_purchase_fields
-
+        
             _d = derive_purchase_fields(
                 dict(cfg, price=float(price_use), down=float(down_use)),
                 strict=False,
