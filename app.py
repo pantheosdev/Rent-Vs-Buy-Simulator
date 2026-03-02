@@ -1798,72 +1798,87 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
     payload = _rbv_make_scenario_payload()
     state = payload.get("state") if isinstance(payload, dict) else {}
     state = state if isinstance(state, dict) else {}
+    meta = payload.get("meta") if isinstance(payload, dict) else {}
+    meta = meta if isinstance(meta, dict) else {}
     last = df.iloc[-1]
 
     summary_rows = [
+        ("Scenario", state.get("scenario_select", "—")),
         ("Province", state.get("province", "—")),
         ("Purchase price", _rbv_pdf_money(state.get("price"))),
         ("Down payment", _rbv_pdf_money(state.get("down"))),
         ("Monthly rent", _rbv_pdf_money(state.get("rent"))),
         ("Mortgage rate", _rbv_pct(state.get("rate"))),
+        ("Home appreciation", _rbv_pct(state.get("apprec"))),
+        ("Renter return", _rbv_pct(state.get("renter_ret"))),
         ("Horizon", f"{int(state.get('years'))} years" if str(state.get("years", "")).isdigit() else "—"),
         ("Cash to close", _rbv_pdf_money(close_cash)),
         ("Monthly mortgage payment", _rbv_pdf_money(m_pmt)),
         ("Buyer win rate", _rbv_pct(win_pct)),
     ]
 
+    buyer_nw = float(last.get("Buyer Net Worth", 0) or 0)
+    renter_nw = float(last.get("Renter Net Worth", 0) or 0)
     terminal_rows = [
         ("Final buyer net worth", _rbv_pdf_money(last.get("Buyer Net Worth"))),
         ("Final renter net worth", _rbv_pdf_money(last.get("Renter Net Worth"))),
-        ("Final net advantage (buyer - renter)", _rbv_pdf_money(last.get("Buyer Net Worth", 0) - last.get("Renter Net Worth", 0))),
+        ("Final net advantage (buyer - renter)", _rbv_pdf_money(buyer_nw - renter_nw)),
         ("Final buyer present-value NW", _rbv_pdf_money(last.get("Buyer PV NW"))),
         ("Final renter present-value NW", _rbv_pdf_money(last.get("Renter PV NW"))),
         ("Final buyer unrecoverable costs", _rbv_pdf_money(last.get("Buyer Unrecoverable"))),
         ("Final renter unrecoverable costs", _rbv_pdf_money(last.get("Renter Unrecoverable"))),
     ]
 
-    year_col = "Year" if "Year" in df.columns else None
-    select_cols = [c for c in ["Buyer Net Worth", "Renter Net Worth", "Buyer Unrecoverable", "Renter Unrecoverable"] if c in df.columns]
-    timeseries_preview = []
-    if year_col and select_cols:
-        idx = sorted({0, len(df) // 4, len(df) // 2, (3 * len(df)) // 4, len(df) - 1})
-        for i in idx:
-            row = df.iloc[i]
-            timeseries_preview.append((
-                int(row.get(year_col, i + 1)),
-                _rbv_pdf_money(row.get("Buyer Net Worth")),
-                _rbv_pdf_money(row.get("Renter Net Worth")),
-                _rbv_pdf_money(row.get("Buyer Unrecoverable")),
-                _rbv_pdf_money(row.get("Renter Unrecoverable")),
-            ))
+    table_cols = ["Year", "Home Value", "Mortgage Balance", "Buyer Net Worth", "Renter Net Worth", "Buyer Unrecoverable", "Renter Unrecoverable"]
+    available_cols = [c for c in table_cols if c in df.columns]
+    timeseries_html = ""
+    if available_cols:
+        rows_html = []
+        for _, row in df[available_cols].iterrows():
+            cells = []
+            for col in available_cols:
+                val = row.get(col)
+                if col == "Year":
+                    try:
+                        cells.append(str(int(val)))
+                    except Exception:
+                        cells.append(html.escape(str(val)))
+                elif isinstance(val, (int, float, np.integer, np.floating)):
+                    cells.append(_rbv_pdf_money(val))
+                else:
+                    cells.append(html.escape(str(val)))
+            rows_html.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>")
+        header = "".join(f"<th>{html.escape(str(c))}</th>" for c in available_cols)
+        timeseries_html = f"<table class='tight full'><thead><tr>{header}</tr></thead><tbody>{''.join(rows_html)}</tbody></table>"
 
     summary_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in summary_rows)
     terminal_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in terminal_rows)
-    preview_html = "".join(
-        f"<tr><td>{y}</td><td>{bnw}</td><td>{rnw}</td><td>{buc}</td><td>{ruc}</td></tr>"
-        for y, bnw, rnw, buc, ruc in timeseries_preview
-    )
 
     report_html = f"""
     <html>
       <head>
-        <meta charset=\"utf-8\" />
+        <meta charset="utf-8" />
         <style>
-          @page {{ size: A4; margin: 20mm 16mm; }}
-          body {{ font-family: Inter, Arial, sans-serif; color: #0f172a; font-size: 12px; }}
-          h1 {{ font-size: 22px; margin: 0 0 4px 0; }}
-          h2 {{ font-size: 14px; margin: 20px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }}
-          .muted {{ color: #475569; margin-bottom: 12px; }}
+          @page {{ size: A4; margin: 16mm 12mm; }}
+          body {{ font-family: Inter, Arial, sans-serif; color: #0f172a; font-size: 11px; }}
+          h1 {{ font-size: 24px; margin: 0 0 4px 0; }}
+          h2 {{ font-size: 14px; margin: 16px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }}
+          .hero {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 12px; }}
           table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
-          th, td {{ border: 1px solid #cbd5e1; padding: 7px 8px; text-align: left; vertical-align: top; }}
-          th {{ width: 45%; background: #f8fafc; }}
-          .tight th, .tight td {{ font-size: 11px; }}
-          .footer {{ margin-top: 18px; color: #64748b; font-size: 10px; }}
+          th, td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }}
+          th {{ width: 38%; background: #f8fafc; }}
+          .tight th, .tight td {{ font-size: 10px; padding: 4px; }}
+          table.full th {{ width: auto; }}
+          .muted {{ color: #475569; margin-top: 6px; }}
+          .footer {{ margin-top: 12px; color: #64748b; font-size: 9px; }}
         </style>
       </head>
       <body>
         <h1>Rent vs Buy Report</h1>
-        <div class=\"muted\">Generated {html.escape(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</div>
+        <div class="hero">
+          <div><b>Generated:</b> {html.escape(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</div>
+          <div><b>Version:</b> {html.escape(str(_rbv_version_line()))} &nbsp; • &nbsp; <b>Scenario hash:</b> {html.escape(str(meta.get('scenario_hash', 'n/a')))}</div>
+        </div>
 
         <h2>Scenario summary</h2>
         <table>{summary_html}</table>
@@ -1871,15 +1886,10 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
         <h2>Terminal outcomes</h2>
         <table>{terminal_html}</table>
 
-        <h2>Timeline highlights</h2>
-        <table class=\"tight\">
-          <thead>
-            <tr><th>Year</th><th>Buyer NW</th><th>Renter NW</th><th>Buyer unrecoverable</th><th>Renter unrecoverable</th></tr>
-          </thead>
-          <tbody>{preview_html}</tbody>
-        </table>
+        <h2>Year-by-year outputs</h2>
+        {timeseries_html or '<div class="muted">No timeline columns available in this run.</div>'}
 
-        <div class=\"footer\">Scenario hash: {html.escape(str((payload.get('meta') or {}).get('scenario_hash', 'n/a')))}</div>
+        <div class="footer">This report is generated from the active session snapshot and latest computed simulation outputs.</div>
       </body>
     </html>
     """
@@ -8475,15 +8485,16 @@ try:
         # PDF report first (same visual treatment as other download buttons).
         try:
             _pdf_bytes, _pdf_err = _rbv_build_pdf_report_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
-            if isinstance(_pdf_bytes, (bytes, bytearray)) and len(_pdf_bytes) > 0:
-                st.download_button(
-                    "Download report (.pdf)",
-                    data=bytes(_pdf_bytes),
-                    file_name="rbv_report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            elif _pdf_err:
+            _pdf_ok = isinstance(_pdf_bytes, (bytes, bytearray)) and len(_pdf_bytes) > 0
+            st.download_button(
+                "Download report (.pdf)",
+                data=(bytes(_pdf_bytes) if _pdf_ok else b""),
+                file_name="rbv_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                disabled=(not _pdf_ok),
+            )
+            if (not _pdf_ok) and _pdf_err:
                 st.caption(_pdf_err)
         except Exception:
             pass
