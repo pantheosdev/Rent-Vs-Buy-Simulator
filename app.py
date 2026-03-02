@@ -1854,6 +1854,44 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
     summary_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in summary_rows)
     terminal_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in terminal_rows)
 
+    # Closing-cost breakdown (helps explain cash-to-close and province tax impact).
+    close_rows = []
+    try:
+        province = str(state.get("province") or "Ontario")
+        price = float(state.get("price") or 0.0)
+        first_time = bool(state.get("first_time", True))
+        toronto = bool(state.get("toronto", False))
+        transfer_override = state.get("transfer_tax_override", 0.0)
+        assessed_value = state.get("assessed_value", None)
+        ns_rate = state.get("ns_deed_transfer_rate", None)
+        tt = calc_transfer_tax(
+            province,
+            price,
+            first_time,
+            toronto,
+            override_amount=transfer_override,
+            assessed_value=assessed_value,
+            ns_deed_transfer_rate=ns_rate,
+        )
+        close_rows.append(("Transfer tax (provincial)", _rbv_pdf_money((tt or {}).get("prov"))))
+        close_rows.append(("Transfer tax (municipal)", _rbv_pdf_money((tt or {}).get("muni"))))
+        close_rows.append(("Transfer tax (total)", _rbv_pdf_money((tt or {}).get("total"))))
+    except Exception:
+        pass
+
+    try:
+        close_rows.extend(
+            [
+                ("Legal & closing", _rbv_pdf_money(state.get("purchase_legal_fee"))),
+                ("Home inspection", _rbv_pdf_money(state.get("home_inspection"))),
+                ("Other closing costs", _rbv_pdf_money(state.get("other_closing_costs"))),
+                ("Cash to close (engine)", _rbv_pdf_money(close_cash)),
+            ]
+        )
+    except Exception:
+        pass
+    close_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in close_rows)
+
     report_html = f"""
     <html>
       <head>
@@ -1885,6 +1923,9 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
 
         <h2>Terminal outcomes</h2>
         <table>{terminal_html}</table>
+
+        <h2>Closing-cost breakdown</h2>
+        <table>{close_html or '<tr><td colspan="2">No closing-cost details available.</td></tr>'}</table>
 
         <h2>Year-by-year outputs</h2>
         {timeseries_html or '<div class="muted">No timeline columns available in this run.</div>'}
