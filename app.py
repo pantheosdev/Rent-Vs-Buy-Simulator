@@ -1769,6 +1769,127 @@ def _rbv_build_results_bundle_bytes(df: pd.DataFrame, close_cash=None, m_pmt=Non
 
     return buf.getvalue()
 
+
+def _rbv_pdf_money(v) -> str:
+    try:
+        x = float(v)
+        return f"${x:,.0f}"
+    except Exception:
+        return "—"
+
+
+def _rbv_pct(v) -> str:
+    try:
+        x = float(v)
+        return f"{x:.2f}%"
+    except Exception:
+        return "—"
+
+
+def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, win_pct=None):
+    try:
+        from weasyprint import HTML
+    except Exception as e:
+        return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
+
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return None, "Run a simulation first to enable PDF export."
+
+    payload = _rbv_make_scenario_payload()
+    state = payload.get("state") if isinstance(payload, dict) else {}
+    state = state if isinstance(state, dict) else {}
+    last = df.iloc[-1]
+
+    summary_rows = [
+        ("Province", state.get("province", "—")),
+        ("Purchase price", _rbv_pdf_money(state.get("price"))),
+        ("Down payment", _rbv_pdf_money(state.get("down"))),
+        ("Monthly rent", _rbv_pdf_money(state.get("rent"))),
+        ("Mortgage rate", _rbv_pct(state.get("rate"))),
+        ("Horizon", f"{int(state.get('years'))} years" if str(state.get("years", "")).isdigit() else "—"),
+        ("Cash to close", _rbv_pdf_money(close_cash)),
+        ("Monthly mortgage payment", _rbv_pdf_money(m_pmt)),
+        ("Buyer win rate", _rbv_pct(win_pct)),
+    ]
+
+    terminal_rows = [
+        ("Final buyer net worth", _rbv_pdf_money(last.get("Buyer Net Worth"))),
+        ("Final renter net worth", _rbv_pdf_money(last.get("Renter Net Worth"))),
+        ("Final net advantage (buyer - renter)", _rbv_pdf_money(last.get("Buyer Net Worth", 0) - last.get("Renter Net Worth", 0))),
+        ("Final buyer present-value NW", _rbv_pdf_money(last.get("Buyer PV NW"))),
+        ("Final renter present-value NW", _rbv_pdf_money(last.get("Renter PV NW"))),
+        ("Final buyer unrecoverable costs", _rbv_pdf_money(last.get("Buyer Unrecoverable"))),
+        ("Final renter unrecoverable costs", _rbv_pdf_money(last.get("Renter Unrecoverable"))),
+    ]
+
+    year_col = "Year" if "Year" in df.columns else None
+    select_cols = [c for c in ["Buyer Net Worth", "Renter Net Worth", "Buyer Unrecoverable", "Renter Unrecoverable"] if c in df.columns]
+    timeseries_preview = []
+    if year_col and select_cols:
+        idx = sorted({0, len(df) // 4, len(df) // 2, (3 * len(df)) // 4, len(df) - 1})
+        for i in idx:
+            row = df.iloc[i]
+            timeseries_preview.append((
+                int(row.get(year_col, i + 1)),
+                _rbv_pdf_money(row.get("Buyer Net Worth")),
+                _rbv_pdf_money(row.get("Renter Net Worth")),
+                _rbv_pdf_money(row.get("Buyer Unrecoverable")),
+                _rbv_pdf_money(row.get("Renter Unrecoverable")),
+            ))
+
+    summary_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in summary_rows)
+    terminal_html = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in terminal_rows)
+    preview_html = "".join(
+        f"<tr><td>{y}</td><td>{bnw}</td><td>{rnw}</td><td>{buc}</td><td>{ruc}</td></tr>"
+        for y, bnw, rnw, buc, ruc in timeseries_preview
+    )
+
+    report_html = f"""
+    <html>
+      <head>
+        <meta charset=\"utf-8\" />
+        <style>
+          @page {{ size: A4; margin: 20mm 16mm; }}
+          body {{ font-family: Inter, Arial, sans-serif; color: #0f172a; font-size: 12px; }}
+          h1 {{ font-size: 22px; margin: 0 0 4px 0; }}
+          h2 {{ font-size: 14px; margin: 20px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }}
+          .muted {{ color: #475569; margin-bottom: 12px; }}
+          table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+          th, td {{ border: 1px solid #cbd5e1; padding: 7px 8px; text-align: left; vertical-align: top; }}
+          th {{ width: 45%; background: #f8fafc; }}
+          .tight th, .tight td {{ font-size: 11px; }}
+          .footer {{ margin-top: 18px; color: #64748b; font-size: 10px; }}
+        </style>
+      </head>
+      <body>
+        <h1>Rent vs Buy Report</h1>
+        <div class=\"muted\">Generated {html.escape(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</div>
+
+        <h2>Scenario summary</h2>
+        <table>{summary_html}</table>
+
+        <h2>Terminal outcomes</h2>
+        <table>{terminal_html}</table>
+
+        <h2>Timeline highlights</h2>
+        <table class=\"tight\">
+          <thead>
+            <tr><th>Year</th><th>Buyer NW</th><th>Renter NW</th><th>Buyer unrecoverable</th><th>Renter unrecoverable</th></tr>
+          </thead>
+          <tbody>{preview_html}</tbody>
+        </table>
+
+        <div class=\"footer\">Scenario hash: {html.escape(str((payload.get('meta') or {}).get('scenario_hash', 'n/a')))}</div>
+      </body>
+    </html>
+    """
+
+    try:
+        pdf_bytes = HTML(string=report_html).write_pdf()
+        return pdf_bytes, None
+    except Exception as e:
+        return None, f"Failed to build PDF: {e}"
+
 # --- CALLBACKS ---
 def apply_preset():
     """Applies values from the selected dropdown preset."""
@@ -8351,26 +8472,32 @@ except Exception:
 # --- Public release: Export / Share ---
 try:
     with st.expander("Export / Share", expanded=False):
+        # PDF report first (same visual treatment as other download buttons).
+        try:
+            _pdf_bytes, _pdf_err = _rbv_build_pdf_report_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
+            if isinstance(_pdf_bytes, (bytes, bytearray)) and len(_pdf_bytes) > 0:
+                st.download_button(
+                    "Download report (.pdf)",
+                    data=bytes(_pdf_bytes),
+                    file_name="rbv_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            elif _pdf_err:
+                st.caption(_pdf_err)
+        except Exception:
+            pass
+
         try:
             _payload = _rbv_make_scenario_payload()
             _json = json.dumps(_payload, indent=2, default=str)
-            try:
-                st.download_button(
-                    "Download active snapshot (.json)",
-                    data=_json,
-                    file_name="rbv_scenario_active.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    type="primary",
-                )
-            except TypeError:
-                st.download_button(
-                    "Download active snapshot (.json)",
-                    data=_json,
-                    file_name="rbv_scenario_active.json",
-                    mime="application/json",
-                    use_container_width=True,
-                )
+            st.download_button(
+                "Download active snapshot (.json)",
+                data=_json,
+                file_name="rbv_scenario_active.json",
+                mime="application/json",
+                use_container_width=True,
+            )
 
             # PR11: explicit JSON snapshot exports for compare slots (A/B), if present.
             for _slot in ("A", "B"):
@@ -8466,23 +8593,13 @@ try:
         try:
             _bundle = _rbv_build_results_bundle_bytes(df, close_cash=close_cash, m_pmt=m_pmt, win_pct=win_pct)
             _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            try:
-                st.download_button(
-                    "Download results bundle (.zip)",
-                    data=_bundle,
-                    file_name=f"rbv_results_{_ts}.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                    type="primary",
-                )
-            except TypeError:
-                st.download_button(
-                    "Download results bundle (.zip)",
-                    data=_bundle,
-                    file_name=f"rbv_results_{_ts}.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
+            st.download_button(
+                "Download results bundle (.zip)",
+                data=_bundle,
+                file_name=f"rbv_results_{_ts}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
             st.caption("Includes scenario JSON, core timeseries, last heatmap matrix (if computed), last bias dashboard outputs (if computed), and diagnostics snapshot.")
         except Exception:
             st.caption("Run a simulation first to enable exports.")
