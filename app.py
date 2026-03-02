@@ -1,50 +1,79 @@
-import streamlit as st
-import streamlit.components.v1 as components
-import pandas as pd
-import numpy as np
-import math
-import time
-import plotly.graph_objects as go
-import plotly.io as pio
+import hashlib
 import html
 import json
-import hashlib
+import math
+import os
 import random
 import re
-import os
 import sys
+import time
 import traceback
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
+import streamlit as st
+import streamlit.components.v1 as components
+
 # Ensure the local package (rbv/) is importable when running via an absolute path
 sys.path.insert(0, os.path.dirname(__file__))
 
-import datetime
-import io
-import zipfile
-import functools
 import contextlib
 import copy
+import datetime
+import functools
+import io
+import zipfile
+
+from rbv.core.engine import run_heatmap_mc_batch, run_simulation_core
+from rbv.core.equity_monitor import detect_negative_equity, format_underwater_warning
+from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
+from rbv.core.policy_canada import (
+    b20_monthly_payment_at_qualifying_rate,
+    b20_stress_test_qualifying_rate,
+    cmhc_premium_rate_from_ltv,
+    insured_amortization_rule_label,
+    insured_max_amortization_years,
+    insured_mortgage_price_cap,
+    min_down_payment_canada,
+    mortgage_default_insurance_sales_tax_rate,
+)
 
 # --- Global patch: strip Streamlit widget help tooltips (prevents sidebar "?" icons entirely)
 # and suppress "default value + Session State" warnings by removing default kwargs when a key already exists.
 # v167: Keep UI stable by avoiding Streamlit/BaseWeb native help tooltips and redundant defaults.
-
 # --- Modular imports (v1 split) ---
 from rbv.core.taxes import (
-    PROVINCES,
     PROV_TAX_RULES_MD,
-    calc_deed_transfer_tax_nova_scotia_default, calc_land_title_fee_alberta, calc_land_title_fee_saskatchewan, calc_land_transfer_tax_manitoba, calc_ltt_ontario, calc_ltt_toronto_municipal, calc_property_transfer_tax_new_brunswick, calc_ptt_bc, calc_real_property_transfer_tax_pei, calc_registration_fee_newfoundland, calc_transfer_duty_quebec_standard, calc_transfer_tax,
+    PROVINCES,
+    calc_deed_transfer_tax_nova_scotia_default,
+    calc_land_title_fee_alberta,
+    calc_land_title_fee_saskatchewan,
+    calc_land_transfer_tax_manitoba,
+    calc_ltt_ontario,
+    calc_ltt_toronto_municipal,
+    calc_property_transfer_tax_new_brunswick,
+    calc_ptt_bc,
+    calc_real_property_transfer_tax_pei,
+    calc_registration_fee_newfoundland,
+    calc_transfer_duty_quebec_standard,
+    calc_transfer_tax,
 )
-from rbv.core.mortgage import _annual_nominal_pct_to_monthly_rate, _monthly_rate_to_annual_nominal_pct
-from rbv.core.policy_canada import (
-    min_down_payment_canada,
-    insured_mortgage_price_cap,
-    cmhc_premium_rate_from_ltv,
-    mortgage_default_insurance_sales_tax_rate,
-    insured_max_amortization_years,
-    insured_amortization_rule_label,
+from rbv.ui.costs_tab import build_cost_mix_dataframe, build_costs_core
+from rbv.ui.costs_utils import normalize_month_like_series, safe_numeric_mean, safe_numeric_series
+from rbv.ui.sidebar_inputs import RBV_SIDEBAR_TOOLTIPS, sidebar_hint, sidebar_pills
+from rbv.ui.theme import (
+    BG_BLACK,
+    BORDER,
+    BUY_COLOR,
+    RENT_COLOR,
+    SURFACE_CARD,
+    SURFACE_INPUT,
+    TEXT_MUTED,
+    inject_global_css,
 )
-from rbv.core.engine import run_simulation_core, run_heatmap_mc_batch
-from rbv.ui.theme import inject_global_css, BUY_COLOR, RENT_COLOR, BG_BLACK, SURFACE_CARD, SURFACE_INPUT, BORDER, TEXT_MUTED
+
 # Deploy-safe imports: Streamlit Cloud can briefly run app.py during partial rollouts.
 # Fail gracefully (UI error) instead of crashing on import.
 try:
@@ -60,8 +89,8 @@ except Exception:
 # City presets are optional; if they fail to import during rollout, degrade to Custom-only.
 try:
     from rbv.ui.defaults import (
-        CITY_PRESETS,
         CITY_PRESET_CUSTOM,
+        CITY_PRESETS,
         apply_city_preset_values,
         build_city_preset_change_summary,
         city_preset_filter_region_options,
@@ -285,18 +314,7 @@ def _rbv_cached_run_simulation_core(
 
 
 # --- UI helpers (Sprint 2/3: sidebar + tables + charts polish) ---
-def sidebar_hint(text: str) -> None:
-    'Small, low-noise hint text in the sidebar (replaces verbose captions).'
-    if isinstance(text, str) and text.strip():
-        st.markdown(f'<div class="rbv-hint">{html.escape(text)}</div>', unsafe_allow_html=True)
-
-def sidebar_pills(items: list[str]) -> None:
-    'Render a compact row of pills in the sidebar (for mode summaries, etc.).'
-    safe = [html.escape(str(x)) for x in (items or []) if str(x).strip()]
-    if not safe:
-        return
-    pills = ''.join([f'<div class="rbv-pill">{x}</div>' for x in safe])
-    st.markdown(f'<div class="rbv-pill-row">{pills}</div>', unsafe_allow_html=True)
+# sidebar_hint and sidebar_pills are imported from rbv.ui.sidebar_inputs (Phase 4.1).
 
 def _rbv_rgba(hex_color: str, alpha: float) -> str:
     'Convert #RRGGBB to rgba(r,g,b,a) string.'
@@ -370,6 +388,9 @@ def _rbv_apply_plotly_theme(fig: go.Figure, *, height: int | None = None) -> go.
             ))
         if fig.layout.hovermode is None:
             fig.update_layout(hovermode='x unified')
+        # Global hover polish: keep hover labels but remove vertical/horizontal spike cursor lines.
+        fig.update_xaxes(showspikes=False)
+        fig.update_yaxes(showspikes=False)
     except Exception:
         pass
     return fig
@@ -620,83 +641,7 @@ def rbv_text_input(label: str, *, tooltip: str | None = None, **kwargs):
     return st.text_input(label, label_visibility="collapsed", **kwargs)
 
 # --- Sidebar tooltip text (shown via custom hover icon) ---
-RBV_SIDEBAR_TOOLTIPS = {
-    "Public Mode (simple UI)": "When ON, hides power-user controls and uses safe presets. Turn OFF for Power Mode.",
-    "Monte Carlo results": "Choose Stable for reproducible results, or New random run for a fresh random draw each rerun.",
-    "Power overrides": "Optional manual overrides for sim counts/grid. Presets still apply when you change Fast/Quality.",
-    "Province": "Select the province for land transfer / welcome tax rules.",
-    "Toronto Property?": "If yes, applies Toronto Municipal Land Transfer Tax (MLTT) in addition to Ontario LTT (rates depend on date).",
-    "First-Time Buyer?": "If eligible, applies applicable first-time buyer rebates where modeled.",
-    "Purchase Price ($)": "Home purchase price at month 0.",
-    "Down Payment ($)": "Cash paid up front. Remainder is financed by the mortgage (unless you set a smaller loan elsewhere).",
-    "Transfer Tax Override ($)": "If set > 0, overrides computed land transfer/welcome tax and becomes the ground truth closing tax.",
-    "Legal & Closing Costs ($)": "Legal fees and other closing costs (excluding transfer tax).",
-    "Home Inspection ($)": "One-time inspection cost at purchase.",
-    "Mortgage Rate Mode": "Choose how the mortgage rate behaves (fixed vs resets/renewals).",
-    "Mortgage Rate (Fixed %)": "Nominal annual mortgage rate used for the payment calculation.",
-    "Canadian mortgage compounding (semi-annual)": "If enabled, converts the nominal rate using Canadian semi-annual compounding before monthly payments.",
-    "Amortization Period (Years)": "Total amortization length used to compute the monthly mortgage payment. Note: 30-year amortization has eligibility restrictions in Canada (policy-dependent).",
-    "Reset Frequency (Years)": "How often the mortgage rate resets/renews (approximation).",
-    "Rate at Reset (%)": "Mortgage rate applied after a reset/renewal occurs.",
-    "Rate Change Per Reset (pp)": "Staircase applied at renewals: Renewal 1 = reset rate; Renewal 2 = reset rate + step; Renewal 3 = reset rate + 2×step; etc.",
-    "Stress test: +2% rate shock at Year 5": "Adds a temporary rate shock (e.g., +2%) starting at year 5 for the configured duration.",
-    "Add crisis shock event": "Adds a one-time drawdown event for home and/or portfolio at a specified year.",
-    "Crisis year": "Year (from start) when the crisis drawdown is applied.",
-    "Home price drawdown (%)": "One-time % drop in home value applied at the crisis year.",
-    "Stock drawdown (%)": "One-time % drop in the investment portfolio applied at the crisis year.",
-    "Monthly Rent ($)": "Starting monthly rent at month 0.",
-    "Rent Inflation (%)": "Annual market rent growth rate (subject to rent control cap if enabled).",
-    "Utilities ($/mo)": "Renter utilities cost. Set to 0 if you assume utilities are the same as the owner side.",
-    "Insurance ($/mo)": "Renter insurance cost per month.",
-    "Moving Costs ($)": "One-time moving cost each time the renter moves (if moving is enabled).",
-    "Moving Frequency (Years)": "How often the renter moves (used to apply moving costs).",
-    "Renter Invests Closing Costs?": "If enabled, renter invests the cash the buyer would have spent on closing costs.",
-    "Invest Monthly Surplus?": "If enabled, the side with lower monthly housing costs invests the difference each month.",
-    "Allow portfolio drawdown to fund deficits": "If enabled, portfolios can go negative/withdrawn to cover monthly deficits (instead of clipping at zero).",
-    "Investment Tax Modeling": "Choose how investment taxes are approximated (pre-tax, annual drag, or deferred capital gains at the end).",
-    "Tax on Investment Gains (%)": "Annual return drag applied to both portfolios when using the “Annual drag” tax mode.",
-    "Effective Capital Gains Tax at End (%)": "Tax rate applied to unrealized gains when liquidating portfolios at the horizon in “Deferred CG” mode.",
-    "Liquidation view at horizon (cash-in-hand)": "Shows a liquidation (after-tax/after-selling) view at the horizon for clarity.",
-    "Buyer Investment Return (%)": "Nominal annual return used for the buyer’s invested cashflows/portfolio.",
-    "Renter Investment Return (%)": "Nominal annual return used for the renter’s invested cashflows/portfolio.",
-    "Enable Volatility": "Turns on Monte Carlo volatility for home and portfolio returns.",
-    "Number of Simulations": "Monte Carlo simulation count. Higher = smoother estimates but slower.",
-    "Monte Carlo seed": "Seed for repeatable Monte Carlo runs. Leave blank for a stable derived seed.",
-    "Seed": "Leave blank to auto-derive a stable seed from your inputs (recommended for comparing scenarios). In 'New random run' mode, the manual seed is ignored.",
-    "Randomize seed each run": "If enabled, uses a new random seed every run (results will vary run-to-run).",
-    "Investment Volatility (Std Dev %)": "Annualized volatility (standard deviation) for the portfolio return process in Monte Carlo.",
-    "Appreciation Volatility (Std Dev %)": "Annualized volatility (standard deviation) for the home appreciation process in Monte Carlo.",
-    "Correlation (ρ)": "Correlation between home and portfolio shocks in Monte Carlo. Negative values mean they tend to move opposite.",
-    "Home Appreciation (%)": "Baseline nominal annual home appreciation rate (drift).",
-    "General Inflation Rate (%)": "CPI/general inflation used to grow many non-housing costs over time.",
-    "PV (Discount) Rate (%)": "Discount rate used to compute present value (PV) versions of dollars and deltas.",
-    "Property Tax Rate (%)": "Annual property tax rate as % of home value.",
-    "Property Tax Growth Model": "Toronto realism: MPAC assessments lag market prices and municipalities smooth year-over-year bill changes. Hybrid is a simple, realistic approximation: market pressure capped by CPI + 0.5%/yr.",
-    "Hybrid cap add-on (%/yr)": "Extra room above CPI used only in Hybrid mode. Default 0.5%/yr keeps taxes responsive to market pressure without assuming bills rise 1:1 with home prices.",
-    "Maintenance (Repairs/Reno) Rate (%)": "Annual maintenance/repairs budget as % of home value.",
-    "Repair Costs Rate (%)": "Additional repair reserve rate as % of home value (separate from maintenance).",
-    "Condo Fees ($/mo)": "Monthly condo/HOA fees (0 for freehold).",
-    "Condo Fee Inflation Mode": "How condo fees grow over time: CPI + spread, or a custom fixed rate.",
-    "Condo Fee Inflation Spread vs CPI (%/yr)": "Adds this many % per year on top of CPI for condo fee inflation (CPI+spread mode).",
-    "Condo Fee Inflation (%)": "Custom condo fee inflation rate (only used in custom mode).",
-    "Selling Cost (%)": "Selling costs as % of sale price (e.g., realtor commission).",
-    "Home Sale Legal/Closing Fee at Exit ($)": "Legal/closing fee paid on sale (added when “Assume sold at horizon” is enabled).",
-    "Assume home sold at horizon (apply selling costs)": "If enabled, applies selling costs and liquidation at the horizon; otherwise treats the home as held.",
-    "After-tax household income ($/mo)": "If income constraints are enabled, this caps how much total spending you can cover each month.",
-    "Non-housing spending ($/mo)": "If income constraints are enabled, this models other spending outside housing each month.",
-    "Income growth (%/yr)": "Annual growth rate for income/spending when income constraints are enabled.",
-    "Enable income/budget constraints (experimental)": "If enabled, the model constrains cashflows by after-tax income and non-housing spending (experimental).",
-    "⚡ Fast Mode": "Reduces expensive computations (especially heatmaps/Monte Carlo) for quicker interaction.",
-    "Economic Scenario": "Preset bundle of assumptions (baseline / high inflation / stagnation) applied to key inputs.",
-    "Analysis Duration (Years)": "How many years to simulate (monthly cashflows, investing, and PV discounting).",
-    "Apply Rent Control Cap?": "Caps rent growth at the configured maximum (use only if your unit is legally rent-controlled). Effective rent growth = min(Rent Inflation, Cap).",
-    "Rent Control Cap (%)": "Maximum annual rent increase allowed under rent control (e.g., provincial guideline).",
-    "Main Monte Carlo sims": "Number of simulations for the main Monte Carlo net worth chart. Higher = smoother percentiles / win% but slower (and uses more memory).",
-    "Heatmap Monte Carlo sims": "Monte Carlo simulations per heatmap cell (only used when the selected heatmap metric is stochastic). Higher = less noisy cells but slower.",
-    "Bias Monte Carlo sims": "Monte Carlo simulations used inside the breakeven/bias solver. Higher = more stable breakeven results but slower.",
-    "Heatmap grid size (N×N)": "Resolution of the heatmap grid. Higher N means more detail but compute grows roughly with N².",
-    "Bias grid size (N×N)": "Resolution of the bias scan grid (used for breakeven). Higher N improves accuracy but can be slow.",
-}
+# RBV_SIDEBAR_TOOLTIPS is imported from rbv.ui.sidebar_inputs (Phase 4.1).
 
 # --- Custom tooltip styles (independent of BaseWeb) ---
 # --- Harden Streamlit/BaseWeb help tooltips so every sidebar "?" is consistent (opaque, padded, non-clipping) ---
@@ -1576,7 +1521,7 @@ def _rbv_render_compare_preview() -> None:
             )
             fig_cmp.update_xaxes(title_text="Years", gridcolor="rgba(255,255,255,0.12)")
             fig_cmp.update_yaxes(title_text="Net worth", tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.12)")
-            st.plotly_chart(_rbv_apply_plotly_theme(fig_cmp, height=360), use_container_width=True)
+            st.plotly_chart(_rbv_apply_plotly_theme(fig_cmp, height=360), width="stretch")
             st.caption("Solid = A, dashed = B. Compare preview runs deterministically for speed/stability.")
         except Exception:
             st.caption("Compare overlay chart unavailable for this pair.")
@@ -1649,6 +1594,7 @@ def _rbv_render_compare_preview() -> None:
 # Encodes the allowed scenario state into a URL-safe token stored in query param `s`.
 import base64
 import zlib
+
 
 def _rbv_state_to_share_token(state: dict) -> str:
     raw = json.dumps(state or {}, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -2026,7 +1972,7 @@ def check_custom():
         'buyer_ret': st.session_state.buyer_ret,
         'renter_ret': st.session_state.renter_ret
     }
-    
+
     match_found = False
     for name, vals in PRESETS.items():
         if all(np.isclose(current[k], vals[k]) for k in vals):
@@ -2034,7 +1980,7 @@ def check_custom():
                 st.session_state.scenario_select = name
             match_found = True
             break
-    
+
     if not match_found:
         if st.session_state.scenario_select != "Custom":
             st.session_state.scenario_select = "Custom"
@@ -2106,6 +2052,14 @@ moving_freq = 5
 
 
 
+# Monte Carlo / heatmap performance profile defaults (single balanced mode)
+BALANCED_DEFAULT_NUM_SIMS = 80_000
+BALANCED_HM_MC_SIMS_DEFAULT = 20_000
+BALANCED_BIAS_MC_SIMS_DEFAULT = 40_000
+BALANCED_HM_GRID_DEFAULT = 40
+BALANCED_HM_GRID_DET_MIN_PUBLIC = 51
+BALANCED_HM_GRID_MCMEAN_MIN_PUBLIC = 40
+
 # --- Defensive defaults (Streamlit rerun-safe) ---
 # Streamlit can rerun scripts before conditional widgets initialize variables.
 # These defaults prevent NameError; sidebar inputs will override them normally.
@@ -2123,7 +2077,7 @@ use_volatility = bool(st.session_state.get("use_volatility", False))
 # even when the sidebar volatility widgets are collapsed.
 ret_std = float(st.session_state.get("ret_std_pct", 15.0)) / 100.0
 apprec_std = float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0
-num_sims = int(st.session_state.get("num_sims", 1000))
+num_sims = int(st.session_state.get("num_sims", BALANCED_DEFAULT_NUM_SIMS))
 mc_seed_text = ""
 
 # Buying defaults
@@ -2184,6 +2138,49 @@ rate_shock_duration_years = 5
 rate_shock_pp = 2.0
 
 
+
+def _rbv_mc_seed_signature_payload() -> dict:
+    """Canonical payload for derived Monte Carlo seed signatures."""
+    ss = st.session_state
+
+    def _g(k, d=None):
+        return ss.get(k, d)
+
+    keys_numeric = [
+        "price", "down", "rate", "amort", "years", "apprec", "buyer_ret", "renter_ret",
+        "rent", "rent_inf", "discount_rate", "market_corr_input", "ret_std_pct", "apprec_std_pct",
+        "num_sims", "sell_cost_pct", "p_tax_rate_pct", "maint_rate_pct", "repair_rate_pct",
+        "cg_tax_end", "tax_r", "hm_grid_size", "hm_mc_sims", "bias_mc_sims",
+    ]
+    keys_bool = [
+        "use_volatility", "invest_surplus_input", "renter_uses_closing_input",
+        "rent_control_enabled", "budget_enabled", "budget_allow_withdraw",
+        "assume_sale_end", "show_liquidation_view", "canadian_compounding",
+    ]
+    keys_str = [
+        "investment_tax_mode", "prop_tax_growth_model", "rate_mode", "sim_mode",
+        "rent_control_frequency", "condo_inf_mode",
+    ]
+
+    out = {}
+    for k in keys_numeric:
+        try:
+            v = _g(k, None)
+            out[k] = (None if v is None else float(v))
+        except Exception:
+            out[k] = str(_g(k, None))
+    for k in keys_bool:
+        out[k] = bool(_g(k, False))
+    for k in keys_str:
+        out[k] = str(_g(k, ""))
+    return out
+
+
+def _rbv_derived_mc_seed_and_sig() -> tuple[int, str]:
+    payload = _rbv_mc_seed_signature_payload()
+    sig = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    seed = int(hashlib.sha256(sig.encode("utf-8")).hexdigest()[:8], 16)
+    return int(seed), sig
 
 # Load scenario from share-link (URL param) before rendering widgets
 _rbv_maybe_load_scenario_from_url()
@@ -2259,24 +2256,37 @@ with st.sidebar:
 
     # --- HEADER 1: Settings (White) ---
     st.markdown('<div class="sidebar-header-gen">⚙️ Settings</div>', unsafe_allow_html=True)
+    # Phase 3 UX simplification: basic vs advanced control density.
+    st.session_state.setdefault("ui_mode", "Advanced")
+    _ui_mode = st.radio(
+        "Interface mode",
+        ["Basic", "Advanced"],
+        horizontal=True,
+        index=(0 if str(st.session_state.get("ui_mode", "Advanced")) == "Basic" else 1),
+        key="ui_mode",
+    )
+    _show_advanced_controls = (_ui_mode == "Advanced")
+    _prev_ui_mode = st.session_state.get("_rbv_ui_mode_prev", _ui_mode)
+    if _prev_ui_mode != _ui_mode:
+        st.session_state["_rbv_ui_mode_prev"] = _ui_mode
+        # Force CSS reinjection on mode transitions: Streamlit can recreate DOM/style tags
+        # during reruns and dedupe logic may otherwise skip an identical stylesheet.
+        st.session_state["_rbv_force_css_reinject"] = True
+        st.rerun()
+    else:
+        st.session_state["_rbv_ui_mode_prev"] = _ui_mode
+    if not _show_advanced_controls:
+        st.caption("Basic mode hides expert controls to reduce clutter. Switch to **Advanced** for full modeling options.")
     # Public/Power mode toggle removed (v2_41).
 
     # Scenario save/load (public-friendly)
     with st.expander("Scenario", expanded=False):
+        if not _show_advanced_controls:
+            st.info("Quick flow: **Download/Load** for backup, then use **Save → A/B** and **Load A/B** to compare two scenarios.")
         try:
             _payload = _rbv_make_scenario_payload()
             _json = json.dumps(_payload, indent=2, default=str)
-            try:
-                st.download_button(
-                    "Download scenario (.json)",
-                    data=_json,
-                    file_name="rbv_scenario.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    type="primary",
-                )
-            except TypeError:
-                st.download_button(
+            st.download_button(
                     "Download scenario (.json)",
                     data=_json,
                     file_name="rbv_scenario.json",
@@ -2388,11 +2398,13 @@ with st.sidebar:
             on_change=apply_preset,
             label_visibility="collapsed",
         )
-    
-    
+
+
     with st.expander("Simulation Horizon", expanded=True):
+        if not _show_advanced_controls:
+            st.caption("Set your analysis years first. Longer horizons increase uncertainty and can widen Buy vs Rent outcome ranges.")
         years = st.number_input("Analysis Duration (Years)", min_value=1, max_value=50, step=1, key='years', label_visibility="collapsed")
-        
+
         general_inf = st.number_input(
             "General Inflation Rate (%)",
             min_value=-5.0, max_value=15.0,
@@ -2400,7 +2412,7 @@ with st.sidebar:
             key="general_inf", on_change=check_custom,
             label_visibility="collapsed",
         ) / 100
-    
+
         # --- TOOLTIPS (ESCAPED DOLLAR SIGNS) ---
         discount_rate = st.number_input(
             "PV (Discount) Rate (%)",
@@ -2410,6 +2422,8 @@ with st.sidebar:
         ) / 100
 
     with st.expander("Taxes & Cash-out", expanded=False):
+        if not _show_advanced_controls:
+            st.info("For most users: keep **Pre-tax** for quick comparisons, then check **Deferred capital gains at end** to view after-tax cash-out results.")
         # Tax schedule "as of" date (used for date-dependent rules like Toronto MLTT >$3M brackets).
         _asof_default = datetime.date.today()
         _raw_asof = st.session_state.get("tax_rules_asof", _asof_default)
@@ -2629,137 +2643,138 @@ with st.sidebar:
 
 
 
-    with st.expander("🧠 Behavioral & Advanced", expanded=False):
-        # IMPORTANT UX / modeling guardrail:
-        # Turning off surplus investing can massively bias results and is easy to misinterpret.
-        # We therefore lock it ON unless Expert mode is enabled.
-        _expert_mode = bool(st.session_state.get("expert_mode", False))
-        if (not _expert_mode) and ("invest_surplus_input" in st.session_state) and (not bool(st.session_state.get("invest_surplus_input", True))):
-            st.session_state["invest_surplus_input"] = True
-        invest_surplus_input = st.checkbox(
-            "Invest Monthly Surplus?",
-            value=bool(st.session_state.get("invest_surplus_input", True)),
-            key="invest_surplus_input",
-            disabled=(not _expert_mode),
-        )
-        if not _expert_mode:
-            st.caption("Standard mode: surplus investing is locked **ON** (economic realism + safer comparisons).")
-        if "renter_uses_closing_input" not in st.session_state:
-            st.session_state["renter_uses_closing_input"] = True
-        renter_uses_closing_input = st.checkbox(
-            "Renter Invests Closing Costs?",
-            key="renter_uses_closing_input",
-        )
-        
-        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-        market_corr_input = st.slider("Correlation (ρ)", -1.0, 1.0, value=0.8, key="market_corr_input")
+    if _show_advanced_controls:
+        with st.expander("🧠 Behavioral & Advanced", expanded=False):
+            # IMPORTANT UX / modeling guardrail:
+            # Turning off surplus investing can massively bias results and is easy to misinterpret.
+            # We therefore lock it ON unless Expert mode is enabled.
+            _expert_mode = bool(st.session_state.get("expert_mode", False))
+            if (not _expert_mode) and ("invest_surplus_input" in st.session_state) and (not bool(st.session_state.get("invest_surplus_input", True))):
+                st.session_state["invest_surplus_input"] = True
+            invest_surplus_input = st.checkbox(
+                "Invest Monthly Surplus?",
+                value=bool(st.session_state.get("invest_surplus_input", True)),
+                key="invest_surplus_input",
+                disabled=(not _expert_mode),
+            )
+            if not _expert_mode:
+                st.caption("Standard mode: surplus investing is locked **ON** (economic realism + safer comparisons).")
+            if "renter_uses_closing_input" not in st.session_state:
+                st.session_state["renter_uses_closing_input"] = True
+            renter_uses_closing_input = st.checkbox(
+                "Renter Invests Closing Costs?",
+                key="renter_uses_closing_input",
+            )
 
-        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-        crisis_enabled = st.checkbox(
-            "Add crisis shock event",
-            value=bool(st.session_state.get("crisis_enabled", False)),
-            key="crisis_enabled",
-        )
-        _years_cap = int(st.session_state.get("years", 25))
-        if crisis_enabled:
-            crisis_year = st.number_input("Crisis year", min_value=1, max_value=_years_cap, value=min(5, _years_cap), step=1)
-            crisis_duration_months = st.select_slider("Shock duration (months)", options=[1, 3, 6, 12], value=1)
-            crisis_stock_dd = st.slider("Stock drawdown (%)", 0, 90, 35) / 100
-            crisis_house_dd = st.slider("Home price drawdown (%)", 0, 90, 20) / 100
-            # ⚠️ Compounding warning — each % applies PER MONTH over the duration
-            if crisis_duration_months > 1:
-                _total_stock = 1 - (1 - crisis_stock_dd) ** crisis_duration_months
-                _total_house = 1 - (1 - crisis_house_dd) ** crisis_duration_months
-                st.caption(
-                    f"⚠️ **Compounding note:** each drawdown % applies *every month* of the shock duration. "
-                    f"Over {crisis_duration_months} months: stock total drop ≈ **{_total_stock:.0%}**, "
-                    f"home total drop ≈ **{_total_house:.0%}**. "
-                    f"For a one-time correction (e.g. '20% total'), set duration to **1 month**."
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            market_corr_input = st.slider("Correlation (ρ)", -1.0, 1.0, value=0.8, key="market_corr_input")
+
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            crisis_enabled = st.checkbox(
+                "Add crisis shock event",
+                value=bool(st.session_state.get("crisis_enabled", False)),
+                key="crisis_enabled",
+            )
+            _years_cap = int(st.session_state.get("years", 25))
+            if crisis_enabled:
+                crisis_year = st.number_input("Crisis year", min_value=1, max_value=_years_cap, value=min(5, _years_cap), step=1)
+                crisis_duration_months = st.select_slider("Shock duration (months)", options=[1, 3, 6, 12], value=1)
+                crisis_stock_dd = st.slider("Stock drawdown (%)", 0, 90, 35) / 100
+                crisis_house_dd = st.slider("Home price drawdown (%)", 0, 90, 20) / 100
+                # ⚠️ Compounding warning — each % applies PER MONTH over the duration
+                if crisis_duration_months > 1:
+                    _total_stock = 1 - (1 - crisis_stock_dd) ** crisis_duration_months
+                    _total_house = 1 - (1 - crisis_house_dd) ** crisis_duration_months
+                    st.caption(
+                        f"⚠️ **Compounding note:** each drawdown % applies *every month* of the shock duration. "
+                        f"Over {crisis_duration_months} months: stock total drop ≈ **{_total_stock:.0%}**, "
+                        f"home total drop ≈ **{_total_house:.0%}**. "
+                        f"For a one-time correction (e.g. '20% total'), set duration to **1 month**."
+                    )
+            else:
+                crisis_year = 5
+                crisis_duration_months = 1
+                crisis_stock_dd = 0.35
+                crisis_house_dd = 0.20
+
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            budget_enabled = st.checkbox(
+                "Enable income/budget constraints (experimental)",
+                value=bool(st.session_state.get("budget_enabled", False)),
+                key="budget_enabled",
+            )
+            # If the user disables surplus investing (expert-only), make the modeling consequence explicit.
+            if _expert_mode and (not bool(invest_surplus_input)) and (not bool(budget_enabled)):
+                st.error(
+                    "Surplus investing is **OFF** — the model routes any monthly advantage into **cash (0% yield)** (not invested). "
+                    "This can strongly favor the more expensive option in long-horizon net-worth results.",
+                    icon="⚠️",
                 )
-        else:
-            crisis_year = 5
-            crisis_duration_months = 1
-            crisis_stock_dd = 0.35
-            crisis_house_dd = 0.20
+            if budget_enabled and bool(invest_surplus_input):
+                st.caption("Budget mode is ON — the model uses income/budget cashflows, so monthly-surplus investing is ignored.")
+            if budget_enabled:
+                monthly_income = st.number_input("After-tax household income ($/mo)", value=12000, min_value=0, step=100)
+                monthly_nonhousing = st.number_input(
+                    "Non-housing spending ($/mo)",
+                    value=7000,
+                    min_value=0,
+                    step=100,
+                )
+                income_growth_pct = st.number_input("Income growth (%/yr)", value=3.0, step=0.1, format="%.2f")
+                budget_allow_withdraw = st.checkbox(
+                    "Allow portfolio drawdown to fund deficits",
+                    value=bool(st.session_state.get("budget_allow_withdraw", True)),
+                    key="budget_allow_withdraw",
+                )
+            else:
+                monthly_income = 0.0
+                monthly_nonhousing = 0.0
+                income_growth_pct = 0.0
+                budget_allow_withdraw = True
 
-        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-        budget_enabled = st.checkbox(
-            "Enable income/budget constraints (experimental)",
-            value=bool(st.session_state.get("budget_enabled", False)),
-            key="budget_enabled",
-        )
-        # If the user disables surplus investing (expert-only), make the modeling consequence explicit.
-        if _expert_mode and (not bool(invest_surplus_input)) and (not bool(budget_enabled)):
-            st.error(
-                "Surplus investing is **OFF** — the model routes any monthly advantage into **cash (0% yield)** (not invested). "
-                "This can strongly favor the more expensive option in long-horizon net-worth results.",
-                icon="⚠️",
-            )
-        if budget_enabled and bool(invest_surplus_input):
-            st.caption("Budget mode is ON — the model uses income/budget cashflows, so monthly-surplus investing is ignored.")
-        if budget_enabled:
-            monthly_income = st.number_input("After-tax household income ($/mo)", value=12000, min_value=0, step=100)
-            monthly_nonhousing = st.number_input(
-                "Non-housing spending ($/mo)",
-                value=7000,
-                min_value=0,
-                step=100,
-            )
-            income_growth_pct = st.number_input("Income growth (%/yr)", value=3.0, step=0.1, format="%.2f")
-            budget_allow_withdraw = st.checkbox(
-                "Allow portfolio drawdown to fund deficits",
-                value=bool(st.session_state.get("budget_allow_withdraw", True)),
-                key="budget_allow_withdraw",
-            )
-        else:
-            monthly_income = 0.0
-            monthly_nonhousing = 0.0
-            income_growth_pct = 0.0
-            budget_allow_withdraw = True
-
-        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-        rate_mode = st.selectbox(
-            "Mortgage Rate Mode",
-            options=["Fixed", "Reset every N years"],
-            index=(0 if st.session_state.get("rate_mode", "Fixed") == "Fixed" else 1),
-            key="rate_mode",
-)
-        rate_reset_years = None
-        rate_reset_to = None
-        rate_reset_step_pp = 0.0
-        if rate_mode == "Reset every N years":
-            rate_reset_years = st.number_input(
-                "Reset Frequency (Years)",
-                value=int(st.session_state.get("rate_reset_years", 5) or 5),
-                key="rate_reset_years",
-                step=1,
-                min_value=1,
-                max_value=10,
-)
-            rate_reset_to = st.number_input(
-                "Rate at Reset (%)",
-                value=float(st.session_state.get("rate_reset_to", float(rate)) or float(rate)),
-                key="rate_reset_to",
-                step=0.1,
-                format="%.2f",
-                min_value=0.0,
-)
-            rate_reset_step_pp = st.number_input(
-                "Rate Change Per Reset (pp)",
-                value=float(st.session_state.get("rate_reset_step_pp", 0.0) or 0.0),
-                key="rate_reset_step_pp",
-                step=0.1,
-                format="%.2f",
-)
-        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-        rate_shock_enabled = st.checkbox(
-            "Stress test: +2% rate shock at Year 5",
-            value=False,
-)
-        # Safe defaults (advanced controls kept implicit to avoid UI bloat)
-        rate_shock_start_year = 5
-        rate_shock_duration_years = 5
-        rate_shock_pp = 2.0
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            rate_mode = st.selectbox(
+                "Mortgage Rate Mode",
+                options=["Fixed", "Reset every N years"],
+                index=(0 if st.session_state.get("rate_mode", "Fixed") == "Fixed" else 1),
+                key="rate_mode",
+    )
+            rate_reset_years = None
+            rate_reset_to = None
+            rate_reset_step_pp = 0.0
+            if rate_mode == "Reset every N years":
+                rate_reset_years = st.number_input(
+                    "Reset Frequency (Years)",
+                    value=int(st.session_state.get("rate_reset_years", 5) or 5),
+                    key="rate_reset_years",
+                    step=1,
+                    min_value=1,
+                    max_value=10,
+    )
+                rate_reset_to = st.number_input(
+                    "Rate at Reset (%)",
+                    value=float(st.session_state.get("rate_reset_to", float(rate)) or float(rate)),
+                    key="rate_reset_to",
+                    step=0.1,
+                    format="%.2f",
+                    min_value=0.0,
+    )
+                rate_reset_step_pp = st.number_input(
+                    "Rate Change Per Reset (pp)",
+                    value=float(st.session_state.get("rate_reset_step_pp", 0.0) or 0.0),
+                    key="rate_reset_step_pp",
+                    step=0.1,
+                    format="%.2f",
+    )
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            rate_shock_enabled = st.checkbox(
+                "Stress test: +2% rate shock at Year 5",
+                value=False,
+    )
+            # Safe defaults (advanced controls kept implicit to avoid UI bloat)
+            rate_shock_start_year = 5
+            rate_shock_duration_years = 5
+            rate_shock_pp = 2.0
     # Engine extras: passed through to the simulator so sensitivity checks + heatmaps stay consistent.
     # Also stash in session_state so downstream calls can always rebuild the dict even if UI branches change.
     extra_engine_kwargs = dict(
@@ -2778,16 +2793,16 @@ with st.sidebar:
 
 
     with st.expander("Monte Carlo", expanded=True):
-        # --- Performance mode (Fast / Quality) ---
+        # --- Performance profile (single balanced mode) ---
         # We render a single header with a custom help bubble that *dynamically* reflects
         # current presets + any user overrides. The radio widget itself has a blank label
-        # to avoid duplicated "Performance mode" headers.
-        st.session_state.setdefault("sim_mode", "Fast")
-        sim_mode = str(st.session_state.get("sim_mode", "Fast") or "Fast")
-        if sim_mode not in ("Fast", "Quality"):
-            sim_mode = "Fast"
-            st.session_state["sim_mode"] = "Fast"
-        fast_mode = (sim_mode == "Fast")
+        # to avoid duplicated performance profile headers.
+        st.session_state["sim_mode"] = "Balanced"
+        sim_mode = "Balanced"
+        fast_mode = False  # compatibility for downstream helpers expecting this flag
+
+        if not _show_advanced_controls:
+            st.info("Using **Basic mode** defaults for simulation controls. Switch sidebar Interface mode to **Advanced** to tune Monte Carlo overrides and behavioral stress settings.")
 
         # Horizon-aware guidance for advanced overrides.
         # Larger horizons multiply the monthly simulation workload and can trigger slow, non-vectorized fallbacks.
@@ -2812,57 +2827,35 @@ with st.sidebar:
             return 60_000
 
         _mc_cap = _mc_cap_for_horizon(years)
-    
-        # Mode presets (public-facing simplification: no manual sim/grid tweaking required)
-        # Main Monte Carlo sims (single-scenario analysis)
-        FAST_DEFAULT_NUM_SIMS = 50_000
-        # Quality defaults tuned for Streamlit Cloud reliability while keeping statistical meaning.
-        # (User request: keep Quality statistically meaningful while lowering server memory: main MC=90k, grid≈41, heatmap sims=20k; bias sims unchanged.)
-        QUALITY_DEFAULT_NUM_SIMS = 90_000
-    
-        # Heatmap MC sims (shared across the whole grid via batched execution)
-        FAST_HM_MC_SIMS_DEFAULT = 15_000
-        QUALITY_HM_MC_SIMS_DEFAULT = 20_000
-    
-        # Bias solver MC sims (used inside bisection / flip-point search)
-        FAST_BIAS_MC_SIMS_DEFAULT = 15_000
-        QUALITY_BIAS_MC_SIMS_DEFAULT = 30_000
-    
-        # Heatmap grid defaults
-        FAST_HM_GRID_DEFAULT = 31
-        QUALITY_HM_GRID_DEFAULT = 41
-    
-        # Deterministic heatmaps can render at a higher grid without significant cost (exact batched eval).
-        # In Public Mode we automatically bump grid resolution for deterministic heatmap metrics for smoother visuals.
-        FAST_HM_GRID_DET_MIN_PUBLIC = 61
-        QUALITY_HM_GRID_DET_MIN_PUBLIC = 41
-    
-        st.session_state.setdefault("num_sims", FAST_DEFAULT_NUM_SIMS if fast_mode else QUALITY_DEFAULT_NUM_SIMS)
-        st.session_state.setdefault("hm_grid_size", FAST_HM_GRID_DEFAULT if fast_mode else QUALITY_HM_GRID_DEFAULT)
-        st.session_state.setdefault("hm_mc_sims", FAST_HM_MC_SIMS_DEFAULT if fast_mode else QUALITY_HM_MC_SIMS_DEFAULT)
-        st.session_state.setdefault("bias_mc_sims", FAST_BIAS_MC_SIMS_DEFAULT if fast_mode else QUALITY_BIAS_MC_SIMS_DEFAULT)
-    
-        # If the user flips mode, push the matching defaults (keeps UX predictable).
-        if "_sim_mode_prev" not in st.session_state:
+
+        # Single balanced defaults are defined at module level and applied here.
+
+        st.session_state.setdefault("num_sims", BALANCED_DEFAULT_NUM_SIMS)
+        st.session_state.setdefault("hm_grid_size", BALANCED_HM_GRID_DEFAULT)
+        st.session_state.setdefault("hm_mc_sims", BALANCED_HM_MC_SIMS_DEFAULT)
+        st.session_state.setdefault("bias_mc_sims", BALANCED_BIAS_MC_SIMS_DEFAULT)
+
+        # Sanitize imported/legacy overrides so compute blocks remain stable.
+        try:
+            st.session_state["num_sims"] = int(max(1_000, min(500_000, int(st.session_state.get("num_sims", BALANCED_DEFAULT_NUM_SIMS)))))
+            st.session_state["hm_grid_size"] = int(max(10, min(120, int(st.session_state.get("hm_grid_size", BALANCED_HM_GRID_DEFAULT)))))
+            st.session_state["hm_mc_sims"] = int(max(1_000, min(300_000, int(st.session_state.get("hm_mc_sims", BALANCED_HM_MC_SIMS_DEFAULT)))))
+            st.session_state["bias_mc_sims"] = int(max(1_000, min(300_000, int(st.session_state.get("bias_mc_sims", BALANCED_BIAS_MC_SIMS_DEFAULT)))))
+        except Exception:
+            st.session_state["num_sims"] = BALANCED_DEFAULT_NUM_SIMS
+            st.session_state["hm_grid_size"] = BALANCED_HM_GRID_DEFAULT
+            st.session_state["hm_mc_sims"] = BALANCED_HM_MC_SIMS_DEFAULT
+            st.session_state["bias_mc_sims"] = BALANCED_BIAS_MC_SIMS_DEFAULT
+
+        # Keep legacy sessions pinned to the single mode.
+        if st.session_state.get("_sim_mode_prev") != sim_mode:
             st.session_state["_sim_mode_prev"] = sim_mode
-        if sim_mode != st.session_state.get("_sim_mode_prev"):
-            if fast_mode:
-                st.session_state["num_sims"] = FAST_DEFAULT_NUM_SIMS
-                st.session_state["hm_grid_size"] = FAST_HM_GRID_DEFAULT
-                st.session_state["hm_mc_sims"] = FAST_HM_MC_SIMS_DEFAULT
-                st.session_state["bias_mc_sims"] = FAST_BIAS_MC_SIMS_DEFAULT
-            else:
-                st.session_state["num_sims"] = QUALITY_DEFAULT_NUM_SIMS
-                st.session_state["hm_grid_size"] = QUALITY_HM_GRID_DEFAULT
-                st.session_state["hm_mc_sims"] = QUALITY_HM_MC_SIMS_DEFAULT
-                st.session_state["bias_mc_sims"] = QUALITY_BIAS_MC_SIMS_DEFAULT
-            st.session_state["_sim_mode_prev"] = sim_mode
-    
-        # Compact tooltip: show *current* settings, and explicitly indicate when an override is active.
-        _preset_main = FAST_DEFAULT_NUM_SIMS if fast_mode else QUALITY_DEFAULT_NUM_SIMS
-        _preset_hm_sims = FAST_HM_MC_SIMS_DEFAULT if fast_mode else QUALITY_HM_MC_SIMS_DEFAULT
-        _preset_bias = FAST_BIAS_MC_SIMS_DEFAULT if fast_mode else QUALITY_BIAS_MC_SIMS_DEFAULT
-        _preset_grid = FAST_HM_GRID_DEFAULT if fast_mode else QUALITY_HM_GRID_DEFAULT
+
+        # Compact tooltip: show current settings, and explicitly indicate when an override is active.
+        _preset_main = BALANCED_DEFAULT_NUM_SIMS
+        _preset_hm_sims = BALANCED_HM_MC_SIMS_DEFAULT
+        _preset_bias = BALANCED_BIAS_MC_SIMS_DEFAULT
+        _preset_grid = BALANCED_HM_GRID_DEFAULT
 
         _cur_main = int(st.session_state.get('num_sims', 0) or 0)
         _cur_hm_sims = int(st.session_state.get('hm_mc_sims', 0) or 0)
@@ -2883,7 +2876,7 @@ with st.sidebar:
             return f"{label}: {cur_s}"
 
         _mc_tip = "\n".join([
-            f"Mode: {'Fast' if fast_mode else 'Quality'}",
+            "Mode: Balanced",
             _mc_line("Main MC sims", _cur_main, _preset_main),
             _mc_line("Heatmap MC sims", _cur_hm_sims, _preset_hm_sims),
             _mc_line("Bias MC sims", _cur_bias, _preset_bias),
@@ -2891,19 +2884,14 @@ with st.sidebar:
             "Tip: 'Advanced overrides' below can override these presets.",
         ])
 
-        # Single header + tooltip (NO extra info icon on the mode selector itself)
-        rbv_label_row("Performance mode", tooltip=_mc_tip, small_icon=False)
-        sim_mode = st.radio(
-            " ",
-            ["Fast", "Quality"],
-            index=(0 if sim_mode == "Fast" else 1),
-            horizontal=True,
-            key="sim_mode",
-            label_visibility="collapsed",
-        )
-        fast_mode = (sim_mode == "Fast")
-    
-        if True:  # Public/Power modes removed — keep advanced overrides available
+        # Single header + tooltip (single balanced profile)
+        rbv_label_row("Performance profile", tooltip=_mc_tip, small_icon=False)
+        st.caption("Using the balanced profile (single mode).")
+        st.session_state["sim_mode"] = "Balanced"
+        sim_mode = "Balanced"
+        fast_mode = False
+
+        if _show_advanced_controls:
             with st.expander("Advanced overrides", expanded=False):
                 # Manual overrides (optional). These keys already drive the engine.
                 st.number_input(
@@ -2917,16 +2905,16 @@ with st.sidebar:
                     if int(st.session_state.get("num_sims", 0)) > int(_mc_cap):
                         st.warning(
                             f"Main sims above {int(_mc_cap):,} may trigger a slow fallback loop on a {int(years)}-year horizon. "
-                            f"Recommended: ≤ {int(_mc_cap):,}."
+                            f"Recommended: ≤ {int(_mc_cap):,} (balanced default is 80,000)."
                         )
                 except Exception:
                     pass
 
                 st.number_input(
                     "Heatmap grid size (N×N)",
-                    min_value=11,
-                    max_value=101,
-                    step=2,
+                    min_value=10,
+                    max_value=120,
+                    step=1,
                     key="hm_grid_size",
                 )
                 st.number_input(
@@ -2943,10 +2931,10 @@ with st.sidebar:
                     step=1_000,
                     key="bias_mc_sims",
                 )
-    
+
             def _on_volatility_toggle():
                 """Seed volatility inputs when enabling MC volatility.
-    
+
                 Streamlit can retain prior widget state (often 0.0) across versions/sessions.
                 We avoid changing values unless the user is turning volatility ON and both vols are still zero.
                 """
@@ -2954,23 +2942,23 @@ with st.sidebar:
                     if not st.session_state.get("_vol_seeded_once", False):
                         cur_ret = float(st.session_state.get("ret_std_pct", 0.0) or 0.0)
                         cur_app = float(st.session_state.get("apprec_std_pct", 0.0) or 0.0)
-    
+
                         # If both are zero, assume user hasn't set vols yet -> apply sensible defaults.
                         if cur_ret == 0.0 and cur_app == 0.0:
                             cur_ret, cur_app = 15.0, 5.0
                             st.session_state["ret_std_pct"] = cur_ret
                             st.session_state["apprec_std_pct"] = cur_app
-    
+
                         # Drive UI widget keys from the (possibly updated) canonical values.
                         st.session_state["ret_std_pct_ui"] = float(st.session_state.get("ret_std_pct_ui", cur_ret) or cur_ret)
                         st.session_state["apprec_std_pct_ui"] = float(st.session_state.get("apprec_std_pct_ui", cur_app) or cur_app)
-    
+
                         # If prior UI keys exist but are still zero, sync from canonical.
                         if float(st.session_state.get("ret_std_pct_ui", 0.0) or 0.0) == 0.0:
                             st.session_state["ret_std_pct_ui"] = cur_ret
                         if float(st.session_state.get("apprec_std_pct_ui", 0.0) or 0.0) == 0.0:
                             st.session_state["apprec_std_pct_ui"] = cur_app
-    
+
                         st.session_state["_vol_seeded_once"] = True
                 else:
                     # Allow reseeding on a future toggle-on if values are still zero.
@@ -3024,11 +3012,11 @@ with st.sidebar:
             use_volatility = bool(st.session_state.get("use_volatility", False))
 
             if use_volatility:
-    
+
                 # Ensure UI keys exist even if this session started with volatility already enabled.
                 st.session_state.setdefault("ret_std_pct_ui", float(st.session_state.get("ret_std_pct", 15.0) or 15.0))
                 st.session_state.setdefault("apprec_std_pct_ui", float(st.session_state.get("apprec_std_pct", 5.0) or 5.0))
-    
+
                 # Volatility parameters (core to Monte Carlo; always visible)
                 ret_std_pct_ui = st.number_input(
                     "Investment Volatility (Std Dev %)",
@@ -3047,18 +3035,18 @@ with st.sidebar:
                 # Sync canonical values used by config / seed signatures.
                 st.session_state["ret_std_pct"] = float(ret_std_pct_ui)
                 st.session_state["apprec_std_pct"] = float(apprec_std_pct_ui)
-    
+
                 ret_std = float(ret_std_pct_ui) / 100.0
                 apprec_std = float(apprec_std_pct_ui) / 100.0
-    
+
 
                 # Guardrail warnings for extreme volatility inputs
                 if float(ret_std_pct_ui) > 20.0:
                     st.warning("Investment volatility above 20% is an aggressive stress-test and can produce extreme outcomes. Consider 10–20% for broad-market assumptions.")
                 if float(apprec_std_pct_ui) > 10.0:
                     st.warning("Home price volatility above 10% is very high for annualized assumptions. Consider 3–8% unless deliberately stress-testing.")
-                num_sims = int(st.session_state.get("num_sims", 50_000 if fast_mode else 100_000))
-                st.caption(f"Monte Carlo simulations (from Performance mode): **{num_sims:,}**")
+                num_sims = int(st.session_state.get("num_sims", BALANCED_DEFAULT_NUM_SIMS))
+                st.caption(f"Monte Carlo simulations (from Performance profile): **{num_sims:,}**")
                 # Monte Carlo seed & determinism
                 # NOTE: Streamlit forbids modifying st.session_state["mc_seed"] AFTER the widget with key="mc_seed"
                 # has been instantiated in the same run. Therefore, any auto-fill / migration must happen BEFORE
@@ -3072,28 +3060,11 @@ with st.sidebar:
                 )
                 mc_randomize = str(_seed_choice).startswith("New random")
                 st.session_state["mc_randomize"] = bool(mc_randomize)
-    
+
                 def _compute_derived_seed_sidebar():
-                    _sig_items = {
-                        "price": float(st.session_state.get("price", 0.0)) if "price" in st.session_state else None,
-                        "down": float(st.session_state.get("down", 0.0)) if "down" in st.session_state else None,
-                        "rate": float(st.session_state.get("rate", 0.0)) if "rate" in st.session_state else None,
-                        "amort": int(st.session_state.get("amort", 0)) if "amort" in st.session_state else None,
-                        "apprec": float(st.session_state.get("apprec", 0.0)),
-                        "buyer_ret": float(st.session_state.get("buyer_ret", 0.0)),
-                        "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
-                        "rent": float(st.session_state.get("rent", 0.0)) if "rent" in st.session_state else None,
-                        "rent_inf": float(st.session_state.get("rent_inf", 0.0)) if "rent_inf" in st.session_state else None,
-                        "pv": float(st.session_state.get("pv_rate", 0.0)) if "pv_rate" in st.session_state else None,
-                        "corr": float(st.session_state.get("market_corr_input", 0.0)) if "market_corr_input" in st.session_state else None,
-                        "ret_std": float(st.session_state.get("ret_std_pct", 15.0)) / 100.0,
-                        "app_std": float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0,
-                        "sims": int(st.session_state.get("num_sims", 0)) if "num_sims" in st.session_state else None,
-                    }
-                    _sig = json.dumps(_sig_items, sort_keys=True, separators=(",", ":"))
-                    _seed = int(hashlib.sha256(_sig.encode("utf-8")).hexdigest()[:8], 16)
-                    return int(_seed), _sig
-    
+                    return _rbv_derived_mc_seed_and_sig()
+
+
                 # Auto-fill a stable derived seed into mc_seed when left blank (only in Stable mode).
                 # This must run BEFORE st.text_input(key="mc_seed") below to avoid StreamlitAPIException.
                 if use_volatility and (not mc_randomize):
@@ -3102,7 +3073,7 @@ with st.sidebar:
                     _auto = bool(st.session_state.get("_mc_seed_autofilled", False))
                     _auto_sig = str(st.session_state.get("_mc_seed_autofill_sig", ""))
                     _auto_val = str(st.session_state.get("_mc_seed_autofill_value", ""))
-    
+
                     # Fill when blank, and keep it synced if it was auto-filled previously and inputs changed.
                     if (_cur == "") or (_auto and _cur == _auto_val and _auto_sig != _sig_new):
                         st.session_state["mc_seed"] = str(int(_seed_new))
@@ -3111,25 +3082,52 @@ with st.sidebar:
                         st.session_state["_mc_seed_autofill_value"] = str(int(_seed_new))
                 else:
                     st.session_state["_mc_seed_autofilled"] = False
-    
+
                 st.text_input(
                     "Seed",
                     key="mc_seed",
                     label_visibility="collapsed",
                 )
-    
+
                 # Downstream: treat manual seed as ignored in random mode.
                 mc_seed_text = "" if mc_randomize else str(st.session_state.get("mc_seed", "")).strip()
                 _eff = str(st.session_state.get("mc_seed_effective", "")).strip()
                 _src = str(st.session_state.get("mc_seed_effective_source", "")).strip()
+                _eff_display = ""
+                _src_label = ""
+                if mc_randomize:
+                    _eff_display = "changes every run"
+                    _src_label = "randomized"
+                else:
+                    try:
+                        _manual = int(str(mc_seed_text).strip()) if str(mc_seed_text).strip().lstrip("-").isdigit() else None
+                    except Exception:
+                        _manual = None
+                    if _manual is not None:
+                        _eff_display = str(int(_manual))
+                        _src_label = "custom"
+                    else:
+                        try:
+                            _seed_now, _ = _rbv_derived_mc_seed_and_sig()
+                            _eff_display = str(int(_seed_now))
+                            _src_label = "derived stable"
+                        except Exception:
+                            _eff_display = _eff
+                            _src_label = ({
+                                "custom": "custom",
+                                "derived": "derived stable",
+                                "random": "randomized",
+                            }.get(_src, "n/a"))
+                if _eff_display:
+                    st.caption(f"Effective MC seed: **{_eff_display}** ({_src_label})")
             # Keep variable in sync for downstream logic (e.g., heatmap fallback)
             try:
                 num_sims = int(st.session_state.get("num_sims", num_sims))
             except Exception:
                 pass
-    
-    
-    
+
+
+
 # --- Restore original widget functions after sidebar (prevents sidebar label wrapping from leaking into main UI) ---
 # The sidebar wrapper temporarily monkey-patches st.<widget> so the labels render with our custom tooltip system.
 # If we don't restore them, main-page widgets will get a *second* label row (appearing as duplicated inputs).
@@ -3143,7 +3141,7 @@ except Exception:
     pass
 
 
-    
+
 
 # ----------------------
 # Main page header & primary inputs (v2_41)
@@ -3335,6 +3333,26 @@ with brow1[2]:
         step=0.05,
         key="rate",
     )
+    _b20_tip = RBV_SIDEBAR_TOOLTIPS.get("B-20 Qualifying Rate", "")
+    _b20_qualifying_rate = b20_stress_test_qualifying_rate(float(rate))
+    _b20_icon = rbv_help_html(_b20_tip, small=True) if _b20_tip else ""
+    _b20_principal = max(float(price) - float(down), 0.0)
+    _b20_amort_months = int(vals.get("amort", 25)) * 12
+    _b20_canadian = bool(st.session_state.get("canadian_compounding", True))
+    if _b20_principal > 0 and _b20_amort_months > 0:
+        _, _b20_pmt_qual, _b20_pmt_contract = b20_monthly_payment_at_qualifying_rate(
+            _b20_principal, float(rate), _b20_amort_months, canadian_compounding=_b20_canadian
+        )
+        _b20_pmt_line = (
+            f' &nbsp;<span style="opacity:0.75;">'
+            f'(${_b20_pmt_qual:,.0f}/mo vs ${_b20_pmt_contract:,.0f}/mo contract)</span>'
+        )
+    else:
+        _b20_pmt_line = ""
+    st.markdown(
+        f'<div class="rbv-hint">B-20 qualifying rate: {_b20_qualifying_rate:.2f}%{_b20_pmt_line} {_b20_icon}</div>',
+        unsafe_allow_html=True,
+    )
 with brow1[3]:
     amort = rbv_number_input(
         "Amortization (years)",
@@ -3427,48 +3445,48 @@ st.markdown('<div class="rbv-input-subhead">Ongoing Ownership Costs</div>', unsa
 
 brow3 = st.columns(4)
 with brow3[0]:
-	    sell_cost_pct = rbv_slider(
-	        "Selling costs (% of sale price)",
-	        tooltip="Transaction costs when selling (e.g., realtor commissions + closing costs) as a percent of sale price.",
-	        min_value=0.0,
-	        max_value=10.0,
-	        value=float(vals.get("sell_cost_pct", 5.0)),
-	        step=0.1,
-	        key="sell_cost_pct",
-	    )
+    sell_cost_pct = rbv_slider(
+        "Selling costs (% of sale price)",
+        tooltip="Transaction costs when selling (e.g., realtor commissions + closing costs) as a percent of sale price.",
+        min_value=0.0,
+        max_value=10.0,
+        value=float(vals.get("sell_cost_pct", 5.0)),
+        step=0.1,
+        key="sell_cost_pct",
+    )
 with brow3[1]:
-	    p_tax_rate_pct = rbv_slider(
-	        "Property tax (% / year)",
-	        tooltip=(
+    p_tax_rate_pct = rbv_slider(
+        "Property tax (% / year)",
+        tooltip=(
                     "Annual property tax rate as a % of assessed value. This varies a lot by municipality and year "
                     "(often roughly ~0.25%–1.25%). Use your city’s published tax rate / calculator."
                 ),
-	        min_value=0.0,
-	        max_value=3.0,
-	        value=float(vals.get("p_tax_rate_pct", 1.0)),
-	        step=0.05,
-	        key="p_tax_rate_pct",
-	    )
+        min_value=0.0,
+        max_value=3.0,
+        value=float(vals.get("p_tax_rate_pct", 1.0)),
+        step=0.05,
+        key="p_tax_rate_pct",
+    )
 with brow3[2]:
-	    maint_rate_pct = rbv_slider(
-	        "Maintenance (% / year)",
-	        tooltip="Ongoing maintenance budget as a percent of current home value (paid monthly in the model).",
-	        min_value=0.0,
-	        max_value=5.0,
-	        value=float(vals.get("maint_rate_pct", 1.0)),
-	        step=0.05,
-	        key="maint_rate_pct",
-	    )
+    maint_rate_pct = rbv_slider(
+        "Maintenance (% / year)",
+        tooltip="Ongoing maintenance budget as a percent of current home value (paid monthly in the model).",
+        min_value=0.0,
+        max_value=5.0,
+        value=float(vals.get("maint_rate_pct", 1.0)),
+        step=0.05,
+        key="maint_rate_pct",
+    )
 with brow3[3]:
-	    repair_rate_pct = rbv_slider(
-	        "Repairs / CapEx (% / year)",
-	        tooltip="Major repairs/capital expenditures as a percent of current home value (paid monthly in the model).",
-	        min_value=0.0,
-	        max_value=5.0,
-	        value=float(vals.get("repair_rate_pct", 0.5)),
-	        step=0.05,
-	        key="repair_rate_pct",
-	    )
+    repair_rate_pct = rbv_slider(
+        "Repairs / CapEx (% / year)",
+        tooltip="Major repairs/capital expenditures as a percent of current home value (paid monthly in the model).",
+        min_value=0.0,
+        max_value=5.0,
+        value=float(vals.get("repair_rate_pct", 0.5)),
+        step=0.05,
+        key="repair_rate_pct",
+    )
 
 
 st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
@@ -3587,7 +3605,7 @@ try:
 except Exception:
     pass
 
-taxrow = st.columns([1.45, 0.95, 0.95])
+taxrow = st.columns([0.95, 0.75, 0.75, 1.05])
 with taxrow[0]:
     _prov_raw = str(vals.get("province", "Ontario") or "Ontario")
     _prov = _prov_raw if _prov_raw in PROVINCES else "Ontario"
@@ -3617,6 +3635,27 @@ with taxrow[2]:
     else:
         # Keep layout height stable while making it explicit that Toronto MLTT is Ontario-only.
         toronto = False
+        st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
+with taxrow[3]:
+    # Foreign buyer tax toggle (BC APTT / Ontario NRST)
+    _fb_provinces = ("British Columbia", "Ontario")
+    if str(province) in _fb_provinces:
+        is_foreign_buyer = rbv_checkbox(
+            "Foreign / non-resident buyer",
+            tooltip=(
+                "BC: Additional Property Transfer Tax (APTT) 20% of purchase price. "
+                "Ontario: Non-Resident Speculation Tax (NRST) 25% of purchase price. "
+                "Added to one-time closing costs."
+            ),
+            value=bool(vals.get("is_foreign_buyer", False)),
+            key="is_foreign_buyer",
+        )
+        if is_foreign_buyer:
+            _fb_pct = 0.20 if str(province) == "British Columbia" else 0.25
+            _fb_label = "BC APTT 20%" if str(province) == "British Columbia" else "ON NRST 25%"
+            sidebar_hint(f"{_fb_label} · ≈ ${price * _fb_pct:,.0f} on ${price:,.0f} purchase")
+    else:
+        is_foreign_buyer = False
         st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 
 
@@ -3651,6 +3690,153 @@ elif str(province) == "Nova Scotia":
     st.markdown('<div class="rbv-center-alert">', unsafe_allow_html=True)
     st.info("Rates vary by municipality (Nova Scotia). Adjust the deed transfer tax rate for your area.")
     st.markdown('</div>', unsafe_allow_html=True)
+
+# ── Government Programs & Prepayment Penalty ───────────────────────────────
+st.markdown('<div class="rbv-input-subsep"></div>', unsafe_allow_html=True)
+st.markdown('<div class="rbv-input-subhead">Government Programs & Penalties</div>', unsafe_allow_html=True)
+
+_prog_row = st.columns(3)
+with _prog_row[0]:
+    hbp_enabled = rbv_checkbox(
+        "RRSP HBP",
+        tooltip=(
+            "Model the RRSP HBP withdrawal (up to $60k post-April 2024, $35k prior) "
+            "used toward the down payment, plus the 15-year repayment obligation. "
+            "Only available to first-time buyers."
+        ),
+        value=bool(vals.get("hbp_enabled", False)),
+        key="hbp_enabled",
+    )
+with _prog_row[1]:
+    fhsa_enabled = rbv_checkbox(
+        "FHSA",
+        tooltip=(
+            "Model pre-purchase FHSA accumulation (up to $8k/yr, $40k lifetime). "
+            "Contributions are tax-deductible; growth and home-purchase withdrawals are tax-free. "
+            "Available since April 1, 2023 for first-time buyers."
+        ),
+        value=bool(vals.get("fhsa_enabled", False)),
+        key="fhsa_enabled",
+    )
+with _prog_row[2]:
+    ird_enabled = rbv_checkbox(
+        "IRD penalty",
+        tooltip=(
+            "If you sell before the mortgage term ends, a prepayment penalty applies. "
+            "Canadian lenders charge the greater of 3 months' interest or the Interest Rate Differential (IRD). "
+            "Only affects the simulation if the horizon is shorter than the mortgage term."
+        ),
+        value=bool(vals.get("ird_enabled", False)),
+        key="ird_enabled",
+    )
+
+# --- RRSP Home Buyers' Plan (HBP) sub-options ---
+hbp_withdrawal = 0.0
+if hbp_enabled:
+    from rbv.core.government_programs import hbp_max_withdrawal as _hbp_max_fn
+    _hbp_limit = _hbp_max_fn(datetime.date.today())
+    hbp_withdrawal = rbv_number_input(
+        "HBP withdrawal ($)",
+        tooltip=f"Amount withdrawn from RRSP under HBP (max ${_hbp_limit:,.0f} per person as of purchase date). Adds to down payment and creates a 15-year repayment obligation.",
+        min_value=0.0,
+        max_value=float(_hbp_limit),
+        value=float(min(vals.get("hbp_withdrawal", min(35_000.0, _hbp_limit)), _hbp_limit)),
+        step=1000.0,
+        key="hbp_withdrawal",
+    )
+    if hbp_withdrawal > 0:
+        _hbp_monthly = hbp_withdrawal / 15.0 / 12.0
+        sidebar_hint(f"Repayment: ${_hbp_monthly:.2f}/mo for 15 yrs (starting yr 3) · adds to down ↑")
+
+# --- FHSA (First Home Savings Account) sub-options ---
+fhsa_annual_contribution = 8_000.0
+fhsa_years_contributed = 0
+fhsa_return_pct = 5.0
+fhsa_marginal_tax_rate_pct = 40.0
+if fhsa_enabled:
+    fhsa_row = st.columns(2)
+    with fhsa_row[0]:
+        fhsa_years_contributed = int(rbv_number_input(
+            "Years saved in FHSA",
+            tooltip="Number of years you contributed to the FHSA before purchasing. Each full year adds up to $8k/year toward the down payment.",
+            min_value=0,
+            max_value=5,
+            value=int(vals.get("fhsa_years_contributed", 3)),
+            step=1,
+            key="fhsa_years_contributed",
+        ))
+    with fhsa_row[1]:
+        fhsa_annual_contribution = rbv_number_input(
+            "Annual FHSA contribution ($)",
+            tooltip="Annual contribution to the FHSA (max $8,000/yr, lifetime $40,000). Used to estimate the FHSA balance at purchase.",
+            min_value=0.0,
+            max_value=8_000.0,
+            value=float(vals.get("fhsa_annual_contribution", 8_000.0)),
+            step=500.0,
+            key="fhsa_annual_contribution",
+        )
+    fhsa_mtr_row = st.columns(2)
+    with fhsa_mtr_row[0]:
+        fhsa_return_pct = rbv_number_input(
+            "FHSA return (%)",
+            tooltip="Annual investment return earned inside the FHSA before purchase.",
+            min_value=0.0,
+            max_value=20.0,
+            value=float(vals.get("fhsa_return_pct", 5.0)),
+            step=0.5,
+            key="fhsa_return_pct",
+        )
+    with fhsa_mtr_row[1]:
+        fhsa_marginal_tax_rate_pct = rbv_number_input(
+            "Marginal tax rate (%)",
+            tooltip="Combined federal + provincial marginal tax rate for estimating FHSA contribution deduction benefit.",
+            min_value=0.0,
+            max_value=60.0,
+            value=float(vals.get("fhsa_marginal_tax_rate_pct", 40.0)),
+            step=1.0,
+            key="fhsa_marginal_tax_rate_pct",
+        )
+    try:
+        from rbv.core.government_programs import fhsa_balance as _fhsa_bal_fn
+        from rbv.core.government_programs import fhsa_tax_savings as _fhsa_ts_fn
+        _fbal, _fcont = _fhsa_bal_fn(fhsa_annual_contribution, fhsa_years_contributed, fhsa_return_pct)
+        _ftax = _fhsa_ts_fn(_fcont, fhsa_marginal_tax_rate_pct)
+        sidebar_hint(f"FHSA balance ≈ ${_fbal:,.0f} · tax savings ≈ ${_ftax:,.0f} · adds to down ↑")
+    except Exception:
+        pass
+
+# --- IRD prepayment penalty sub-options ---
+mortgage_term_months = 60  # default 5-year term
+ird_rate_drop_pp = 1.5
+if ird_enabled:
+    ird_row = st.columns(2)
+    with ird_row[0]:
+        _term_yrs_default = int(vals.get("mortgage_term_years", 5))
+        _mortgage_term_years = int(rbv_number_input(
+            "Mortgage term (years)",
+            tooltip="Length of the current mortgage term. IRD applies when selling before this term ends.",
+            min_value=1,
+            max_value=10,
+            value=_term_yrs_default,
+            step=1,
+            key="mortgage_term_years",
+        ))
+        mortgage_term_months = _mortgage_term_years * 12
+    with ird_row[1]:
+        ird_rate_drop_pp = rbv_number_input(
+            "Rate drop assumption (pp)",
+            tooltip="Assumed rate decrease since origination (percentage points). Used to estimate the comparison rate for the IRD calculation. Set to 0 if rates have risen since you locked in (IRD will be zero).",
+            min_value=0.0,
+            max_value=5.0,
+            value=float(vals.get("ird_rate_drop_pp", 1.5)),
+            step=0.25,
+            key="ird_rate_drop_pp",
+        )
+    _sim_yrs = int(st.session_state.get("years", 10))
+    if _sim_yrs * 12 >= mortgage_term_months:
+        sidebar_hint(f"ℹ️ Horizon ({_sim_yrs}yr) ≥ term ({_mortgage_term_years}yr): no IRD penalty applies (full term).")
+    else:
+        sidebar_hint(f"IRD will apply at sale in year {_sim_yrs} (term ends yr {_mortgage_term_years})")
 
 st.markdown('<div class="kpi-section-title rent-title">RENTING INPUTS</div>', unsafe_allow_html=True)
 
@@ -3937,7 +4123,7 @@ def _build_cfg():
     """Build the engine config dict from current UI state (single source of truth).
 
     Robust against Streamlit conditional UI branches: never raises NameError if a widget/branch
-    is skipped. Fast/Quality mode must only affect Monte Carlo controls; all buy/rent inputs
+    is skipped. The performance profile only affects Monte Carlo controls; all buy/rent inputs
     remain in the config.
     """
     def _pp(key: str, default_pp: float = 0.0) -> float:
@@ -4037,7 +4223,7 @@ def _build_cfg():
 
     province = str(st.session_state.get("province", _g("province", "Ontario")))
 
-    # ---- Volatility / MC controls (Fast/Quality affects only these)
+    # ---- Volatility / MC controls (performance profile affects only these)
     use_volatility = bool(st.session_state.get("use_volatility", _g("use_volatility", False)))
     num_sims = int(st.session_state.get("num_sims", _g("num_sims", 1000)))
 
@@ -4232,6 +4418,19 @@ def _build_cfg():
         "prop_tax_growth_model": str(st.session_state.get("prop_tax_growth_model", "Hybrid (recommended for Toronto)")),
         "prop_tax_hybrid_addon_pct": float(st.session_state.get("prop_tax_hybrid_addon_pct", 0.5)),
         "investment_tax_mode": str(st.session_state.get("investment_tax_mode", "Pre-tax (no investment taxes)")),
+
+        # Phase D: Government Programs & Penalties
+        "is_foreign_buyer": bool(st.session_state.get("is_foreign_buyer", False)),
+        "hbp_enabled": bool(st.session_state.get("hbp_enabled", False)),
+        "hbp_withdrawal": float(st.session_state.get("hbp_withdrawal", 0.0) or 0.0),
+        "fhsa_enabled": bool(st.session_state.get("fhsa_enabled", False)),
+        "fhsa_annual_contribution": float(st.session_state.get("fhsa_annual_contribution", 8_000.0) or 8_000.0),
+        "fhsa_years_contributed": int(st.session_state.get("fhsa_years_contributed", 0) or 0),
+        "fhsa_return_pct": float(st.session_state.get("fhsa_return_pct", 5.0) or 5.0),
+        "fhsa_marginal_tax_rate_pct": float(st.session_state.get("fhsa_marginal_tax_rate_pct", 40.0) or 40.0),
+        "ird_enabled": bool(st.session_state.get("ird_enabled", False)),
+        "mortgage_term_months": int(st.session_state.get("mortgage_term_years", 5) or 5) * 12,
+        "ird_rate_drop_pp": float(st.session_state.get("ird_rate_drop_pp", 1.5) or 1.5),
     }
 def run_simulation(buyer_ret_pct, renter_ret_pct, apprec_pct, invest_diff, rent_closing, mkt_corr,
                    force_deterministic=False, mc_seed=None, rate_override_pct=None, rent_inf_override_pct=None,
@@ -4314,24 +4513,8 @@ if use_volatility:
             mc_seed = random.randint(0, 2**31 - 1)
             _mc_seed_source = "random"
         else:
-            _sig_items = {
-                "price": float(st.session_state.get("price", 0.0)) if "price" in st.session_state else None,
-                "down": float(st.session_state.get("down", 0.0)) if "down" in st.session_state else None,
-                "rate": float(st.session_state.get("rate", 0.0)) if "rate" in st.session_state else None,
-                "amort": int(st.session_state.get("amort", 0)) if "amort" in st.session_state else None,
-                "apprec": float(st.session_state.get("apprec", 0.0)),
-                "buyer_ret": float(st.session_state.get("buyer_ret", 0.0)),
-                "renter_ret": float(st.session_state.get("renter_ret", 0.0)),
-                "rent": float(st.session_state.get("rent", 0.0)) if "rent" in st.session_state else None,
-                "rent_inf": float(st.session_state.get("rent_inf", 0.0)) if "rent_inf" in st.session_state else None,
-                "pv": float(st.session_state.get("pv_rate", 0.0)) if "pv_rate" in st.session_state else None,
-                "corr": float(st.session_state.get("market_corr_input", 0.0)) if "market_corr_input" in st.session_state else None,
-                "ret_std": float(st.session_state.get("ret_std_pct", 15.0)) / 100.0,
-                "app_std": float(st.session_state.get("apprec_std_pct", 5.0)) / 100.0,
-                "sims": int(st.session_state.get("num_sims", 0)) if "num_sims" in st.session_state else None,
-            }
-            _sig = json.dumps(_sig_items, sort_keys=True, separators=(",", ":"))
-            mc_seed = int(hashlib.sha256(_sig.encode("utf-8")).hexdigest()[:8], 16)
+            _seed_now, _sig = _rbv_derived_mc_seed_and_sig()
+            mc_seed = int(_seed_now)
             _mc_seed_source = "derived"
 
 
@@ -4528,6 +4711,10 @@ _cached_core = st.session_state["_core_sim_cache"].get(_core_key)
 
 if _cached_core is not None:
     df, close_cash, m_pmt, win_pct = _cached_core
+    try:
+        st.session_state["_rbv_perf_main"] = {"source": "cache", "num_sims": int(num_sims) if use_volatility else 0}
+    except Exception:
+        pass
 else:
     if use_volatility and int(num_sims) > 1:
 
@@ -4567,6 +4754,12 @@ else:
             _sec_per_sim = _elapsed / max(1, int(num_sims))
             _prev = float(st.session_state.get("_rbv_mc_avg_sec_per_sim", 0.0))
             st.session_state["_rbv_mc_avg_sec_per_sim"] = (0.7 * _prev + 0.3 * _sec_per_sim) if _prev > 0 else _sec_per_sim
+            st.session_state["_rbv_perf_main"] = {
+                "source": "compute",
+                "elapsed_sec": float(_elapsed),
+                "sec_per_sim": float(_sec_per_sim),
+                "num_sims": int(num_sims),
+            }
         except Exception:
             pass
 
@@ -4579,6 +4772,7 @@ else:
     else:
         _cfg_json = json.dumps(_cfg_run, sort_keys=True)
         _extra_items = tuple(sorted(st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs).items()))
+        _t_det0 = time.time()
         df, close_cash, m_pmt, win_pct = _rbv_cached_run_simulation_core(
             _cfg_json,
             float(st.session_state.buyer_ret),
@@ -5104,6 +5298,44 @@ except Exception:
 
 st.markdown("<div style=\"height:18px\"></div>", unsafe_allow_html=True)
 
+# --- Negative equity warning ---
+try:
+    _equity_analysis = detect_negative_equity(df)
+    _underwater_msg = format_underwater_warning(_equity_analysis)
+    if _underwater_msg:
+        _msg_html = html.escape(_underwater_msg).replace("\n", "<br>")
+        st.markdown(
+            f'<div class="rbv-warning-banner">{_msg_html}</div>',
+            unsafe_allow_html=True,
+        )
+except Exception:
+    pass
+
+# --- PDF Report bytes (built here so they're available in the Export section below) ---
+_pdf_bytes: bytes | None = None
+try:
+    from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
+    _pdf_cfg = {
+        k: st.session_state.get(k, v)
+        for k, v in {
+            "years": 25, "province": "Ontario", "price": 800000.0,
+            "down": 160000.0, "rent": 3000.0, "rate": 5.0, "nm": 300,
+        }.items()
+    }
+    _pdf_bytes = _build_pdf_report(
+        df,
+        _pdf_cfg,
+        buyer_ret_pct=float(st.session_state.get("buyer_ret_pct", 7.0)),
+        renter_ret_pct=float(st.session_state.get("renter_ret_pct", 7.0)),
+        apprec_pct=float(st.session_state.get("apprec_pct", 3.0)),
+        close_cash=close_cash,
+        monthly_pmt=m_pmt,
+        win_pct=win_pct,
+        scenario_name=str(st.session_state.get("scenario_select", "Custom Scenario")),
+    )
+except Exception:
+    pass
+
 # --- KPI summary values (robust to column naming) ---
 def _df_last(df_, candidates, default=0.0):
     for c in candidates:
@@ -5127,8 +5359,8 @@ def _df_mean(df_, candidates, default=0.0):
 # --- Liquidity / cashflow shortfall (Budget Mode) ---
 try:
     if bool(st.session_state.get("budget_enabled", False)):
-        b_sf = _df_last(df, ["Buyer Shortfall", "b_shortfall"], 0.0)
-        r_sf = _df_last(df, ["Renter Shortfall", "r_shortfall"], 0.0)
+        b_sf = _df_last(df, ["Buyer Shortfall (Cum)", "Buyer Shortfall", "b_shortfall"], 0.0)
+        r_sf = _df_last(df, ["Renter Shortfall (Cum)", "Renter Shortfall", "r_shortfall"], 0.0)
         if (b_sf > 0) or (r_sf > 0):
             s1, s2 = st.columns(2)
             with s1:
@@ -5251,7 +5483,7 @@ with col_buy:
     with b2:
         _kpi("Avg Monthly Outflow", f"${avg_buy_monthly:,.0f}", "var(--buy)",
              "Average monthly cash outflow for the buyer over the horizon (mortgage payment incl. principal + recurring ownership costs). Principal paydown builds equity; see the Irrecoverable Costs tab for pure non-equity costs.")
-    
+
     b3, b4 = st.columns(2, gap="small")
     with b3:
         _kpi("Total NW (Horizon)", f"${buyer_nw_end:,.0f}", "var(--buy)",
@@ -5339,7 +5571,7 @@ try:
     except Exception:
         pass
     try:
-        _changes.append(f"Performance mode: {st.session_state.get('sim_mode', 'Fast')}")
+        _changes.append(f"Performance profile: {st.session_state.get('sim_mode', 'Balanced')}")
     except Exception:
         pass
     try:
@@ -5432,7 +5664,8 @@ except Exception:
 # Debug / reproducibility pane
 # -----------------------------
 try:
-    import hashlib, json as _json
+    import hashlib
+    import json as _json
 
     _last_cfg = st.session_state.get("_rbv_last_cfg")
     _last_params = st.session_state.get("_rbv_last_params") or {}
@@ -5601,7 +5834,7 @@ def render_fin_table(dframe: pd.DataFrame, index_name: str | None = None, table_
                         cls.append("zero")
                         style_attr = ""
 
-            # Numeric formatting (money for most columns; plain for Month/Year)
+            # Numeric formatting (money for most columns; plain for Month/Year; percent for share/pct columns)
             if c in num_cols and isinstance(v, (int, float, np.integer, np.floating)):
                 # Handle NaN cleanly (avoid "$nan")
                 if isinstance(v, float) and np.isnan(v):
@@ -5609,6 +5842,9 @@ def render_fin_table(dframe: pd.DataFrame, index_name: str | None = None, table_
                     cls.append("num")
                 elif c_norm in {"month", "year"}:
                     txt = _fmt_number(v)
+                    cls.append("num")
+                elif ("%" in c_str) or ("pct" in c_norm) or ("share" in c_norm) or ("rate" in c_norm):
+                    txt = f"{float(v):,.1f}%"
                     cls.append("num")
                 else:
                     # For delta columns, remove the minus sign and let color indicate direction
@@ -5757,17 +5993,15 @@ try:
 except Exception:
     _tab_index = 0
 
-# Center the tab "banner" (radio styled as tabs) in the middle of the page
-_tl, _tc, _tr = st.columns([1, 3, 1])
-with _tc:
-    tab = st.radio(
-        "",
-        _tab_labels,
-        index=_tab_index,
-        horizontal=True,
-        key="rbv_tab_nav",
-        label_visibility="collapsed",
-    )
+# Center the tab selector and keep it unlabeled in the UI
+tab = st.radio(
+    "Navigation tabs",
+    _tab_labels,
+    index=_tab_index,
+    horizontal=True,
+    key="rbv_tab_nav",
+    label_visibility="collapsed",
+)
 
 st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
 if tab == _TAB_NET:
@@ -5794,18 +6028,18 @@ if tab == _TAB_NET:
 
     fig = go.Figure()
     x = df['Month'] / 12.0
-    
+
     # Graphs - Dark Theme Optimized
     fig.add_trace(go.Scatter(x=x, y=df['Buyer Net Worth'], name="Buying", mode='lines', line=dict(color=BUY_COLOR, width=2)))
-    fig.add_trace(go.Scatter(x=x, y=df['Renter Net Worth'], name="Renting", mode='lines', line=dict(color=RENT_COLOR, width=2))) 
-    
+    fig.add_trace(go.Scatter(x=x, y=df['Renter Net Worth'], name="Renting", mode='lines', line=dict(color=RENT_COLOR, width=2)))
+
     if use_volatility:
         # VIBRANT COLORS (Opacity 0.3)
         fig.add_trace(go.Scatter(x=x, y=df['Buyer NW High'], name="Buyer High", mode='lines', line=dict(width=0), showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=df['Buyer NW Low'], name="Buyer Low", mode='lines', line=dict(width=0), fill='tonexty', fillcolor=_rbv_rgba(BUY_COLOR, 0.20), showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=df['Renter NW High'], name="Renter High", mode='lines', line=dict(width=0), showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=df['Renter NW Low'], name="Renter Low", mode='lines', line=dict(width=0), fill='tonexty', fillcolor=_rbv_rgba(RENT_COLOR, 0.20), showlegend=False))
-    
+
     # Optional overlays: negative-region shading + breakeven marker (Δ crosses 0)
     try:
         if bool(locals().get("shade_negative", False)):
@@ -5876,35 +6110,32 @@ if tab == _TAB_NET:
     except Exception:
         pass
 
-    # THIN CURSOR (Spikes)
+    # Keep unified hover tooltip without the persistent vertical spike line.
     fig.update_layout(
-        template=pio.templates.default, 
-        paper_bgcolor='rgba(0,0,0,0)', 
+        template=pio.templates.default,
+        paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        hovermode="x unified", 
-        height=400, 
-        margin=dict(l=0,r=0,t=10,b=0), 
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")), 
-        font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)") 
+        hovermode="x unified",
+        height=400,
+        margin=dict(l=0,r=0,t=10,b=0),
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
+        font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)")
     )
-    # Thinner, faint white cursor
+    # Explicitly disable Plotly spikes/cursor line on hover.
     fig.update_xaxes(
         gridcolor="rgba(255,255,255,0.14)",
-        showspikes=True,
-        spikethickness=0.5,
-        spikecolor="rgba(255,255,255,0.25)",
-        spikemode="across"
+        showspikes=False,
     )
     fig.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
-    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), use_container_width=True)
+    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), width="stretch")
     st.caption("Note: Buyer net worth permanently subtracts one-time closing costs (sunk costs), so it can start negative in Month 1.")
 
     try:
         _rbv_render_compare_preview()
     except Exception:
         pass
-    
-    view = st.radio("", ["Yearly", "Monthly"], horizontal=True, label_visibility="collapsed")
+
+    view = st.radio("Time view", ["Yearly", "Monthly"], horizontal=True, label_visibility="collapsed")
 
     data = (df.groupby('Year').tail(1) if view == "Yearly" else df).copy()
 
@@ -5956,8 +6187,6 @@ if tab == _TAB_NET:
             y_lo, y_hi = 0.0, 6.0
             hm_y_hover = "Rent inflation"
 
-        fast_mode_hm = fast_mode
-
         hm_metric = st.selectbox(
             "Heatmap metric",
             options=[
@@ -5970,37 +6199,37 @@ if tab == _TAB_NET:
             index=0,
         )
 
-        # Heatmap follows the global two-mode philosophy (no manual N×N / sim tweaking needed).
+        st.session_state.setdefault("hm_visual_smooth", True)
+        hm_visual_smooth = bool(st.checkbox("Smooth heatmap visuals (interpolated)", key="hm_visual_smooth"))
+
+        # Heatmap follows the global performance profile defaults (no manual N×N / sim tweaking needed).
         is_mc_hm = ("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric)
 
-        grid_size_base = int(st.session_state.get("hm_grid_size", 31 if fast_mode_hm else 51))
+        grid_size_base = int(st.session_state.get("hm_grid_size", BALANCED_HM_GRID_DEFAULT))
         is_det_hm = not is_mc_hm
         is_mcmean_hm = ("MC mean" in str(hm_metric))
 
         # In Public Mode we bump grid resolution for deterministic metrics aggressively (very fast),
         # and for MC-mean delta metrics moderately (to keep runtime sane).
-        FAST_HM_GRID_MCMEAN_MIN_PUBLIC = 41
-        QUALITY_HM_GRID_MCMEAN_MIN_PUBLIC = 61
-
         if is_det_hm:
-            det_min = FAST_HM_GRID_DET_MIN_PUBLIC if fast_mode_hm else QUALITY_HM_GRID_DET_MIN_PUBLIC
+            det_min = BALANCED_HM_GRID_DET_MIN_PUBLIC
             grid_size = int(max(grid_size_base, det_min))
             if grid_size != grid_size_base:
                 st.caption(f"Heatmap grid: **{grid_size}×{grid_size}** (deterministic smoothness override)")
             else:
-                st.caption(f"Heatmap grid (from Performance mode): **{grid_size}×{grid_size}**")
+                st.caption(f"Heatmap grid (from Performance profile): **{grid_size}×{grid_size}**")
         elif is_mcmean_hm:
-            mc_min = FAST_HM_GRID_MCMEAN_MIN_PUBLIC if fast_mode_hm else QUALITY_HM_GRID_MCMEAN_MIN_PUBLIC
+            mc_min = BALANCED_HM_GRID_MCMEAN_MIN_PUBLIC
             grid_size = int(max(grid_size_base, mc_min))
             if grid_size != grid_size_base:
                 st.caption(f"Heatmap grid: **{grid_size}×{grid_size}** (MC mean smoothness override)")
             else:
-                st.caption(f"Heatmap grid (from Performance mode): **{grid_size}×{grid_size}**")
+                st.caption(f"Heatmap grid (from Performance profile): **{grid_size}×{grid_size}**")
         else:
             grid_size = grid_size_base
-            st.caption(f"Heatmap grid (from Performance mode): **{grid_size}×{grid_size}**")
+            st.caption(f"Heatmap grid (from Performance profile): **{grid_size}×{grid_size}**")
 
-        mc_sims = int(st.session_state.get("hm_mc_sims", 15_000 if fast_mode_hm else 30_000)) if is_mc_hm else None
+        mc_sims = int(st.session_state.get("hm_mc_sims", BALANCED_HM_MC_SIMS_DEFAULT)) if is_mc_hm else None
         if is_mc_hm:
             st.caption(f"Heatmap Monte Carlo sims (shared across grid): **{mc_sims:,}**")
             if float(st.session_state.get("ret_std_pct", 0.0) or 0.0) == 0.0 and float(st.session_state.get("apprec_std_pct", 0.0) or 0.0) == 0.0:
@@ -6026,22 +6255,22 @@ if tab == _TAB_NET:
         ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             """Returns (Z, app_vals, rent_vals). Z shape: (len(rent_vals), len(app_vals))."""
             Z = np.full((len(rent_vals), len(app_vals)), np.nan, dtype=float)
-        
+
             mc_force = ("Monte Carlo" in metric_label) or ("MC mean" in metric_label)
-        
+
             # Stable base seed for MC heatmap (common random numbers across the entire grid).
             _base_seed_raw = st.session_state.get("mc_seed_effective", st.session_state.get("mc_seed", None))
             try:
                 base_seed = int(str(_base_seed_raw).strip())
             except Exception:
                 base_seed = None
-        
+
             def _rent_inf_eff(r: float) -> float:
                 if rent_cap_enabled and (rent_cap_value is not None):
                     cap_pct = float(rent_cap_value) * 100.0
                     return min(r, cap_pct)
                 return r
-        
+
             # --- Deterministic heatmap (exact) ---
             if not mc_force:
                 # Deterministic heatmaps (Expected Δ / PV Δ) are evaluated exactly via the batched heatmap engine
@@ -6049,11 +6278,16 @@ if tab == _TAB_NET:
                 cfg_det = dict(_build_cfg())
                 cfg_det["ret_std"] = 0.0
                 cfg_det["apprec_std"] = 0.0
-            
+
                 app_vals_eff = np.asarray(app_vals, dtype=float)
                 rent_vals_eff = (np.asarray([_rent_inf_eff(float(r)) for r in rent_vals], dtype=float)
                               if hm_y_axis == 'rent_inf' else np.asarray(rent_vals, dtype=float))
-            
+
+                try:
+                    st.session_state.pop("_rbv_last_heatmap_adaptive", None)
+                except Exception:
+                    pass
+
                 _winZ, dZ, pvZ = run_heatmap_mc_batch(
                     cfg_det,
                     buyer_ret_pct,
@@ -6073,27 +6307,65 @@ if tab == _TAB_NET:
                 if "PV Δ" in metric_label:
                     return pvZ, app_vals, rent_vals
                 return dZ, app_vals, rent_vals
-        
+
             # --- Monte Carlo heatmaps (batched + adaptive refinement for Win %) ---
             cfg_hm = _build_cfg()
-        
+
             app_vals_eff = np.asarray(app_vals, dtype=float)
             rent_vals_eff = (np.asarray([_rent_inf_eff(float(r)) for r in rent_vals], dtype=float)
                               if hm_y_axis == 'rent_inf' else np.asarray(rent_vals, dtype=float))
-        
+
             target_sims = int(sims_cell or 0)
             if target_sims <= 0:
                 return Z, app_vals, rent_vals
-        
+
             is_win = ("Win" in metric_label)
-        
+
+            # Performance + correctness hardening:
+            # If both volatilities are 0, Monte Carlo metrics collapse to deterministic outcomes.
+            # Skip expensive MC/adaptive passes and compute a single deterministic batch instead.
+            try:
+                _ret_std = float(cfg_hm.get("ret_std", 0.0) or 0.0)
+                _app_std = float(cfg_hm.get("apprec_std", 0.0) or 0.0)
+                _vol_zero = (abs(_ret_std) <= 1e-15) and (abs(_app_std) <= 1e-15)
+            except Exception:
+                _vol_zero = False
+
+            if _vol_zero:
+                try:
+                    st.session_state.pop("_rbv_last_heatmap_adaptive", None)
+                except Exception:
+                    pass
+
+                winZ, dZ, pvZ = run_heatmap_mc_batch(
+                    cfg_hm,
+                    float(buyer_ret_pct),
+                    float(renter_ret_pct),
+                    app_vals_eff,
+                    rent_vals_eff,
+                    float(invest_diff),
+                    bool(rent_closing),
+                    float(mkt_corr),
+                    num_sims=1,
+                    mc_seed=base_seed,
+                    y_axis=str(hm_y_axis),
+                    rate_override_pct=float(base_rate) if base_rate is not None else None,
+                    progress_cb=progress_cb,
+                    **st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs),
+                )
+                if "Win" in metric_label:
+                    return winZ, app_vals, rent_vals
+                if "Expected PV" in metric_label:
+                    return pvZ, app_vals, rent_vals
+                return dZ, app_vals, rent_vals
+
             if is_win:
                 # Two-pass adaptive sampling:
                 # 1) Low-sim coarse pass across full grid
                 # 2) Re-run only uncertain cells near the 50% boundary at full sims
                 base_sims = int(max(3000, min(6000, target_sims // 5)))
                 base_sims = int(min(base_sims, target_sims))
-        
+
                 winZ0, dZ0, pvZ0 = run_heatmap_mc_batch(
                     cfg_hm,
                     float(buyer_ret_pct),
@@ -6110,11 +6382,11 @@ if tab == _TAB_NET:
                     progress_cb=progress_cb,
                     **st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs),
                 )
-        
+
                 winZ = winZ0
                 dZ = dZ0
                 pvZ = pvZ0
-        
+
                 refined_cells = 0
                 if target_sims > base_sims:
                     try:
@@ -6124,7 +6396,7 @@ if tab == _TAB_NET:
                         # Refine only near boundary; threshold grows with estimated uncertainty.
                         margin = np.maximum(2.5, 2.0 * ci95)
                         mask = np.isfinite(winZ0) & (np.abs(winZ0 - 50.0) <= margin)
-        
+
                         refined_cells = int(np.sum(mask))
                         if refined_cells > 0:
                             winZ1, dZ1, pvZ1 = run_heatmap_mc_batch(
@@ -6149,7 +6421,7 @@ if tab == _TAB_NET:
                             pvZ = np.where(mask, pvZ1, pvZ0)
                     except Exception:
                         refined_cells = 0
-        
+
                 # Store for Phase 3C diagnostics panel (non-fatal)
                 try:
                     st.session_state["_rbv_last_heatmap_adaptive"] = dict(
@@ -6161,10 +6433,15 @@ if tab == _TAB_NET:
                     )
                 except Exception:
                     pass
-        
+
                 return winZ, app_vals, rent_vals
-        
+
             # MC mean metrics (single-pass at full sims)
+            try:
+                st.session_state.pop("_rbv_last_heatmap_adaptive", None)
+            except Exception:
+                pass
+
             winZ, dZ, pvZ = run_heatmap_mc_batch(
                 cfg_hm,
                 float(buyer_ret_pct),
@@ -6181,7 +6458,7 @@ if tab == _TAB_NET:
                 progress_cb=progress_cb,
                 **st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs),
             )
-        
+
             if "Expected PV" in metric_label:
                 return pvZ, app_vals, rent_vals
             return dZ, app_vals, rent_vals
@@ -6193,36 +6470,32 @@ if tab == _TAB_NET:
 
         # Heatmap cache signature: include core model inputs so the grid never goes stale when users change assumptions.
         def _heatmap_inputs_sig() -> str:
-            sig_keys = [
-                "price", "rent", "years", "amort", "down", "close", "mort",
-                "p_tax_rate", "maint_rate", "repair_rate", "condo", "h_ins", "o_util", "r_ins", "r_util",
-                "sell_cost", "moving_cost", "moving_freq",
-                "general_inf", "pv_rate", "ret_std", "apprec_std",
-                "rate_mode", "rate_reset_years", "rate_reset_to", "rate_reset_step_pp",
-                "rate_shock_enabled", "rate_shock_start_year", "rate_shock_duration_years", "rate_shock_pp",
-                "canadian_compounding", "assume_sale_end", "cg_tax_end", "tax_r", "home_sale_legal_fee",
-                "expert_mode",
-                "province", "first_time", "toronto", "transfer_tax_override",
-                "insured", "ltv",
-                "condo_inf_mode", "condo_inf_spread", "condo_inf_custom",
-                "special_assessment_amount", "special_assessment_year", "special_assessment_month_in_year",
-                "cg_inclusion_policy", "cg_inclusion_threshold",
-                "reg_shelter_enabled", "reg_initial_room", "reg_annual_room",
-            ]
-            g = globals()
-            d = {k: g.get(k) for k in sig_keys if k in g}
-            d["extra_engine_kwargs"] = extra_engine_kwargs
+            """Signature for heatmap cache correctness using normalized config + controls."""
+            try:
+                cfg_sig = _build_cfg()
+            except Exception:
+                cfg_sig = {}
 
-            def _clean(x):
-                if isinstance(x, (str, int, float, bool)) or x is None:
-                    return x
-                if isinstance(x, (list, tuple)):
-                    return [_clean(v) for v in x]
-                if isinstance(x, dict):
-                    return {str(kk): _clean(vv) for kk, vv in x.items()}
-                return str(x)
-
-            s = json.dumps(_clean(d), sort_keys=True, separators=(",", ":"))
+            payload = {
+                "cfg": cfg_sig,
+                "extra_engine_kwargs": dict(st.session_state.get('_rbv_extra_engine_kwargs', extra_engine_kwargs) or {}),
+                "metric": str(hm_metric),
+                "axis": str(hm_y_axis),
+                "grid": int(grid_size),
+                "mc_sims": int(mc_sims) if mc_sims is not None else None,
+                "buyer_ret": float(st.session_state.get("buyer_ret", 0.0) or 0.0),
+                "renter_ret": float(st.session_state.get("renter_ret", 0.0) or 0.0),
+                "invest_surplus": bool(invest_surplus_input),
+                "renter_closing": bool(renter_uses_closing_input),
+                "corr": float(market_corr_input),
+                "rate": float(rate),
+                "rent_inf": float(rent_inf),
+                "rent_cap_enabled": bool(rent_cap_enabled_local),
+                "rent_cap_value": float(rent_cap_value_local) if rent_cap_value_local is not None else None,
+                "seed_effective": str(st.session_state.get("mc_seed_effective", "")),
+                "mc_randomize": bool(st.session_state.get("mc_randomize", False)),
+            }
+            s = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
             return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
 
         hm_sig = _heatmap_inputs_sig()
@@ -6240,7 +6513,7 @@ if tab == _TAB_NET:
             int(mc_sims) if (mc_sims is not None and int(mc_sims) > 0) else None,
             int(hm_seed) if (hm_seed is not None) else None,
             float(st.session_state.buyer_ret), float(st.session_state.renter_ret),
-            float(invest_surplus_input), bool(renter_uses_closing_input),
+            bool(invest_surplus_input), bool(renter_uses_closing_input),
             float(market_corr_input), float(rate), float(rent_inf),
             bool(rent_cap_enabled_local),
             float(rent_cap_value_local) if rent_cap_value_local is not None else None,
@@ -6252,6 +6525,12 @@ if tab == _TAB_NET:
             Z, _app, _rent = cached
             try:
                 st.session_state["_rbv_hm_pause_active"] = False
+                st.session_state["_rbv_perf_heatmap"] = {
+                    "source": "cache",
+                    "metric": str(hm_metric),
+                    "grid": int(grid_size),
+                    "mc_sims": int(mc_sims) if mc_sims is not None else 0,
+                }
             except Exception:
                 pass
         else:
@@ -6320,7 +6599,7 @@ if tab == _TAB_NET:
                     _eta0 = None
 
 
-                hm_mode_label = "Fast" if bool(fast_mode) else "Quality"
+                hm_mode_label = "Balanced"
                 try:
                     hm_overlay_label = f"Heatmap ({hm_mode_label}, {int(grid_size)}×{int(grid_size)})"
                 except Exception:
@@ -6387,6 +6666,15 @@ if tab == _TAB_NET:
                 _sec_per_cell = _elapsed / max(1, int(total_cells))
                 _prev = float(st.session_state.get("_rbv_hm_avg_sec_per_cell", 0.0))
                 st.session_state["_rbv_hm_avg_sec_per_cell"] = (0.7 * _prev + 0.3 * _sec_per_cell) if _prev > 0 else _sec_per_cell
+                st.session_state["_rbv_perf_heatmap"] = {
+                    "source": "compute",
+                    "metric": str(hm_metric),
+                    "grid": int(grid_size),
+                    "mc_sims": int(mc_sims) if mc_sims is not None else 0,
+                    "elapsed_sec": float(_elapsed),
+                    "sec_per_cell": float(_sec_per_cell),
+                    "cells": int(total_cells),
+                }
             except Exception:
                 pass
 
@@ -6428,7 +6716,7 @@ if tab == _TAB_NET:
             # Adaptive heatmap refinement info (Phase 4): surfaced in diagnostics for transparency
             try:
                 _hm_ad = st.session_state.get("_rbv_last_heatmap_adaptive")
-                if isinstance(_hm_ad, dict) and ("Win" in str(_hm_ad.get("metric", ""))):
+                if isinstance(_hm_ad, dict) and (str(_hm_ad.get("metric", "")) == str(hm_metric)) and ("Win" in str(_hm_ad.get("metric", ""))):
                     _rbv_diag_add(
                         "OK",
                         "Adaptive heatmap refinement",
@@ -6458,10 +6746,11 @@ if tab == _TAB_NET:
 
                 # Diagonal monotonicity sanity: as both appreciation and rent inflation rise together,
                 # the buyer advantage should generally increase (small MC noise tolerated).
-                if Z.shape[0] == Z.shape[1]:
+                _is_mc_metric = ("Monte Carlo" in str(hm_metric)) or ("MC" in str(hm_metric)) or ("Win %" in str(hm_metric))
+                if (not _is_mc_metric) and Z.shape[0] == Z.shape[1]:
                     d = np.diag(Z)
                     if np.isfinite(d).all() and (len(d) >= 3):
-                        eps = 2.5 if ("Monte Carlo" in str(hm_metric) or "MC" in str(hm_metric) or "Win %" in str(hm_metric)) else 1e-6
+                        eps = 1e-6
                         dv = np.diff(d)
                         n_viol = int(np.count_nonzero(dv < -float(eps)))
                         if n_viol == 0:
@@ -6517,7 +6806,7 @@ if tab == _TAB_NET:
 
         # Visual smoothing: MC heatmaps benefit from interpolation for readability.
         # This does NOT change the computed grid values—only how Plotly renders between cells.
-        hm_zsmooth = "best" if (("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric)) else False
+        hm_zsmooth = "best" if (hm_visual_smooth and (("Monte Carlo" in hm_metric) or ("MC mean" in hm_metric))) else False
 
         fig_hm = go.Figure()
 
@@ -6573,7 +6862,7 @@ if tab == _TAB_NET:
             except Exception:
                 pass
 
-        
+
         else:
             # Win% breakeven (50%) contour line for Monte Carlo win-rate views
             try:
@@ -6622,7 +6911,7 @@ if tab == _TAB_NET:
         fig_hm.update_xaxes(title="Home Appreciation (%)", showgrid=False, zeroline=False, mirror=True, ticks="outside")
         fig_hm.update_yaxes(title=hm_y_title, showgrid=False, zeroline=False, mirror=True, ticks="outside")
 
-        st.plotly_chart(_rbv_apply_plotly_theme(fig_hm), use_container_width=True)
+        st.plotly_chart(_rbv_apply_plotly_theme(fig_hm), width="stretch")
 
         _hm_be_caption = "Breakeven line (dotted) = Win% 50%" if ("Win %" in str(hm_metric)) else "Breakeven line (dotted) = Δ = 0"
 
@@ -6641,21 +6930,94 @@ if tab == _TAB_NET:
             unsafe_allow_html=True
         )
 
-        st.caption("Tip: Higher grid resolution and Monte Carlo modes can be slower. Results are cached per setting.")
+        st.caption("Tip: Higher grid resolution and Monte Carlo metrics can be slower. Results are cached per setting.")
 
 elif tab == _TAB_COSTS:
+    if (df is None) or (len(df) == 0):
+        st.warning("No simulation data available for the Ongoing Housing Costs tab.")
+        st.stop()
+
     st.markdown(
-        '<div class=\"note-box\"><b>About these costs:</b> This tab summarizes <b>ongoing non-principal housing costs</b> '
+        '<div class="note-box"><b>About these costs:</b> This tab summarizes <b>ongoing non-principal housing costs</b> '
         '(interest, taxes, condo/maintenance, insurance, utilities, rent, etc.). '
         'Some of these costs help maintain the asset (e.g., maintenance) and are partly “offset” by appreciation in the net worth view. '
         'Principal paydown is <b>not</b> shown as a cost because it becomes equity. '
         '<br><b>Note:</b> Buyer total includes upfront closing costs + selling costs at horizon (realtor + legal). Renter total includes all moving costs.</div>',
         unsafe_allow_html=True,
     )
-    diff_uc = df.iloc[-1]['Buyer Unrecoverable'] - df.iloc[-1]['Renter Unrecoverable']
-    st.markdown(f'<div class="unrec-box"><div style="font-weight:700; color:#9A9A9A;">ONGOING HOUSING COSTS SUMMARY</div>'
-                f'<div style="font-size:14px; margin:10px 0;">Buyer Lost: <b>${df.iloc[-1]["Buyer Unrecoverable"]:,.0f}</b> vs Renter Lost: <b>${df.iloc[-1]["Renter Unrecoverable"]:,.0f}</b></div>'
-                f'<div style="font-weight:700; font-size:16px; color:#F8FAFC;">The <b>{"Buyer" if diff_uc > 0 else "Renter"}</b> lost <b>${abs(diff_uc):,.0f}</b> more.</div></div>', unsafe_allow_html=True)
+
+    _core = build_costs_core(df)
+    _series_cache: dict[str, pd.Series] = dict((_core or {}).get("cache") or {})
+
+    def _safe_series(col: str) -> pd.Series:
+        return safe_numeric_series(df, col, _series_cache)
+
+    if "Month" in df.columns:
+        _m_num = pd.to_numeric(df["Month"], errors="coerce")
+        df_avg = df[_m_num > 0].copy()
+        if df_avg.empty:
+            df_avg = df.copy()
+    else:
+        df_avg = df.copy()
+
+    _avg_cache: dict[str, float] = {}
+
+    def _safe_mean(col: str) -> float:
+        return safe_numeric_mean(df_avg, col, _avg_cache)
+
+    _s = (_core or {}).get("series") or {}
+    _t = (_core or {}).get("totals") or {}
+    _f = (_core or {}).get("flags") or {}
+
+    b_unrec_series = _s.get("b_unrec", _safe_series("Buyer Unrecoverable"))
+    r_unrec_series = _s.get("r_unrec", _safe_series("Renter Unrecoverable"))
+    b_interest_s = _s.get("b_interest", _safe_series("Interest"))
+    b_tax_s = _s.get("b_tax", _safe_series("Property Tax"))
+    b_maint_s = _s.get("b_maint", _safe_series("Maintenance"))
+    b_repairs_s = _s.get("b_repairs", _safe_series("Repairs"))
+    b_condo_s = _s.get("b_condo", _safe_series("Condo Fees"))
+    b_ins_s = _s.get("b_ins", _safe_series("Home Insurance"))
+    b_util_s = _s.get("b_util", _safe_series("Utilities"))
+    b_special_s = _s.get("b_special", _safe_series("Special Assessment"))
+    r_rent_s = _s.get("r_rent", _safe_series("Rent"))
+    r_ins_s = _s.get("r_ins", _safe_series("Rent Insurance"))
+    r_util_s = _s.get("r_util", _safe_series("Rent Utilities"))
+    r_move_s = _s.get("r_move", _safe_series("Moving"))
+
+    buyer_total_actual = float(_t.get("buyer_total_actual", 0.0) or 0.0)
+    renter_total_actual = float(_t.get("renter_total_actual", 0.0) or 0.0)
+    diff_uc = buyer_total_actual - renter_total_actual
+
+    if abs(diff_uc) < 0.5:
+        _cost_delta_line = "Buyer and renter are effectively tied on total unrecoverable costs."
+    else:
+        _cost_winner = "Buyer" if diff_uc > 0 else "Renter"
+        _cost_delta_line = f'<b>{_cost_winner}</b> has <b>${abs(diff_uc):,.0f}</b> higher net unrecoverable costs.'
+
+    st.markdown(
+        f'<div class="unrec-box"><div style="font-weight:700; color:#9A9A9A;">ONGOING HOUSING COSTS SUMMARY</div>'
+        f'<div style="font-size:14px; margin:10px 0;">Buyer net unrecoverable: <b>${buyer_total_actual:,.0f}</b> vs Renter net unrecoverable: <b>${renter_total_actual:,.0f}</b></div>'
+        f'<div style="font-weight:700; font-size:16px; color:#F8FAFC;">{_cost_delta_line}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    _k1, _k2, _k3 = st.columns(3)
+    try:
+        if "Month" in df.columns:
+            _h_raw = normalize_month_like_series(df, "Month", min_value=1.0, outlier_mult=2.0, outlier_floor=24.0)
+            _h_candidate = float(_h_raw.max()) if len(_h_raw) else float(len(df_avg))
+        else:
+            _h_candidate = float(len(df_avg))
+    except Exception:
+        _h_candidate = float(len(df_avg))
+    _h_months = _h_candidate if np.isfinite(_h_candidate) and (_h_candidate > 0.0) else max(float(len(df_avg)), 1.0)
+    with _k1:
+        st.metric("Buyer avg unrecoverable / mo", _fmt_money(buyer_total_actual / _h_months))
+    with _k2:
+        st.metric("Renter avg unrecoverable / mo", _fmt_money(renter_total_actual / _h_months))
+    with _k3:
+        st.metric("Gap (Buyer - Renter)", _fmt_money(diff_uc))
+    st.caption(f"Per-month KPIs normalize by {_h_months:,.0f} modeled months in this run.")
 
     # --- Clarification: opportunity cost (down payment) + principal paydown ---
     try:
@@ -6676,31 +7038,23 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     # --- Total cost breakdown (Buyer vs Renter, simplified categories) ---
     st.markdown("##### Total Ongoing Costs (Buyer vs Renter)")
 
-    # We show a small set of aligned categories (two bars per category) so it's easy to compare.
-    # This avoids the unreadable stacked legend when many categories exist.
-    def _safe_sum(col: str) -> float:
-        return float(df[col].sum()) if col in df.columns else 0.0
+    buyer_interest = float(b_interest_s.sum())
+    buyer_tax = float(b_tax_s.sum())
+    buyer_maint_condo = float((b_maint_s + b_repairs_s + b_condo_s).sum())
+    buyer_insurance = float(b_ins_s.sum())
+    buyer_utilities = float(b_util_s.sum())
+    buyer_special = float(b_special_s.sum())
 
-    buyer_interest = _safe_sum("Interest")
-    buyer_tax = _safe_sum("Property Tax")
-    buyer_maint_condo = _safe_sum("Maintenance") + _safe_sum("Repairs") + _safe_sum("Condo Fees")
-    buyer_insurance = _safe_sum("Home Insurance")
-    buyer_utilities = _safe_sum("Utilities")
-    buyer_special = _safe_sum("Special Assessment")
-    buyer_moving = 0.0  # Moving is modeled for renters (frequency-based), not buyers
+    renter_rent = float(r_rent_s.sum())
+    renter_insurance = float(r_ins_s.sum())
+    renter_utilities = float(r_util_s.sum())
+    renter_moving = float(r_move_s.sum())
 
-    renter_rent = _safe_sum("Rent")
-    renter_insurance = _safe_sum("Rent Insurance")
-    renter_utilities = _safe_sum("Rent Utilities")
-    renter_moving = _safe_sum("Moving")
+    buyer_non_tx_total = buyer_interest + buyer_tax + buyer_maint_condo + buyer_insurance + buyer_utilities + buyer_special
+    renter_non_resid_total = renter_rent + renter_insurance + renter_utilities + renter_moving
 
-    # Closing + selling costs are included in Buyer Unrecoverable but not in the monthly columns above
-    try:
-        buyer_close_sell = max(0.0, float(df.iloc[-1]["Buyer Unrecoverable"]) - (
-            buyer_interest + buyer_tax + buyer_maint_condo + buyer_insurance + buyer_utilities + buyer_special + buyer_moving
-        ))
-    except Exception:
-        buyer_close_sell = 0.0
+    buyer_close_sell = float(buyer_total_actual - buyer_non_tx_total)
+    renter_residual = float(renter_total_actual - renter_non_resid_total)
 
     categories = [
         "Housing payment (Interest / Rent)",
@@ -6709,9 +7063,11 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         "Insurance",
         "Utilities",
         "Special assessment",
-        "Transaction costs",
+        "Transaction costs (net)",
         "Moving",
     ]
+    if abs(renter_residual) > 1.0:
+        categories.append("Other modeled costs")
 
     buyer_vals = [
         buyer_interest,
@@ -6721,7 +7077,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         buyer_utilities,
         buyer_special,
         buyer_close_sell,
-        buyer_moving,
+        0.0,
     ]
     renter_vals = [
         renter_rent,
@@ -6733,8 +7089,15 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         0.0,
         renter_moving,
     ]
+    if abs(renter_residual) > 1.0:
+        buyer_vals.append(0.0)
+        renter_vals.append(renter_residual)
 
-    # Plot as horizontal grouped bars for readability.
+    buyer_total_display = float(sum(buyer_vals))
+    renter_total_display = float(sum(renter_vals))
+    buyer_gap = buyer_total_actual - buyer_total_display
+    renter_gap = renter_total_actual - renter_total_display
+
     fig_uc_bar = go.Figure()
     fig_uc_bar.add_trace(go.Bar(
         name="Buyer",
@@ -6758,54 +7121,84 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         barmode="group",
-        height=420,
+        height=430,
         margin=dict(l=0, r=0, t=10, b=0),
         legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
         font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
     )
     fig_uc_bar.update_xaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     fig_uc_bar.update_yaxes(gridcolor="rgba(255,255,255,0.14)", autorange="reversed")
-    st.plotly_chart(_rbv_apply_plotly_theme(fig_uc_bar), use_container_width=True)
+    st.plotly_chart(_rbv_apply_plotly_theme(fig_uc_bar), width="stretch")
 
-    st.caption("Categories are aligned across Buyer/Renter; zeros indicate costs that don’t apply to that side.")
+    st.caption("Categories are aligned across Buyer/Renter; positive/negative values reflect net modeled costs (including credits/offsets).")
+    if (abs(buyer_gap) > 1.0) or (abs(renter_gap) > 1.0):
+        st.warning(
+            "Displayed category totals do not perfectly reconcile to modeled cumulative totals "
+            f"(Buyer gap: ${buyer_gap:,.0f}, Renter gap: ${renter_gap:,.0f}). "
+            "This can happen in Monte Carlo median views where category medians do not add exactly to portfolio medians."
+        )
+
+    share_df = build_cost_mix_dataframe(categories, buyer_vals, renter_vals, buyer_total_actual, renter_total_actual)
+    if not share_df.empty:
+        st.markdown("###### Cost mix (% of each side's total unrecoverable costs)")
+        st.markdown(render_fin_table(share_df, index_name="Category", table_key="cost_mix_share"), unsafe_allow_html=True)
+        if (abs(float(buyer_total_actual)) < 1.0) or (abs(float(renter_total_actual)) < 1.0):
+            st.caption("Net Share (%) is hidden when a side's net total is near $0 to avoid unstable percentages; Mix (%) still shows composition reliably.")
 
     # --- Monthly unrecoverable series (buyer vs renter) ---
     st.markdown("##### Monthly Unrecoverable Cost Over Time")
-    st.caption("Toggle renter series between smooth recurring costs and spiky totals that include moving months.")
+    st.caption("Choose whether to show pure recurring monthly costs or full modeled irrecoverable increments.")
 
-    rent_series_mode = st.radio(
-        "",
-        ["Recurring only (smooth)", "Total incl. moving (spiky)"],
-        horizontal=True,
-        key="rent_series_mode",
-        label_visibility="collapsed",
-    )
+    series_col1, series_col2 = st.columns(2)
+    with series_col1:
+        buyer_series_mode = st.radio(
+            "Buyer series",
+            ["Recurring only", "Total incl. transaction timing"],
+            horizontal=True,
+            key="buyer_series_mode",
+        )
+    with series_col2:
+        rent_series_mode = st.radio(
+            "Renter series",
+            ["Recurring only", "Total incl. moving"],
+            horizontal=True,
+            key="rent_series_mode",
+        )
 
     try:
         if "Month" in df.columns:
-            x_m = (df["Month"].astype(float) - 1.0) / 12.0 + 1.0
+            _mx = normalize_month_like_series(df, "Month", min_value=1.0, outlier_mult=2.0, outlier_floor=24.0)
+            x_m = (_mx - 1.0) / 12.0 + 1.0
         elif "Year" in df.columns:
-            x_m = df["Year"].astype(float)
+            _yx = pd.to_numeric(df["Year"], errors="coerce")
+            x_m = _yx.where(_yx.notna(), pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype=float))
         else:
             x_m = list(range(1, len(df) + 1))
     except Exception:
         x_m = list(range(1, len(df) + 1))
 
-    b_mo_unrec = (
-        (df["Interest"] if "Interest" in df.columns else 0.0)
-        + (df["Property Tax"] if "Property Tax" in df.columns else 0.0)
-        + (df["Maintenance"] if "Maintenance" in df.columns else 0.0)
-        + (df["Repairs"] if "Repairs" in df.columns else 0.0)
-        + (df["Condo Fees"] if "Condo Fees" in df.columns else 0.0)
-        + (df["Home Insurance"] if "Home Insurance" in df.columns else 0.0)
-        + (df["Utilities"] if "Utilities" in df.columns else 0.0)
-        + (df["Special Assessment"] if "Special Assessment" in df.columns else 0.0)
-    )
+    b_mo_recurring = b_interest_s + b_tax_s + b_maint_s + b_repairs_s + b_condo_s + b_ins_s + b_util_s + b_special_s
+    r_mo_recurring = r_rent_s + r_ins_s + r_util_s
 
-    if str(rent_series_mode).startswith("Total"):
-        r_mo_unrec = df["Rent Payment"] if "Rent Payment" in df.columns else 0.0
-    else:
-        r_mo_unrec = df["Rent Cost (Recurring)"] if "Rent Cost (Recurring)" in df.columns else (df["Rent"] if "Rent" in df.columns else 0.0)
+    _has_b_unrec = bool(_f.get("has_b_unrec", False))
+    _has_r_unrec = bool(_f.get("has_r_unrec", False))
+
+    b_unrec_step = _s.get("b_step", b_unrec_series.diff().fillna(b_unrec_series))
+    r_unrec_step = _s.get("r_step", r_unrec_series.diff().fillna(r_unrec_series))
+
+    try:
+        if _has_b_unrec and (float(np.nanmin(b_unrec_step.to_numpy(dtype=float))) < -1e-6):
+            st.caption("Note: Buyer cumulative unrecoverable series has non-monotonic median steps (possible in Monte Carlo median aggregation).")
+        if _has_r_unrec and (float(np.nanmin(r_unrec_step.to_numpy(dtype=float))) < -1e-6):
+            st.caption("Note: Renter cumulative unrecoverable series has non-monotonic median steps (possible in Monte Carlo median aggregation).")
+    except Exception:
+        pass
+
+    b_mo_total = b_unrec_step if _has_b_unrec else b_mo_recurring
+    r_mo_total = r_unrec_step if _has_r_unrec else (r_mo_recurring + r_move_s)
+
+    b_mo_unrec = b_mo_total if str(buyer_series_mode).startswith("Total") else b_mo_recurring
+    r_mo_unrec = r_mo_total if str(rent_series_mode).startswith("Total") else r_mo_recurring
 
     fig_mo_uc = go.Figure()
     fig_mo_uc.add_trace(go.Scatter(x=x_m, y=b_mo_unrec, name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
@@ -6815,7 +7208,7 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         template=pio.templates.default,
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        height=330,
+        height=335,
         margin=dict(l=0, r=0, t=10, b=0),
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
         font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
@@ -6823,67 +7216,59 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     )
     fig_mo_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
     fig_mo_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
-    st.plotly_chart(_rbv_apply_plotly_theme(fig_mo_uc), use_container_width=True)
-
+    st.plotly_chart(_rbv_apply_plotly_theme(fig_mo_uc), width="stretch")
 
     with st.expander("Cumulative costs over time", expanded=False):
         fig_uc = go.Figure()
-        # X-axis for cumulative plots: prefer continuous years to avoid repeated Year values.
-        try:
-            if "Month" in df.columns:
-                x = (df["Month"].astype(float) - 1.0) / 12.0 + 1.0
-            elif "Year" in df.columns:
-                x = df["Year"]
-            else:
-                x = list(range(1, len(df) + 1))
-        except Exception:
-            x = list(range(1, len(df) + 1))
-
-        fig_uc.add_trace(go.Scatter(x=x, y=df['Buyer Unrecoverable'], name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
-        fig_uc.add_trace(go.Scatter(x=x, y=df['Renter Unrecoverable'], name="Renter", mode='lines', line=dict(color=RENT_COLOR, width=2)))
+        fig_uc.add_trace(go.Scatter(x=x_m, y=(b_unrec_series if _has_b_unrec else b_mo_recurring.cumsum()), name="Buyer", mode='lines', line=dict(color=BUY_COLOR, width=2)))
+        fig_uc.add_trace(go.Scatter(x=x_m, y=(r_unrec_series if _has_r_unrec else (r_mo_recurring + r_move_s).cumsum()), name="Renter", mode='lines', line=dict(color=RENT_COLOR, width=2)))
 
         fig_uc.update_layout(
-            template=pio.templates.default, 
-            paper_bgcolor='rgba(0,0,0,0)', 
+            template=pio.templates.default,
+            paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            height=350, 
-            margin=dict(l=0,r=0,t=10,b=0), 
-            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")), 
-            font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)") 
+            height=350,
+            margin=dict(l=0, r=0, t=10, b=0),
+            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(color="#FFFFFF")),
+            font=dict(family="Manrope, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", color="rgba(241,241,243,0.92)"),
+            hovermode="x unified",
         )
         fig_uc.update_yaxes(tickprefix="$", tickformat=",", gridcolor="rgba(255,255,255,0.14)")
         fig_uc.update_xaxes(gridcolor="rgba(255,255,255,0.14)")
-        st.plotly_chart(_rbv_apply_plotly_theme(fig_uc), use_container_width=True)
-    
+        st.plotly_chart(_rbv_apply_plotly_theme(fig_uc), width="stretch")
+
     st.markdown("##### Average Monthly Irrecoverable Costs (cost of living)")
     st.caption(
         "These are the monthly costs you pay to live in the property that do **not** build equity (interest, taxes, upkeep, insurance, utilities). "
         "Principal repayment is excluded here because it increases home equity."
     )
-    df_avg = df[df['Month'] > 0]
+    monthly_tx_equiv = buyer_close_sell / _h_months
+    monthly_r_resid_equiv = renter_residual / _h_months
+
     b_table = pd.DataFrame({
-        "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Special Assessment", "Insurance", "Utilities"],
+        "Category": ["Interest", "Property Tax", "Maintenance", "Repairs", "Condo Fees", "Special Assessment", "Insurance", "Utilities", "Transaction (equiv/mo)"],
         "Amount": [
-            df_avg['Interest'].mean(),
-            df_avg['Property Tax'].mean(),
-            df_avg['Maintenance'].mean(),
-            df_avg['Repairs'].mean(),
-            df_avg['Condo Fees'].mean(),
-            (df_avg['Special Assessment'].mean() if 'Special Assessment' in df_avg.columns else 0.0),
-            df_avg['Home Insurance'].mean(),
-            df_avg['Utilities'].mean(),
+            _safe_mean('Interest'),
+            _safe_mean('Property Tax'),
+            _safe_mean('Maintenance'),
+            _safe_mean('Repairs'),
+            _safe_mean('Condo Fees'),
+            _safe_mean('Special Assessment'),
+            _safe_mean('Home Insurance'),
+            _safe_mean('Utilities'),
+            monthly_tx_equiv,
         ]
     }).set_index("Category")
-    b_table = b_table[b_table['Amount'] > 0]
+    b_table = b_table[b_table['Amount'].abs() > 0.005]
     b_table.loc['TOTAL'] = b_table['Amount'].sum()
-    
+
     r_table = pd.DataFrame({
-        "Category": ["Rent", "Insurance", "Rent Utilities", "Moving"],
-        "Amount": [df_avg['Rent'].mean(), df_avg['Rent Insurance'].mean(), df_avg['Rent Utilities'].mean(), df_avg['Moving'].mean()]
+        "Category": ["Rent", "Insurance", "Rent Utilities", "Moving", "Other (equiv/mo)"],
+        "Amount": [_safe_mean('Rent'), _safe_mean('Rent Insurance'), _safe_mean('Rent Utilities'), _safe_mean('Moving'), monthly_r_resid_equiv]
     }).set_index("Category")
-    r_table = r_table[r_table['Amount'] > 0]
+    r_table = r_table[r_table['Amount'].abs() > 0.005]
     r_table.loc['TOTAL'] = r_table['Amount'].sum()
-    
+
     c_tbl1, c_tbl2 = st.columns(2)
     with c_tbl1:
         st.markdown('<div class="header-buy section-header">BUYER AVG</div>', unsafe_allow_html=True)
@@ -6906,15 +7291,17 @@ in your portfolio instead of locking it into home equity. This capital opportuni
             )
     except Exception:
         pass
-    
-    monthly_diff = b_table.loc['TOTAL', 'Amount'] - r_table.loc['TOTAL', 'Amount']
-    note_color = BUY_COLOR if monthly_diff > 0 else RENT_COLOR
-    note_text = "pays more" if monthly_diff > 0 else "saves"
-    st.markdown(f"<div style='text-align:center; font-size:14px; color:{note_color};'>Buyer {note_text} <b>${abs(monthly_diff):,.0f} / month</b> in pure costs.</div>", unsafe_allow_html=True)
-    
-    uc_view = st.radio("View Period", ["Yearly", "Monthly"], horizontal=True, key="uc_view", label_visibility="collapsed")
 
-    # Display labels vs underlying simulation column names
+    monthly_diff = float(b_table.loc['TOTAL', 'Amount']) - float(r_table.loc['TOTAL', 'Amount'])
+    if abs(monthly_diff) < 0.5:
+        st.markdown("<div style='text-align:center; font-size:14px; color:#cbd5e1;'>Buyer and renter are effectively tied in monthly pure costs.</div>", unsafe_allow_html=True)
+    else:
+        note_color = BUY_COLOR if monthly_diff > 0 else RENT_COLOR
+        note_text = "pays more" if monthly_diff > 0 else "pays less"
+        st.markdown(f"<div style='text-align:center; font-size:14px; color:{note_color};'>Buyer {note_text} by <b>${abs(monthly_diff):,.0f} / month</b> in net unrecoverable costs.</div>", unsafe_allow_html=True)
+
+    uc_view = st.radio("View Period", ["Yearly", "Monthly"], horizontal=True, key="uc_view")
+
     buyer_map = {
         "Interest": "Interest",
         "Property Tax": "Property Tax",
@@ -6932,15 +7319,58 @@ in your portfolio instead of locking it into home equity. This capital opportuni
         "Moving": "Moving",
     }
 
-    active_b = [label for label, src in buyer_map.items() if src in df.columns and df[src].sum() > 0]
-    active_r = [label for label, src in renter_map.items() if src in df.columns and df[src].sum() > 0]
+    _buyer_col_sums = {label: float(_safe_series(src).sum()) for label, src in buyer_map.items()}
+    _renter_col_sums = {label: float(_safe_series(src).sum()) for label, src in renter_map.items()}
+    active_b = [label for label, _v in _buyer_col_sums.items() if abs(_v) > 0.01]
+    active_r = [label for label, _v in _renter_col_sums.items() if abs(_v) > 0.01]
+
+    if _has_b_unrec:
+        tx_monthly = b_unrec_step - (
+            b_interest_s + b_tax_s + b_maint_s + b_repairs_s + b_special_s + b_condo_s + b_ins_s + b_util_s
+        )
+    else:
+        tx_monthly = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+
+    if _has_r_unrec:
+        renter_other_monthly = r_unrec_step - (r_rent_s + r_ins_s + r_util_s + r_move_s)
+    else:
+        renter_other_monthly = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+
+    _buyer_frame = pd.DataFrame({l: _safe_series(buyer_map[l]) for l in active_b}, index=df.index)
+    _renter_frame = pd.DataFrame({l: _safe_series(renter_map[l]) for l in active_r}, index=df.index)
 
     if uc_view == "Yearly":
-        uc_b = df.groupby("Year")[[buyer_map[l] for l in active_b]].sum().rename(columns={buyer_map[l]: l for l in active_b})
-        uc_r = df.groupby("Year")[[renter_map[l] for l in active_r]].sum().rename(columns={renter_map[l]: l for l in active_r})
+        if "Year" in df.columns:
+            period = pd.to_numeric(df["Year"], errors="coerce").fillna(1).astype(int).clip(lower=1)
+        else:
+            period = pd.Series([((i // 12) + 1) for i in range(len(df))], index=df.index)
+        uc_b = _buyer_frame.groupby(period).sum() if not _buyer_frame.empty else pd.DataFrame(index=sorted(period.unique()))
+        uc_r = _renter_frame.groupby(period).sum() if not _renter_frame.empty else pd.DataFrame(index=sorted(period.unique()))
+        uc_b["Transaction"] = tx_monthly.groupby(period).sum()
+        uc_r["Other"] = renter_other_monthly.groupby(period).sum()
     else:
-        uc_b = df[["Month"] + [buyer_map[l] for l in active_b]].set_index("Month").rename(columns={buyer_map[l]: l for l in active_b})
-        uc_r = df[["Month"] + [renter_map[l] for l in active_r]].set_index("Month").rename(columns={renter_map[l]: l for l in active_r})
+        if "Month" in df.columns:
+            month_raw = pd.to_numeric(df["Month"], errors="coerce")
+            month_fallback = pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype=float)
+            month_idx = month_raw.where(month_raw.notna(), month_fallback).astype(int).clip(lower=1)
+        else:
+            month_idx = pd.Series(np.arange(1, len(df) + 1), index=df.index, dtype=int)
+        uc_b = _buyer_frame.copy()
+        uc_r = _renter_frame.copy()
+        uc_b.index = month_idx
+        uc_r.index = month_idx
+        uc_b["Transaction"] = tx_monthly.to_numpy(dtype=float)
+        uc_r["Other"] = renter_other_monthly.to_numpy(dtype=float)
+        # If malformed inputs create duplicate month labels, aggregate to one row per month.
+        uc_b = uc_b.groupby(level=0).sum()
+        uc_r = uc_r.groupby(level=0).sum()
+
+    uc_b = uc_b.sort_index().fillna(0.0)
+    uc_r = uc_r.sort_index().fillna(0.0)
+    if "Transaction" in uc_b.columns and abs(float(uc_b["Transaction"].sum())) <= 0.01:
+        uc_b = uc_b.drop(columns=["Transaction"])
+    if "Other" in uc_r.columns and abs(float(uc_r["Other"].sum())) <= 0.01:
+        uc_r = uc_r.drop(columns=["Other"])
 
     uc_b["TOTAL"] = uc_b.sum(axis=1)
     uc_r["TOTAL"] = uc_r.sum(axis=1)
@@ -6948,10 +7378,10 @@ in your portfolio instead of locking it into home equity. This capital opportuni
     c1, c2 = st.columns(2)
     with c1:
         st.markdown('<div class="header-buy section-header">BUYER UNRECOVERABLE</div>', unsafe_allow_html=True)
-        st.markdown(render_fin_table(uc_b, index_name=("Year" if uc_view=="Yearly" else "Month"), table_key="buyer_unrec"), unsafe_allow_html=True)
+        st.markdown(render_fin_table(uc_b, index_name=("Year" if uc_view == "Yearly" else "Month"), table_key="buyer_unrec"), unsafe_allow_html=True)
     with c2:
         st.markdown('<div class="header-rent section-header">RENTER UNRECOVERABLE</div>', unsafe_allow_html=True)
-        st.markdown(render_fin_table(uc_r, index_name=("Year" if uc_view=="Yearly" else "Month"), table_key="renter_unrec"), unsafe_allow_html=True)
+        st.markdown(render_fin_table(uc_r, index_name=("Year" if uc_view == "Yearly" else "Month"), table_key="renter_unrec"), unsafe_allow_html=True)
 
 elif tab == _TAB_ASSUM:
 
@@ -7094,7 +7524,7 @@ elif tab == _TAB_BIAS:
     # Mode selection
     bias_mode = st.radio(
         "Mode",
-        ["Deterministic ", "Monte Carlo "],
+        ["Deterministic", "Monte Carlo"],
         horizontal=True,
         key="bias_dash_mode",
     )
@@ -7119,8 +7549,13 @@ elif tab == _TAB_BIAS:
             key="bias_dash_mc_metric",
         )
 
-        mc_sims = int(st.session_state.get("bias_mc_sims", 15_000 if fast_mode else 30_000))
-        st.caption(f"Monte Carlo simulations (from Performance mode): **{mc_sims:,}**")
+        _raw_bias_mc_sims = st.session_state.get("bias_mc_sims", BALANCED_BIAS_MC_SIMS_DEFAULT)
+        try:
+            mc_sims = int(float(_raw_bias_mc_sims))
+        except Exception:
+            mc_sims = BALANCED_BIAS_MC_SIMS_DEFAULT
+        mc_sims = int(max(100, min(250_000, mc_sims)))
+        st.caption(f"Monte Carlo simulations (from Performance profile): **{mc_sims:,}**")
 
     # PV metric only applies to money-valued deltas (deterministic Δ or MC Expected Δ)
     pv_allowed = (not use_mc) or (mc_metric == "Expected Δ (mean Buyer − Renter)")
@@ -7132,6 +7567,7 @@ elif tab == _TAB_BIAS:
             key="bias_dash_use_pv",
         )
     else:
+        st.session_state["bias_dash_use_pv"] = False
         st.caption("PV metric is disabled for Win% mode (Win% is not PV-discounted).")
 
     # Flip-points included in the 12-card grid (computed on every dashboard run).
@@ -7162,6 +7598,12 @@ elif tab == _TAB_BIAS:
                 return default
 
         sig = {
+            "bias_cache_version": 2,
+            "bias_mode": str(bias_mode),
+            "use_mc": bool(use_mc),
+            "mc_metric": str(mc_metric) if mc_metric is not None else None,
+            "mc_sims": int(mc_sims) if mc_sims is not None else None,
+            "use_pv_metric": bool(use_pv_metric),
             "price": float(_ss("price", 0.0)),
             "rent": float(_ss("rent", 0.0)),
             "years": int(_ss("years", 25)),
@@ -7178,6 +7620,8 @@ elif tab == _TAB_BIAS:
             "cg_tax_end": float(_ss("cg_tax_end", 0.0)),
             "home_sale_legal_fee": float(_ss("home_sale_legal_fee", 0.0)),
             "use_volatility": bool(_ss("use_volatility", False)),
+            "mc_seed": _ss("mc_seed", None),
+            "mc_randomize": bool(_ss("mc_randomize", False)),
             "ret_std_pct": float(_ss("ret_std_pct", 15.0)),
             "apprec_std_pct": float(_ss("apprec_std_pct", 5.0)),
             "market_corr_input": float(_ss("market_corr_input", 0.0)),
@@ -7188,6 +7632,16 @@ elif tab == _TAB_BIAS:
             "renter_uses_closing_input": bool(_ss("renter_uses_closing_input", True)),
             "prop_tax_growth_model": str(_ss("prop_tax_growth_model", "")),
             "prop_tax_hybrid_addon_pct": float(_ss("prop_tax_hybrid_addon_pct", 0.5)),
+            "rent_control_enabled": bool(_ss("rent_control_enabled", False)),
+            "rent_control_cap_pct": float(_ss("rent_control_cap_pct", 2.5)),
+            "rent_control_frequency": str(_ss("rent_control_frequency", "Every year")),
+            "invest_surplus_input": bool(_ss("invest_surplus_input", False)),
+            "budget_enabled": bool(_ss("budget_enabled", False)),
+            "budget_allow_withdraw": bool(_ss("budget_allow_withdraw", False)),
+            "tax_deduct_contributions": bool(_ss("tax_deduct_contributions_input", False)),
+            "reg_shelter_enabled": bool(_ss("reg_shelter_enabled", False)),
+            "reg_initial_room": float(_ss("reg_initial_room", 0.0)),
+            "reg_annual_room": float(_ss("reg_annual_room", 0.0)),
         }
         raw = json.dumps(sig, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -7218,10 +7672,10 @@ elif tab == _TAB_BIAS:
         months_i = int(max(1, months))
         sims_i = int(max(1, sims))
         # Keep memory bounded: float32 arrays, 3 * months*sims
-        # ~12MB at (300×5000). If bigger than ~48MB, skip caching.
+        # Size estimate for 3 float32 shock matrices; skip precompute beyond safety threshold.
         try:
             est_bytes = 3 * months_i * sims_i * 4
-            if est_bytes > 800_000_000:
+            if est_bytes > 350_000_000:
                 return None
         except Exception:
             return None
@@ -7387,7 +7841,7 @@ elif tab == _TAB_BIAS:
             return _eval_cache[cache_key]
 
         if not use_mc:
-            # Deterministic 
+            # Deterministic
             a = float(apprec_override_pct) if apprec_override_pct is not None else float(st.session_state.apprec)
             br = float(buyer_ret_override_pct) if buyer_ret_override_pct is not None else float(st.session_state.buyer_ret)
             rr = float(renter_ret_override_pct) if renter_ret_override_pct is not None else float(st.session_state.renter_ret)
@@ -7760,7 +8214,7 @@ elif tab == _TAB_BIAS:
                 if lo >= -10.0:
                     flip_app = _bias_solve_flip(f_a, lo, hi)
 
-            
+
             _bump("Flip appreciation computed")
 
             # Flip-point: MORTGAGE RATE (%)
@@ -8067,10 +8521,6 @@ elif tab == _TAB_BIAS:
             if _adaptive_bias_active:
                 _bias_eval_phase = "full"
 
-            # After flip-point solving, switch back to full sims for sensitivity evaluations
-            if _adaptive_bias_active:
-                _bias_eval_phase = "full"
-
             sens_specs = [
                 ("Monthly Rent ($)", max(200.0, 0.07 * max(1.0, base_r)), "rent"),
                 ("Home appreciation (+0.5%/yr)", 0.50, "apprec"),
@@ -8082,6 +8532,13 @@ elif tab == _TAB_BIAS:
                 ("Maintenance rate (+0.10% of home value)", 0.10, "maint_rate"),
                 ("Selling cost (+0.5% of sale price)", 0.50, "sell_cost"),
             ]
+
+            # Use the explicit user-entered percent-point value for rent inflation in sensitivity
+            # (not the already-capped effective decimal), then let engine rules apply caps consistently.
+            try:
+                _base_rent_inf_pct = float(st.session_state.get("rent_inf", 0.0))
+            except Exception:
+                _base_rent_inf_pct = float(rent_inf_eff * 100.0)
 
             sens_rows = []
             for label, step, key in sens_specs:
@@ -8097,7 +8554,9 @@ elif tab == _TAB_BIAS:
                     elif key == "mort_rate":
                         d_plus = _eval_metric(use_pv_metric, rate_override_pct=float(rate) + step) - base_val
                     elif key == "rent_inf":
-                        d_plus = _eval_metric(use_pv_metric, rent_inf_override_pct=(rent_inf_eff * 100.0) + step) - base_val
+                        _ri_plus = float(_base_rent_inf_pct) + float(step)
+                        _ri_plus = min(100.0, max(-99.0, _ri_plus))
+                        d_plus = _eval_metric(use_pv_metric, rent_inf_override_pct=_ri_plus) - base_val
                     elif key in ("p_tax_rate", "maint_rate"):
                         cur = float(p_tax_rate) if key == "p_tax_rate" else float(maint_rate)
                         d_plus = _eval_metric(use_pv_metric, param_overrides={key: cur + 0.01 * step}) - base_val
@@ -8346,75 +8805,52 @@ elif tab == _TAB_BIAS:
                     f"<div class='bias-pill'><div class='k'>{html.escape(label)} {tip_html}</div><div class='v'>{html.escape(value)}</div>{sub_html}</div>"
                 )
 
-            flips_grid = (
-                "<div class='bias-flip-grid'>"
-                + current_pill
-                + _pill(
+            _flip_cards = [
+                _pill(
                     "Flip rent",
                     flip_rent_txt,
                     "Approximate monthly rent that would make the result a tie. If it says ‘No crossover’, the tie wasn’t found within the search range.",
-                )
-                + _pill(
+                ),
+                _pill(
                     "Flip home appreciation",
                     flip_app_txt,
                     "Approximate annual home appreciation rate that would make the result a tie for the chosen metric.",
-                )
-                + _pill(
+                ),
+                _pill(
                     "Flip mortgage rate",
                     flip_rate_txt,
                     "Approximate mortgage rate that would make the result a tie (holding other inputs constant).",
-                )
-                + _pill(
+                ),
+                _pill(
                     "Flip renter return",
                     flip_renter_txt,
                     "Approximate renter investment return that would make the result a tie (holding other inputs constant).",
-                )
-                + _pill(
-                    "Flip buyer return",
-                    flip_buyer_txt,
-                    flip_buyer_tip or "Approximate buyer investment return that would make the result a tie (holding other inputs constant).",
-                    sub=flip_buyer_sub,
-                )
-                + _pill(
-                    "Flip down payment",
-                    flip_down_txt,
-                    flip_down_tip or "Approximate down payment percentage (of purchase price) that would make the result a tie.",
-                    sub=flip_down_sub,
-                )
-                + _pill(
-                    "Flip selling cost",
-                    flip_sell_txt,
-                    flip_sell_tip or "Approximate total selling cost rate (as % of sale price) that would make the result a tie.",
-                    sub=flip_sell_sub,
-                )
-                + _pill(
-                    "Flip rent inflation",
-                    flip_rinf_txt,
-                    flip_rinf_tip or "Approximate annual rent inflation rate that would make the result a tie.",
-                    sub=flip_rinf_sub,
-                )
-                + _pill(
-                    "Flip property tax rate",
-                    flip_ptax_txt,
-                    flip_ptax_tip or "Approximate property tax rate (as % of home value per year) that would make the result a tie.",
-                    sub=flip_ptax_sub,
-                )
-                + _pill(
-                    "Flip maintenance rate",
-                    flip_maint_txt,
-                    flip_maint_tip or "Approximate maintenance rate (as % of home value per year) that would make the result a tie.",
-                    sub=flip_maint_sub,
-                )
-                + _pill(
-                    "Flip repairs rate",
-                    flip_repair_txt,
-                    flip_repair_tip or "Approximate annual repair costs rate (as % of home value per year) that would make the result a tie.",
-                    sub=flip_repair_sub,
-                )
-                + "</div>"
-            )
+                ),
+            ]
 
+            _adv_specs = [
+                ("Flip buyer return", flip_buyer_txt, flip_buyer_tip or "Approximate buyer investment return that would make the result a tie (holding other inputs constant).", flip_buyer_sub),
+                ("Flip down payment", flip_down_txt, flip_down_tip or "Approximate down payment percentage (of purchase price) that would make the result a tie.", flip_down_sub),
+                ("Flip selling cost", flip_sell_txt, flip_sell_tip or "Approximate total selling cost rate (as % of sale price) that would make the result a tie.", flip_sell_sub),
+                ("Flip rent inflation", flip_rinf_txt, flip_rinf_tip or "Approximate annual rent inflation rate that would make the result a tie.", flip_rinf_sub),
+                ("Flip property tax rate", flip_ptax_txt, flip_ptax_tip or "Approximate property tax rate (as % of home value per year) that would make the result a tie.", flip_ptax_sub),
+                ("Flip maintenance rate", flip_maint_txt, flip_maint_tip or "Approximate maintenance rate (as % of home value per year) that would make the result a tie.", flip_maint_sub),
+                ("Flip repairs rate", flip_repair_txt, flip_repair_tip or "Approximate annual repair costs rate (as % of home value per year) that would make the result a tie.", flip_repair_sub),
+            ]
+
+            _hidden_adv_no_x = 0
+            for _label, _val_txt, _tip, _sub in _adv_specs:
+                # Keep the panel focused on actionable flips by hiding advanced cards with no found crossover.
+                # Core flips remain always visible above.
+                if str(_val_txt).strip().lower() == "no crossover":
+                    _hidden_adv_no_x += 1
+                    continue
+                _flip_cards.append(_pill(_label, _val_txt, _tip, sub=_sub))
+
+            flips_grid = "<div class='bias-flip-grid'>" + current_pill + "".join(_flip_cards) + "</div>"
             st.markdown(mode_row + flips_grid, unsafe_allow_html=True)
+            if _hidden_adv_no_x > 0:
+                st.caption(f"Showing actionable flip-points. Hidden advanced flips with no crossover in current range: {_hidden_adv_no_x}.")
         except Exception:
             pass
 
@@ -8458,23 +8894,26 @@ elif tab == _TAB_BIAS:
 
 
 
-        # Single graph: tornado bar chart (top 8)
+        # Single graph: tornado bar chart + readable details table (top 8)
         try:
             sens_num = res.get("sens_df")
             if sens_num is not None:
                 sens_num = sens_num.copy()
                 sens_num = sens_num.dropna(subset=["Impact"])
                 if not sens_num.empty:
-                    if str(res.get("value_kind","money")) == "money":
-                        chart_title = "What matters most (near your current inputs)"
+                    _is_money = str(res.get("value_kind", "money")) == "money"
+                    chart_title = "What matters most (near your current inputs)"
+
+                    if _is_money:
                         x_axis_title = "Change in result ($, Buyer − Renter)"
                         x_vals = sens_num["Impact"]
                         tick_fmt = ",.0f"
+                        bar_text = [f"${v:,.0f}" for v in x_vals]
                     else:
-                        chart_title = "What matters most (near your current inputs)"
                         x_axis_title = "Change in win chance (% out of 100)"
                         x_vals = sens_num["Impact"] * 100.0
                         tick_fmt = ",.1f"
+                        bar_text = [f"{v:+.2f} pp" for v in x_vals]
 
                     fig = go.Figure()
                     colors = [(BUY_COLOR if float(v) >= 0 else RENT_COLOR) for v in sens_num['Impact'].tolist()]
@@ -8483,24 +8922,38 @@ elif tab == _TAB_BIAS:
                         y=sens_num["Input"],
                         orientation="h",
                         marker=dict(color=colors),
+                        text=bar_text,
+                        textposition="outside",
+                        cliponaxis=False,
                     )
                     fig.update_layout(
                         template=pio.templates.default,
-                        height=420,
-                        margin=dict(l=10, r=10, t=50, b=10),
+                        height=440,
+                        margin=dict(l=10, r=30, t=50, b=10),
                         title=chart_title,
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                         font=dict(color="#E6EDF7"),
                     )
                     fig.update_xaxes(title_text=x_axis_title, gridcolor="rgba(255,255,255,0.10)", tickformat=tick_fmt)
-                    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)")
+                    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", autorange="reversed")
                     fig.add_vline(x=0, line_width=1, line_dash='dash', line_color='rgba(255,255,255,0.25)')
-                    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=400), use_container_width=True)
+                    st.plotly_chart(_rbv_apply_plotly_theme(fig, height=420), width="stretch")
+
+                    with st.expander("Sensitivity details", expanded=False):
+                        _tbl = sens_num.copy()
+                        if _is_money:
+                            _tbl["Impact"] = _tbl["Impact"].map(lambda v: f"${float(v):,.0f}")
+                        else:
+                            _tbl["Impact"] = (_tbl["Impact"] * 100.0).map(lambda v: f"{float(v):+.2f} pp")
+                        _tbl = _tbl[["Input", "Increase By", "Impact"]]
+                        st.dataframe(_tbl, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Sensitivity results are empty for this scenario.")
         except Exception:
             pass
 # ------------------------------
-# Self-tests 
+# Self-tests
 # ------------------------------
 def _run_transfer_tax_self_tests() -> list[str]:
     errs = []
@@ -8552,18 +9005,29 @@ try:
         if not diag:
             st.caption("No diagnostics recorded for this run.")
         else:
-            for item in diag:
+            # Prioritize signal: FAIL first, then WARN, then OK/INFO.
+            _prio = {"FAIL": 0, "WARN": 1, "OK": 2, "INFO": 3}
+            diag_sorted = sorted(
+                list(diag),
+                key=lambda it: (_prio.get(str(it.get("level", "INFO")).upper(), 99), str(it.get("title", ""))),
+            )
+
+            _fail_n = sum(1 for it in diag_sorted if str(it.get("level", "")).upper() == "FAIL")
+            _warn_n = sum(1 for it in diag_sorted if str(it.get("level", "")).upper() == "WARN")
+            _ok_n = sum(1 for it in diag_sorted if str(it.get("level", "")).upper() == "OK")
+            st.caption(f"Summary: FAIL {_fail_n} • WARN {_warn_n} • OK {_ok_n}")
+
+            for item in diag_sorted:
                 lvl = str(item.get("level", "INFO")).upper()
                 title = str(item.get("title", "")).strip()
                 detail = str(item.get("detail", "")).strip()
-                pill_bg = _rbv_rgba(BUY_COLOR, 0.16) if lvl == "OK" else (_rbv_rgba(RENT_COLOR, 0.16) if lvl == "WARN" else "rgba(255,255,255,0.10)")
-                pill_bd = _rbv_rgba(BUY_COLOR, 0.35) if lvl == "OK" else (_rbv_rgba(RENT_COLOR, 0.35) if lvl == "WARN" else "rgba(255,255,255,0.18)")
-                pill_tx = BUY_COLOR if lvl == "OK" else (RENT_COLOR if lvl == "WARN" else "#F8FAFC")
+                pill_bg = "rgba(239,68,68,0.18)" if lvl == "FAIL" else (_rbv_rgba(RENT_COLOR, 0.16) if lvl == "WARN" else (_rbv_rgba(BUY_COLOR, 0.16) if lvl == "OK" else "rgba(255,255,255,0.10)"))
+                pill_bd = "rgba(239,68,68,0.45)" if lvl == "FAIL" else (_rbv_rgba(RENT_COLOR, 0.35) if lvl == "WARN" else (_rbv_rgba(BUY_COLOR, 0.35) if lvl == "OK" else "rgba(255,255,255,0.18)"))
+                pill_tx = "#F87171" if lvl == "FAIL" else (RENT_COLOR if lvl == "WARN" else (BUY_COLOR if lvl == "OK" else "#F8FAFC"))
                 st.markdown(
                     f"""
 <div style="display:flex; gap:10px; align-items:flex-start; margin: 6px 0;">
-  <div style="min-width:54px; text-align:center; font-weight:800; font-size:12px; letter-spacing:0.4px;\
-              color:{pill_tx}; background:{pill_bg}; border:1px solid {pill_bd}; border-radius:999px; padding:4px 10px;">
+  <div style="min-width:54px; text-align:center; font-weight:800; font-size:12px; letter-spacing:0.4px;              color:{pill_tx}; background:{pill_bg}; border:1px solid {pill_bd}; border-radius:999px; padding:4px 10px;">
     {html.escape(lvl)}
   </div>
   <div style="flex:1;">
@@ -8574,6 +9038,32 @@ try:
 """,
                     unsafe_allow_html=True,
                 )
+
+        # Performance telemetry snapshot (best-effort)
+        try:
+            _pm = st.session_state.get("_rbv_perf_main", {}) or {}
+            _ph = st.session_state.get("_rbv_perf_heatmap", {}) or {}
+            _parts = []
+            if _pm:
+                _src = str(_pm.get("source", "")).strip()
+                if _src == "cache":
+                    _parts.append("Main simulation: cache hit")
+                else:
+                    _e = _pm.get("elapsed_sec", None)
+                    _parts.append(f"Main simulation: {_src} ({float(_e):.2f}s)" if _e is not None else f"Main simulation: {_src}")
+            if _ph:
+                _src = str(_ph.get("source", "")).strip()
+                _metric = str(_ph.get("metric", "")).strip()
+                _grid = _ph.get("grid", None)
+                _e = _ph.get("elapsed_sec", None)
+                if _src == "cache":
+                    _parts.append(f"Heatmap: cache hit ({_metric}, {_grid}×{_grid})" if _metric and _grid else "Heatmap: cache hit")
+                else:
+                    _parts.append(f"Heatmap: {_src} ({float(_e):.2f}s, {_metric}, {_grid}×{_grid})" if (_e is not None and _metric and _grid) else f"Heatmap: {_src}")
+            if _parts:
+                st.caption("Performance telemetry: " + " • ".join(_parts))
+        except Exception:
+            pass
 
         hm = st.session_state.get("_rbv_last_heatmap", None)
         if isinstance(hm, dict) and hm.get("metric"):
@@ -8657,7 +9147,6 @@ try:
                 _payload_a = _cmp.get("payload_a") if isinstance(_cmp.get("payload_a"), dict) else None
                 _payload_b = _cmp.get("payload_b") if isinstance(_cmp.get("payload_b"), dict) else None
                 _cmp_meta = dict(_cmp.get("meta") or {})
-
                 _cmp_json = json.dumps(
                     build_compare_export_payload(
                         payload_a=_payload_a,

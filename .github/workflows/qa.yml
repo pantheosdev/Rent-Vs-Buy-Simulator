@@ -21,6 +21,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          # Use requirements.txt for flexibility; requirements.lock is available for pinned/reproducible installs.
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
@@ -35,6 +36,16 @@ jobs:
       - name: QA suite
         run: |
           python run_all_qa.py
+
+      - name: pytest (with coverage)
+        run: |
+          python -m pytest tests/ -v --tb=short --cov=rbv --cov-report=term-missing
+
+      - name: Run mypy type checking
+        continue-on-error: true
+        run: |
+          pip install mypy>=1.5
+          python -m mypy rbv/core/ rbv/qa/ --ignore-missing-imports
 
   vr_smoke:
     # Run a lightweight visual smoke only when explicitly requested.
@@ -52,6 +63,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          # Use requirements.txt for flexibility; requirements.lock is available for pinned/reproducible installs.
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 

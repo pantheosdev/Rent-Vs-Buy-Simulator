@@ -29,5 +29,11 @@ tools/visual_regression/diffs/
 # QA artifacts
 rbv/qa/_artifacts/
 
+# pytest / coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
 # Misc
 *.zip

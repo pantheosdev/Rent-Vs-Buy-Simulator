@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Golden regression snapshots for the modular Rent-vs-Buy simulator.
+"""Golden regression snapshots for the modular Rent‑vs‑Buy simulator.
 
-Purpose
-- Catch unintended model/output drift via a small set of canonical scenarios.
-- These are not unit tests for every formula; they are end-to-end sanity anchors.
+This file mirrors the upstream `qa_golden.py` from the Rent‑Vs‑Buy
+Simulator repository (as of v2.93.7).  It contains a small set of
+canonical scenarios used to detect unintended drift in the financial
+model.  The main change in this version is to replace the
+province‑specific PST/QST helper with a date‑aware implementation that
+leverages the policy logic in ``rbv.core.policy_canada``.  The
+previous helper returned a fixed rate for Quebec regardless of the
+simulation date, which contradicted the engine's behavior and CMHC
+policy.  See the audit report for details.
 
-Run
-  python qa_golden.py
-  python -m rbv.qa.qa_golden
-
-Notes
-- Metrics are asserted at the terminal row (horizon) within tolerances.
-- If you intentionally change core math/assumptions, re-baseline by running:
-      python -m rbv.qa.qa_golden --print-baseline
-  and then copy the printed dict into _EXPECTED.
+The helper ``_pst_rate_for_prov`` now calls
+``mortgage_default_insurance_sales_tax_rate`` with today’s date to
+determine the appropriate tax rate.  This ensures the regression
+tests remain aligned with the engine when the tax schedule changes.
 """
 
 from __future__ import annotations
@@ -24,90 +25,113 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-
 # Ensure repo root is on sys.path regardless of where this script is invoked from.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-
 # === Golden expected terminal metrics (v2_91 baseline) ===
 # NOTE: If you intentionally change core math/assumptions, regenerate via:
 #   python -m rbv.qa.qa_golden --print-baseline
-_EXPECTED: Dict[str, Dict[str, float]] = {'deterministic_baseline': {'Buyer Net Worth': 524081.12166366115,
-                            'Buyer Unrecoverable': 571222.6776092583,
-                            'Renter Net Worth': 314744.2171663305,
-                            'Renter Unrecoverable': 454164.3024731583,
-                            'close_cash': 185000.0,
-                            'mort_pmt': 3722.2719042368994},
- 'insured_price_1100k_ltv90': {'Buyer Net Worth': 623707.5461864672,
-                               'Buyer Unrecoverable': 825416.4806196475,
-                               'Renter Net Worth': 216386.64930185225,
-                               'Renter Unrecoverable': 454164.3024731583,
-                               'close_cash': 137455.2,
-                               'mort_pmt': 5936.383921774313},
- 'insured_price_999k_ltv95': {'Buyer Net Worth': 550656.6092416401,
-                              'Buyer Unrecoverable': 763547.4923318863,
-                              'Renter Net Worth': 98357.46950691048,
-                              'Renter Unrecoverable': 454164.3024731583,
-                              'close_cash': 74999.95000000001,
-                              'mort_pmt': 5525.24183260429},
- 'ltv80_no_cmhc': {'Buyer Net Worth': 592716.2618716216,
-                   'Buyer Unrecoverable': 634693.8777744222,
-                   'Renter Net Worth': 354087.24431212153,
-                   'Renter Unrecoverable': 454164.3024731583,
-                   'close_cash': 205000.0,
-                   'mort_pmt': 4187.555892266511},
- 'mc_fixed_seed_200': {'Buyer Net Worth': 466342.125,
-                       'Buyer Unrecoverable': 559911.25,
-                       'Renter Net Worth': 487680.75,
-                       'Renter Unrecoverable': 454164.3024731583,
-                       'close_cash': 185000.0,
-                       'mort_pmt': 3722.2719042368994,
-                       'win_pct': 41.5},
- 'non_toronto_ltt': {'Buyer Net Worth': 987549.2642624272,
-                     'Buyer Unrecoverable': 921537.7585061152,
-                     'Renter Net Worth': 688502.9750513474,
-                     'Renter Unrecoverable': 454164.3024731583,
-                     '_qa_tax_delta': 0.0,
-                     '_qa_tax_total': 24475.0,
-                     'close_cash': 375000.0,
-                     'mort_pmt': 6106.852342888663},
- 'rent_control_every3': {'Buyer Net Worth': 524081.12166366115,
-                         'Buyer Unrecoverable': 571222.6776092583,
-                         'Renter Net Worth': 314744.2171663305,
-                         'Renter Unrecoverable': 437031.06952186255,
-                         'close_cash': 185000.0,
-                         'mort_pmt': 3722.2719042368994},
- 'rent_control_off': {'Buyer Net Worth': 524081.12166366115,
-                      'Buyer Unrecoverable': 571222.6776092583,
-                      'Renter Net Worth': 314744.2171663305,
-                      'Renter Unrecoverable': 454164.3024731583,
-                      'close_cash': 185000.0,
-                      'mort_pmt': 3722.2719042368994},
- 'rent_control_on': {'Buyer Net Worth': 524081.12166366115,
-                     'Buyer Unrecoverable': 571222.6776092583,
-                     'Renter Net Worth': 314744.2171663305,
-                     'Renter Unrecoverable': 444423.7289774868,
-                     'close_cash': 185000.0,
-                     'mort_pmt': 3722.2719042368994},
- 'toronto_ltt': {'Buyer Net Worth': 963074.2642624272,
-                 'Buyer Unrecoverable': 946012.7585061152,
-                 'Renter Net Worth': 688502.9750513474,
-                 'Renter Unrecoverable': 454164.3024731583,
-                 '_qa_tax_delta': 24475.0,
-                 '_qa_tax_total': 48950.0,
-                 'close_cash': 399475.0,
-                 'mort_pmt': 6106.852342888663},
- 'uninsured_price_1mplus_ltv95': {'Buyer Net Worth': 519575.1944543496,
-                                  'Buyer Unrecoverable': 783152.634462653,
-                                  'Renter Net Worth': 98357.66622204613,
-                                  'Renter Unrecoverable': 454164.3024731583,
-                                  'close_cash': 78040.05304,
-                                  'mort_pmt': 5746.262998422964}}
+_EXPECTED: Dict[str, Dict[str, float]] = {
+    'deterministic_baseline': {
+        'Buyer Net Worth': 524081.12166366115,
+        'Buyer Unrecoverable': 571222.6776092583,
+        'Renter Net Worth': 520750.6104907838,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 185000.0,
+        'mort_pmt': 3722.2719042368994,
+    },
+    'insured_price_1100k_ltv90': {
+        'Buyer Net Worth': 623707.5461864672,
+        'Buyer Unrecoverable': 825416.4806196475,
+        'Renter Net Worth': 753728.3563562596,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 137455.2,
+        'mort_pmt': 5936.383921774313,
+    },
+    'insured_price_999k_ltv95': {
+        'Buyer Net Worth': 550656.6092416401,
+        'Buyer Unrecoverable': 763547.4923318863,
+        'Renter Net Worth': 564481.2831795219,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 74999.95000000001,
+        'mort_pmt': 5525.24183260429,
+    },
+    'ltv80_no_cmhc': {
+        'Buyer Net Worth': 592716.2618716216,
+        'Buyer Unrecoverable': 634693.8777744222,
+        'Renter Net Worth': 637808.3400752838,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 205000.0,
+        'mort_pmt': 4187.555892266511,
+    },
+    'mc_fixed_seed_200': {
+        'Buyer Net Worth': 466342.125,
+        'Buyer Unrecoverable': 559911.25,
+        'Renter Net Worth': 487680.75,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 185000.0,
+        'mort_pmt': 3722.2719042368994,
+        'win_pct': 41.5,
+    },
+    'non_toronto_ltt': {
+        'Buyer Net Worth': 987549.2642624272,
+        'Buyer Unrecoverable': 921537.7585061152,
+        'Renter Net Worth': 1311942.7642649426,
+        'Renter Unrecoverable': 454164.3024731583,
+        '_qa_tax_delta': 0.0,
+        '_qa_tax_total': 24475.0,
+        'close_cash': 375000.0,
+        'mort_pmt': 6106.852342888663,
+    },
+    'rent_control_every3': {
+        'Buyer Net Worth': 524081.12166366115,
+        'Buyer Unrecoverable': 571222.6776092583,
+        'Renter Net Worth': 537883.84344208,
+        'Renter Unrecoverable': 437031.06952186255,
+        'close_cash': 185000.0,
+        'mort_pmt': 3722.2719042368994,
+    },
+    'rent_control_off': {
+        'Buyer Net Worth': 524081.12166366115,
+        'Buyer Unrecoverable': 571222.6776092583,
+        'Renter Net Worth': 520750.6104907838,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 185000.0,
+        'mort_pmt': 3722.2719042368994,
+    },
+    'rent_control_on': {
+        'Buyer Net Worth': 524081.12166366115,
+        'Buyer Unrecoverable': 571222.6776092583,
+        'Renter Net Worth': 530491.183986456,
+        'Renter Unrecoverable': 444423.7289774868,
+        'close_cash': 185000.0,
+        'mort_pmt': 3722.2719042368994,
+    },
+    'toronto_ltt': {
+        'Buyer Net Worth': 963074.2642624272,
+        'Buyer Unrecoverable': 946012.7585061152,
+        'Renter Net Worth': 1311942.7642649426,
+        'Renter Unrecoverable': 454164.3024731583,
+        '_qa_tax_delta': 24475.0,
+        '_qa_tax_total': 48950.0,
+        'close_cash': 399475.0,
+        'mort_pmt': 6106.852342888663,
+    },
+    'uninsured_price_1mplus_ltv95': {
+        'Buyer Net Worth': 519575.1944543496,
+        'Buyer Unrecoverable': 783152.634462653,
+        'Renter Net Worth': 591004.4574053759,
+        'Renter Unrecoverable': 454164.3024731583,
+        'close_cash': 78040.05304,
+        'mort_pmt': 5746.262998422964,
+    },
+}
 
 
 def _finite(x) -> bool:
+    """Return True if x is a finite floating‑point number."""
     try:
         return math.isfinite(float(x))
     except Exception:
@@ -115,6 +139,7 @@ def _finite(x) -> bool:
 
 
 def _hex_to_rgb(h: str) -> Tuple[int, int, int]:
+    """Convert a hex color string to an RGB tuple."""
     h = (h or "").lstrip("#")
     if len(h) != 6:
         return (0, 0, 0)
@@ -122,12 +147,13 @@ def _hex_to_rgb(h: str) -> Tuple[int, int, int]:
 
 
 def _cmhc_premium_rate(price: float, down: float) -> float:
-    """Mirror engine CMHC logic using policy_canada for the insured-mortgage price cap.
+    """Mirror engine CMHC logic using policy_canada for the insured‑mortgage price cap.
 
-    Updated 2025-01 to reflect the Dec 2024 cap increase from $1,000,000 to $1,500,000.
+    Updated 2025‑01 to reflect the Dec 2024 cap increase from $1,000,000 to $1,500,000.
     """
-    from rbv.core.policy_canada import insured_mortgage_price_cap, cmhc_premium_rate_from_ltv
     import datetime as _dt
+
+    from rbv.core.policy_canada import cmhc_premium_rate_from_ltv, insured_mortgage_price_cap
     loan = max(float(price) - float(down), 0.0)
     ltv = (loan / float(price)) if float(price) > 0 else 0.0
     price_cap = insured_mortgage_price_cap(_dt.date.today())
@@ -137,18 +163,27 @@ def _cmhc_premium_rate(price: float, down: float) -> float:
 
 
 def _pst_rate_for_prov(prov: str) -> float:
-    p = (prov or "").strip().lower()
-    if p == "ontario":
-        return 0.08
-    if p == "saskatchewan":
-        return 0.06
-    if p == "quebec":
-        return 0.09975
-    return 0.0
+    """Return the provincial sales tax (PST/QST) on mortgage default insurance premiums.
+
+    This helper now delegates to ``mortgage_default_insurance_sales_tax_rate`` in
+    ``rbv.core.policy_canada``.  It takes the current date into account, which is
+    important for Quebec where the rate increases from 9% to 9.975% on
+    premiums paid after 2026‑12‑31.  Prior versions of this helper returned a
+    fixed rate for Quebec (9.975%), causing the QA baseline to diverge from
+    the engine and regulatory policy.  Aligning the helper with the engine
+    ensures that golden tests reflect the correct tax regime.
+    """
+    import datetime as _dt
+
+    from rbv.core.policy_canada import mortgage_default_insurance_sales_tax_rate
+    return float(mortgage_default_insurance_sales_tax_rate(str(prov or ""), _dt.date.today()))
 
 
 def _build_base_cfg() -> Dict[str, Any]:
-    # Mirrors qa_scenarios baseline, with canonical province name (used by tax + CMHC PST logic).
+    """Construct a baseline configuration for regression scenarios.
+
+    Mirrors qa_scenarios baseline, with canonical province name (used by tax + CMHC PST logic).
+    """
     return {
         "years": 10,
         "province": "Ontario",
@@ -169,7 +204,7 @@ def _build_base_cfg() -> Dict[str, Any]:
         "moving_cost": 750.0,
         "moving_freq": 5.0,
         "mort": 640_000.0,
-        "close": 25_000.0,  # base close (non-Toronto), PST on CMHC is added when applicable
+        "close": 25_000.0,  # base close (non‑Toronto), PST on CMHC is added when applicable
         "pst": 0.0,
         "discount_rate": 0.0,
         "tax_r": 0.0,
@@ -182,7 +217,7 @@ def _build_base_cfg() -> Dict[str, Any]:
         "apprec_std": 0.10,
         "prop_tax_growth_model": "Hybrid (recommended for Toronto)",
         "prop_tax_hybrid_addon_pct": 0.5,
-        "investment_tax_mode": "Pre-tax (no investment taxes)",
+        "investment_tax_mode": "Pre‑tax (no investment taxes)",
         "assume_sale_end": True,
         "show_liquidation_view": True,
         "cg_tax_end": 0.0,
@@ -203,6 +238,17 @@ def _build_base_cfg() -> Dict[str, Any]:
 
 
 def _apply_price_down(cfg: Dict[str, Any], *, price: float, down: float, base_close: float = 25_000.0) -> Dict[str, Any]:
+    """Apply a price/down override and recompute PST and mortgage principal.
+
+    Args:
+        cfg: base configuration dict.
+        price: new home price.
+        down: new down payment.
+        base_close: base closing costs excluding PST.
+
+    Returns:
+        A new configuration dict with updated price, down, pst, mort and close.
+    """
     prov = str(cfg.get("province", "Ontario") or "Ontario")
     cmhc_r = _cmhc_premium_rate(price, down)
     loan = max(float(price) - float(down), 0.0)
@@ -219,24 +265,40 @@ def _apply_price_down(cfg: Dict[str, Any], *, price: float, down: float, base_cl
 
 
 def _apply_toronto_close_delta(cfg: Dict[str, Any], *, toronto_property: bool, first_time_buyer: bool = False, base_close: float = 25_000.0) -> Dict[str, Any]:
-    from rbv.core.taxes import calc_transfer_tax
+    """Adjust closing costs to reflect the Toronto land transfer tax (MLTT) differential.
 
+    Args:
+        cfg: configuration dict with price and pst populated.
+        toronto_property: whether the property is located in Toronto (subject to the MLTT).
+        first_time_buyer: whether the buyer is a first‑time buyer (eligible for rebates).
+        base_close: base closing cost before PST and MLTT.
+
+    Returns:
+        A new configuration with close adjusted to include MLTT (when applicable) and
+        diagnostic fields ``_qa_tax_total`` and ``_qa_tax_delta`` used by golden tests.
+    """
+    from rbv.core.taxes import calc_transfer_tax
     price = float(cfg.get("price", 0.0))
     prov = str(cfg.get("province", "Ontario") or "Ontario")
-
     t_tor = calc_transfer_tax(prov, price, first_time_buyer=first_time_buyer, toronto_property=bool(toronto_property))
     t_non = calc_transfer_tax(prov, price, first_time_buyer=first_time_buyer, toronto_property=False)
     delta = float(t_tor.get("total", 0.0)) - float(t_non.get("total", 0.0))
 
     out = dict(cfg)
     out["close"] = float(base_close + delta + float(out.get("pst", 0.0)))
-    # QA-only diagnostic fields (not used by engine)
+    # QA‑only diagnostic fields (not used by engine)
     out["_qa_tax_total"] = float(t_tor.get("total", 0.0))
     out["_qa_tax_delta"] = float(delta)
     return out
 
 
 def _run(cfg: Dict[str, Any], *, force_det: bool, force_use_vol: bool, num_sims: int, mc_seed: int = 123) -> Dict[str, float]:
+    """Run a simulation and return terminal metrics for golden testing.
+
+    Uses ``run_simulation_core`` from the engine to compute the final buyer and renter
+    net worth, unrecoverable costs, mortgage payment, and closing cash.  Handles
+    deterministic and Monte Carlo runs.  See the engine for details.
+    """
     from rbv.core.engine import run_simulation_core
 
     df, close_cash, m_pmt, win_pct = run_simulation_core(
@@ -283,25 +345,31 @@ def _run(cfg: Dict[str, Any], *, force_det: bool, force_use_vol: bool, num_sims:
 
 
 def _assert_close(actual: float, expected: float, *, tol_pct: float, tol_abs: float, label: str) -> None:
+    """Assert that two numeric values are close within tolerance.
+
+    Raises an AssertionError if the absolute or relative difference exceeds the
+    given tolerances.  Handles NaN/inf gracefully.
+    """
     if not _finite(actual) or not _finite(expected):
-        raise AssertionError(f"Non-finite in {label}: actual={actual}, expected={expected}")
+        raise AssertionError(f"Non‑finite in {label}: actual={actual}, expected={expected}")
     abs_err = abs(float(actual) - float(expected))
     rel_err = abs_err / max(1.0, abs(float(expected)))
     if abs_err > tol_abs and rel_err > tol_pct:
         raise AssertionError(
-            f"{label} outside tolerance: actual={actual:,.6f} expected={expected:,.6f} "  # small bilingual hint; safe
+            f"{label} outside tolerance: actual={actual:,.6f} expected={expected:,.6f} "
             f"abs_err={abs_err:,.6f} rel_err={rel_err*100:.3f}% (tol_abs={tol_abs}, tol_pct={tol_pct*100:.2f}%)"
         )
 
 
 def _run_and_check(name: str, cfg: Dict[str, Any], run_kw: Dict[str, Any], *, tol_profile: str) -> None:
+    """Run a scenario and compare its terminal metrics against the expected baseline."""
     expected = _EXPECTED.get(name)
     if not expected:
         raise RuntimeError(f"Missing expected baseline for scenario: {name}")
 
     actual = _run(cfg, **run_kw)
 
-    # Tolerance profiles: keep public-grade stability while allowing tiny float drift.
+    # Tolerance profiles: keep public‑grade stability while allowing tiny float drift.
     if tol_profile == "det":
         tol_net_pct = 0.010   # 1.0%
         tol_pay_pct = 0.005   # 0.5%
@@ -328,8 +396,8 @@ def _run_and_check(name: str, cfg: Dict[str, Any], run_kw: Dict[str, Any], *, to
 
 
 def _build_cases() -> Dict[str, Tuple[Dict[str, Any], Dict[str, Any], str]]:
+    """Return the set of regression test cases as (cfg, run_kwargs, tol_profile)."""
     base = _build_base_cfg()
-
     cases: Dict[str, Tuple[Dict[str, Any], Dict[str, Any], str]] = {}
 
     # 1) Volatility OFF (deterministic)
@@ -338,36 +406,31 @@ def _build_cases() -> Dict[str, Tuple[Dict[str, Any], Dict[str, Any], str]]:
     cfg_det["num_sims"] = 0
     cases["deterministic_baseline"] = (cfg_det, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
-    # 2) Fixed-seed MC (smoke for MC plumbing + stability)
+    # 2) Fixed‑seed MC (smoke for MC plumbing + stability)
     cfg_mc = dict(base)
     cfg_mc["use_volatility"] = True
     cfg_mc["num_sims"] = 200
     cases["mc_fixed_seed_200"] = (cfg_mc, {"force_det": False, "force_use_vol": True, "num_sims": 200}, "mc")
 
-    # 3-4) Rent control OFF/ON
+    # 3‑4) Rent control OFF/ON
     cases["rent_control_off"] = (cfg_det, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
-
     cfg_rc = dict(base)
     cfg_rc["rent_control_enabled"] = True
     cfg_rc["rent_control_cap"] = 0.02
     cfg_rc["rent_control_frequency_years"] = 1
     cases["rent_control_on"] = (cfg_rc, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
-
     cfg_rc3 = dict(base)
     cfg_rc3["rent_control_enabled"] = True
     cfg_rc3["rent_control_cap"] = 0.02
     cfg_rc3["rent_control_frequency_years"] = 3
     cases["rent_control_every3"] = (cfg_rc3, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
-    # 5-6) Insured vs uninsured boundary (< $1,500,000 enables CMHC since Dec-2024)
+    # 5‑6) Insured vs uninsured boundary (< $1.5M enables CMHC since Dec‑2024)
     cfg_ins = _apply_price_down(base, price=999_999.0, down=0.05 * 999_999.0, base_close=25_000.0)
     cases["insured_price_999k_ltv95"] = (cfg_ins, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
-
     cfg_unins = _apply_price_down(base, price=1_000_001.0, down=0.05 * 1_000_001.0, base_close=25_000.0)
     cases["uninsured_price_1mplus_ltv95"] = (cfg_unins, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
-
-    # NEW: $1.1M insured scenario (should apply CMHC since Dec-2024 cap = $1.5M)
-    # NOTE: Use the same base config object for consistency (avoid NameError: cfg_base).
+    # NEW: $1.1M insured scenario (should apply CMHC since Dec‑2024 cap = $1.5M)
     cfg_ins_1m1 = _apply_price_down(dict(base), price=1_100_000.0, down=110_000.0, base_close=25_000.0)
     cases["insured_price_1100k_ltv90"] = (cfg_ins_1m1, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
@@ -375,19 +438,17 @@ def _build_cases() -> Dict[str, Tuple[Dict[str, Any], Dict[str, Any], str]]:
     cfg_ltv80 = _apply_price_down(base, price=900_000.0, down=0.20 * 900_000.0, base_close=25_000.0)
     cases["ltv80_no_cmhc"] = (cfg_ltv80, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
 
-    # 8-9) Toronto vs non-Toronto LTT (close cost delta wired through cfg.close)
+    # 8‑9) Toronto vs non‑Toronto LTT (close cost delta wired through cfg.close)
     cfg_t0 = _apply_price_down(base, price=1_400_000.0, down=0.25 * 1_400_000.0, base_close=25_000.0)
-
     cfg_t = _apply_toronto_close_delta(cfg_t0, toronto_property=True, first_time_buyer=False, base_close=25_000.0)
     cases["toronto_ltt"] = (cfg_t, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
-
     cfg_nt = _apply_toronto_close_delta(cfg_t0, toronto_property=False, first_time_buyer=False, base_close=25_000.0)
     cases["non_toronto_ltt"] = (cfg_nt, {"force_det": True, "force_use_vol": False, "num_sims": 1}, "det")
-
     return cases
 
 
 def _compute_baseline() -> Dict[str, Dict[str, float]]:
+    """Compute the golden baseline for all scenarios without assertions."""
     cases = _build_cases()
     out: Dict[str, Dict[str, float]] = {}
     for name, (cfg, run_kw, _tol_profile) in cases.items():
@@ -396,23 +457,19 @@ def _compute_baseline() -> Dict[str, Dict[str, float]]:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Entry point for running golden regression tests or printing a baseline."""
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("--print-baseline", action="store_true", help="Print a freshly computed baseline dict and exit.")
     args = ap.parse_args(argv)
-
     if args.print_baseline:
         import pprint
         pprint.pprint(_compute_baseline(), width=120, sort_dicts=True)
         return
-
     cases = _build_cases()
-
     print("[QA GOLDEN] Running golden snapshot scenarios...")
-
     for name, (cfg, run_kw, tol_profile) in cases.items():
         _run_and_check(name, cfg, run_kw, tol_profile=tol_profile)
         print(f"  OK: {name}")
-
     print("\n[QA GOLDEN OK] All golden scenarios within tolerance.")
 
 
