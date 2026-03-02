@@ -5318,8 +5318,23 @@ try:
     _pdf_cfg = {
         k: st.session_state.get(k, v)
         for k, v in {
-            "years": 25, "province": "Ontario", "price": 800000.0,
-            "down": 160000.0, "rent": 3000.0, "rate": 5.0, "nm": 300,
+            "years": 25,
+            "province": "Ontario",
+            "price": 800000.0,
+            "down": 160000.0,
+            "rent": 3000.0,
+            "rate": 5.0,
+            "amort": 25,
+            "p_tax_rate_pct": 1.0,
+            "maint_rate_pct": 1.0,
+            "repair_rate_pct": 0.5,
+            "sell_cost_pct": 5.0,
+            "condo_fee_monthly": 0.0,
+            "home_ins": 0.0,
+            "renter_ins": 0.0,
+            "rent_inf": 2.5,
+            "general_inf": 2.0,
+            "nm": 300,
         }.items()
     }
     _pdf_bytes = _build_pdf_report(
@@ -5332,6 +5347,7 @@ try:
         monthly_pmt=m_pmt,
         win_pct=win_pct,
         scenario_name=str(st.session_state.get("scenario_select", "Custom Scenario")),
+        bias_result=st.session_state.get("_bias_dash_result"),
     )
 except Exception:
     pass
