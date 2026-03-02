@@ -1357,118 +1357,6 @@ def run_heatmap_mc_batch(
     pst = _f(cfg.get("pst", 0.0), 0.0)
     nm = max(1, _i(cfg.get("nm", 1), 1))
 
-    # ---------------------------------------------------------------------
-    # Headless safety: derive missing purchase-time fields
-    # ---------------------------------------------------------------------
-    # The Streamlit UI pre-computes and passes derived purchase fields (mort/close/pst).
-    # Headless callers (CLI/tests/integrations) sometimes omit them. If we run with
-    # mort=0 while price>down, the simulation becomes silently mortgage-free.
-    #
-    # Here we derive *at least* the mortgage principal and insurance PST when missing.
-    # We do NOT attempt to fully rebuild transfer-tax/legal/inspection closing costs
-    # in the engine (those are UI/CLI concerns), but if close is missing we at least
-    # include PST/QST on the insured premium so cash-at-closing is not understated.
-    _purchase_autoderived = False
-    _purchase_autoderived_pst = False
-    _purchase_autoderived_premium = 0.0
-    _purchase_autoderived_ltv = 0.0
-
-    try:
-        _loan0 = max(float(price_use) - float(down_use), 0.0)
-        _ltv0 = (_loan0 / float(price_use)) if float(price_use) > 0 else 0.0
-        _purchase_autoderived_ltv = float(_ltv0)
-    except Exception:
-        _loan0 = 0.0
-        _ltv0 = 0.0
-
-    if _loan0 > 0.0 and float(mort) <= 0.0:
-        _warnings.warn(
-            "Engine cfg missing 'mort' (mortgage principal) while price > down. "
-            "Auto-deriving mortgage principal and insured-premium PST for headless callers. "
-            "For full fidelity, supply 'mort', 'close', and 'pst' (as the UI does).",
-            stacklevel=2,
-        )
-
-        # Policy as-of date (mirrors override recompute)
-        _asof_raw0 = cfg.get("asof_date", None)
-        _asof0 = None
-        if _asof_raw0:
-            try:
-                if hasattr(_asof_raw0, "year"):
-                    _asof0 = _asof_raw0
-                else:
-                    import datetime as _dt0
-                    _asof0 = _dt0.date.fromisoformat(str(_asof_raw0)[:10])
-            except Exception:
-                _asof0 = None
-        if _asof0 is None:
-            import datetime as _dt0
-            _asof0 = _dt0.date.today()
-
-        _premium0 = 0.0
-        _pst0 = 0.0
-        _insured_attempt0 = (float(price_use) > 0.0) and (float(_ltv0) > 0.8 + 1e-12)
-        if _insured_attempt0:
-            _price_cap0 = float(insured_mortgage_price_cap(_asof0))
-            _min_down0 = float(min_down_payment_canada(float(price_use), _asof0))
-            _eligible0 = (float(price_use) < float(_price_cap0)) and (float(down_use) + 1e-9 >= float(_min_down0)) and (float(_ltv0) <= 0.95 + 1e-12)
-            if _eligible0:
-                _dp_src0 = str(cfg.get("down_payment_source", "Traditional") or "Traditional")
-                _cmhc_r0 = float(cmhc_premium_rate_from_ltv(float(_ltv0), _dp_src0))
-                _premium0 = float(_loan0) * float(_cmhc_r0)
-                _prov0 = str(cfg.get("province", "") or "").strip()
-                _pst_rate0 = mortgage_default_insurance_sales_tax_rate(_prov0, _asof0)
-                _pst0 = float(_premium0) * float(_pst_rate0)
-            else:
-                _warnings.warn(
-                    "Insured mortgage indicated by LTV>80%, but policy eligibility checks failed "
-                    "(min down / price cap / max LTV). Proceeding without insured premium.",
-                    stacklevel=2,
-                )
-
-        mort = float(_loan0) + float(_premium0)
-        _purchase_autoderived = True
-        _purchase_autoderived_premium = float(_premium0)
-        if float(pst) <= 0.0 and float(_pst0) > 0.0:
-            pst = float(_pst0)
-            _purchase_autoderived_pst = True
-        if float(close) <= 0.0 and float(pst) > 0.0:
-            close = float(pst)
-
-    # If close exists but pst is missing, fill pst for correct close_base recomputes.
-    if float(close) > 0.0 and float(pst) <= 0.0 and float(_ltv0) > 0.8 + 1e-12:
-        try:
-            _asof_raw1 = cfg.get("asof_date", None)
-            _asof1 = None
-            if _asof_raw1:
-                try:
-                    if hasattr(_asof_raw1, "year"):
-                        _asof1 = _asof_raw1
-                    else:
-                        import datetime as _dt1
-                        _asof1 = _dt1.date.fromisoformat(str(_asof_raw1)[:10])
-                except Exception:
-                    _asof1 = None
-            if _asof1 is None:
-                import datetime as _dt1
-                _asof1 = _dt1.date.today()
-
-            _price_cap1 = float(insured_mortgage_price_cap(_asof1))
-            _min_down1 = float(min_down_payment_canada(float(price_use), _asof1))
-            _eligible1 = (float(price_use) < float(_price_cap1)) and (float(down_use) + 1e-9 >= float(_min_down1)) and (float(_ltv0) <= 0.95 + 1e-12)
-            if _eligible1:
-                _dp_src1 = str(cfg.get("down_payment_source", "Traditional") or "Traditional")
-                _cmhc_r1 = float(cmhc_premium_rate_from_ltv(float(_ltv0), _dp_src1))
-                _premium1 = float(_loan0) * float(_cmhc_r1)
-                _prov1 = str(cfg.get("province", "") or "").strip()
-                _pst_rate1 = mortgage_default_insurance_sales_tax_rate(_prov1, _asof1)
-                _pst1 = float(_premium1) * float(_pst_rate1)
-                if _pst1 > 0.0:
-                    pst = float(_pst1)
-                    _purchase_autoderived_pst = True
-        except Exception:
-            pass
-
     # Special assessment (one-time buyer shock)
     special_assessment_amount = _f(cfg.get("special_assessment_amount", 0.0), 0.0)
     special_assessment_month = _i(cfg.get("special_assessment_month", 0), 0)
@@ -1954,6 +1842,13 @@ def run_simulation_core(
     (used by bias flip-points and heatmaps) without mutating globals.
     """
 
+    # Headless-derived purchase metadata (non-UI callers missing cfg.mort/pst/close)
+    # Defaults are attached to df.attrs for observability.
+    _purchase_autoderived = False
+    _purchase_autoderived_pst = False
+    _purchase_autoderived_premium = 0.0
+    _purchase_autoderived_ltv = 0.0
+
     # Stable column names expected by the UI (keep consistent across MC pathways)
     _LIQ_B = "Buyer Liquidation NW"
     _LIQ_R = "Renter Liquidation NW"
@@ -2070,6 +1965,46 @@ def run_simulation_core(
     pst = _f(cfg.get("pst", 0.0), 0.0)
 
     nm = max(1, _i(cfg.get("nm", 1), 1))
+
+    # ---------------------------------------------------------------------
+    # Headless safety: derive missing purchase-time fields
+    # ---------------------------------------------------------------------
+    # The Streamlit UI pre-computes and passes derived purchase fields (mort/close/pst).
+    # Headless callers may omit them. If we run with mort=0 while price>down, the simulation
+    # becomes silently mortgage-free.
+    try:
+        _loan0 = max(float(price_use) - float(down_use), 0.0)
+        _ltv0 = (_loan0 / float(price_use)) if float(price_use) > 0 else 0.0
+        _purchase_autoderived_ltv = float(_ltv0)
+    except Exception:
+        _loan0 = 0.0
+        _purchase_autoderived_ltv = 0.0
+
+    if _loan0 > 0.0 and float(mort) <= 0.0:
+        _warnings.warn(
+            "Engine cfg missing 'mort' (mortgage principal) while price > down. "
+            "Auto-deriving purchase fields for headless callers. For full fidelity, "
+            "supply 'mort', 'close', and 'pst' (as the UI does).",
+            stacklevel=2,
+        )
+        try:
+            from .purchase_derivations import derive_purchase_fields
+
+            _d = derive_purchase_fields(
+                dict(cfg, price=float(price_use), down=float(down_use)),
+                strict=False,
+            )
+            mort = float(_d.mort)
+            _purchase_autoderived = True
+            _purchase_autoderived_premium = float(_d.premium)
+            if float(pst) <= 0.0 and float(_d.pst) > 0.0:
+                pst = float(_d.pst)
+                _purchase_autoderived_pst = True
+            if float(close) <= 0.0 and float(_d.close) > 0.0:
+                close = float(_d.close)
+        except Exception:
+            # Best-effort only. If derivation fails, proceed with original inputs.
+            pass
 
     # Apply override knobs
     rate_use = _f(_overrides.get("rate", rate), rate)
