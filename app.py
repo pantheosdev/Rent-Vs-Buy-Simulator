@@ -1749,6 +1749,35 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
                 return state.get(k)
         return default
 
+    _report_context: dict[str, list[tuple[str, str]] | str] = {}
+    try:
+        _report_context["meta"] = [
+            ("Generated", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            ("Version", str(_rbv_version_line())),
+            ("Scenario hash", str(meta.get("scenario_hash", "n/a"))),
+        ]
+        _report_context["assumptions"] = [
+            ("First-time buyer", "Yes" if bool(state.get("first_time", False)) else "No"),
+            ("Toronto municipal tax", "Yes" if bool(state.get("toronto", False)) else "No"),
+            ("Simulation mode", str(state.get("sim_mode", "—"))),
+            ("Monte Carlo sims", str(state.get("num_sims", "—"))),
+            ("Budget mode", "Enabled" if bool(state.get("budget_enabled", False)) else "Disabled"),
+            ("Crisis mode", "Enabled" if bool(state.get("crisis_enabled", False)) else "Disabled"),
+        ]
+        _cmp = st.session_state.get("_rbv_compare_last_export")
+        if isinstance(_cmp, dict):
+            _metrics_rows = list(_cmp.get("metrics_rows") or [])
+            _diff_rows = list(_cmp.get("state_diff_rows") or [])
+            _meta_cmp = dict(_cmp.get("meta") or {})
+            _report_context["compare"] = [
+                ("Compare metrics rows", str(len(_metrics_rows))),
+                ("Compare changed-input rows", str(len(_diff_rows))),
+                ("Scenario A hash", str(_meta_cmp.get("a_hash", ""))),
+                ("Scenario B hash", str(_meta_cmp.get("b_hash", ""))),
+            ]
+    except Exception:
+        _report_context = {}
+
     # Primary renderer: richer PDF from rbv.ui.pdf_report (charts + KPI cards + milestones + bias snapshot).
     _rich_pdf_err = None
     try:
@@ -1788,6 +1817,7 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
             win_pct=win_pct,
             scenario_name=str(_pick("scenario_select", default="Custom Scenario") or "Custom Scenario"),
             bias_result=st.session_state.get("_bias_dash_result"),
+            report_context=_report_context,
         )
         if isinstance(pdf_bytes, (bytes, bytearray)) and len(pdf_bytes) > 0:
             return bytes(pdf_bytes), None

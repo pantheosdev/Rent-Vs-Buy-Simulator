@@ -145,10 +145,22 @@ def test_build_pdf_report_includes_ongoing_and_bias_sections(monkeypatch):
         ),
     }
 
-    out = build_pdf_report(df, cfg, scenario_name="A<script>", bias_result=bias)
+    out = build_pdf_report(
+        df,
+        cfg,
+        scenario_name="A<script>",
+        bias_result=bias,
+        report_context={
+            "meta": [("Scenario hash", "abc123")],
+            "assumptions": [("Simulation mode", "Deterministic")],
+            "compare": [("Compare metrics rows", "4")],
+        },
+    )
     assert out.startswith(b"%PDF")
     html = captured["html"] or ""
     assert "Ongoing-Cost Context" in html
     assert "Bias Sensitivity Drivers" in html
+    assert "Assumptions &amp; Policy Snapshot" in html
+    assert "A/B Compare Snapshot" in html
     assert "&lt;Ontario&gt;" in html
     assert "A&lt;script&gt;" in html
