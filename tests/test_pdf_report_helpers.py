@@ -165,6 +165,7 @@ def test_build_pdf_report_includes_ongoing_and_bias_sections(monkeypatch):
     assert "A/B Compare Snapshot" in html
     assert "Executive Summary" in html
     assert "Buyer advantage over time" in html
+    assert "Decision Confidence Snapshot" in html
     assert "&lt;Ontario&gt;" in html
     assert "A&lt;script&gt;" in html
 
@@ -214,3 +215,36 @@ def test_build_pdf_report_section_order_snapshot(monkeypatch):
     idx = [html.find(m) for m in markers]
     assert all(i >= 0 for i in idx)
     assert idx == sorted(idx)
+
+
+def test_build_pdf_report_shows_data_availability_notes_when_charts_missing(monkeypatch):
+    captured = {"html": None}
+
+    class _FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, stylesheets=None):
+            return b"%PDF-fake"
+
+    class _FakeCSS:
+        def __init__(self, string):
+            self.string = string
+
+    monkeypatch.setitem(sys.modules, "weasyprint", types.SimpleNamespace(HTML=_FakeHTML, CSS=_FakeCSS))
+    from rbv.ui import pdf_report
+    monkeypatch.setattr(pdf_report, "_line_chart", lambda *a, **k: "")
+    monkeypatch.setattr(pdf_report, "_single_line_chart", lambda *a, **k: "")
+
+    df = pd.DataFrame({
+        "Year": [1, 2],
+        "Buyer Net Worth": [1000, 1500],
+        "Renter Net Worth": [900, 1400],
+        "Buyer Home Equity": [300, 700],
+        "Buyer Unrecoverable": [100, 220],
+        "Renter Unrecoverable": [80, 180],
+    })
+    _ = build_pdf_report(df, {"years": 2, "province": "ON", "price": 1, "down": 1})
+    html = captured["html"] or ""
+    assert "Data Availability Notes" in html
+    assert "could not be rendered" in html

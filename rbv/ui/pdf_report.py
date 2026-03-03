@@ -37,7 +37,7 @@ h2 { page-break-after: avoid; }
 
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .summary-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-.summary-card { border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: #f9fbff; }
+.summary-card { border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: #f9fbff; box-shadow: 0 1px 2px rgba(11, 16, 32, 0.04); }
 .summary-title { font-size: 8.5pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
 .summary-list { margin: 0; padding-left: 16px; font-size: 8pt; color: #425172; }
 .summary-list li { margin-bottom: 3px; }
@@ -59,6 +59,17 @@ tr:nth-child(even) td { background: #f4f7fb; }
 .verdict-buy { background: #e8f5eb; border-left: 4px solid #1a8a2e; color: #1a5c22; }
 .verdict-rent { background: #fef3e2; border-left: 4px solid #d68910; color: #7d510a; }
 .verdict-neutral { background: #e8f0fb; border-left: 4px solid #1460a8; color: #0e3d70; }
+
+.confidence-panel { border: 1px solid #c9d7ee; border-radius: 8px; background: linear-gradient(180deg, #fbfdff 0%, #f3f8ff 100%); padding: 8px 10px; margin: 8px 0 10px 0; break-inside: avoid; page-break-inside: avoid; }
+.confidence-title { font-size: 8.6pt; font-weight: 700; color: #0b2a5a; margin: 0 0 4px 0; }
+.confidence-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.confidence-item { border: 1px solid #d8e3f5; border-radius: 6px; background: #fff; padding: 6px 7px; }
+.confidence-label { font-size: 7pt; color: #5b6e91; text-transform: uppercase; letter-spacing: 0.04em; }
+.confidence-value { font-size: 10pt; font-weight: 700; color: #0b2a5a; margin-top: 2px; }
+.data-notes { border: 1px dashed #f0b429; background: #fffaf0; border-radius: 8px; padding: 8px 10px; margin-top: 8px; break-inside: avoid; page-break-inside: avoid; }
+.data-notes-title { font-size: 8.2pt; font-weight: 700; color: #8b5e00; margin: 0 0 4px 0; }
+.data-notes ul { margin: 0; padding-left: 16px; }
+.data-notes li { font-size: 7.8pt; color: #7a5a18; margin-bottom: 2px; }
 
 .footer { font-size: 7pt; color: #aab8cc; text-align: center; margin-top: 20px; border-top: 1px solid #e0e6ef; padding-top: 6px; }
 """
@@ -364,6 +375,55 @@ def build_pdf_report(
                     f"<table><thead><tr>{sens_head}</tr></thead><tbody>{''.join(sens_rows)}</tbody></table>"
                 )
 
+    # Decision confidence + data completeness notes.
+    gap_abs = abs(delta)
+    if gap_abs >= 50_000:
+        confidence_label = "High"
+    elif gap_abs >= 15_000:
+        confidence_label = "Medium"
+    else:
+        confidence_label = "Low"
+    first_nonneg_year: str = "Not reached"
+    try:
+        gap_nonneg = gap_series[gap_series >= 0]
+        if len(gap_nonneg) > 0:
+            first_idx = gap_nonneg.index[0]
+            first_nonneg_year = f"Year {int(float(time_years.loc[first_idx]))}"
+    except (TypeError, ValueError, KeyError):
+        first_nonneg_year = "Not available"
+
+    confidence_html = (
+        "<div class='confidence-panel'>"
+        "<div class='confidence-title'>Decision Confidence Snapshot</div>"
+        "<div class='confidence-grid'>"
+        f"<div class='confidence-item'><div class='confidence-label'>Confidence</div><div class='confidence-value'>{html.escape(confidence_label)}</div></div>"
+        f"<div class='confidence-item'><div class='confidence-label'>Final gap (Δ)</div><div class='confidence-value'>{html.escape(_fmt_currency(delta))}</div></div>"
+        f"<div class='confidence-item'><div class='confidence-label'>First non-negative gap</div><div class='confidence-value'>{html.escape(first_nonneg_year)}</div></div>"
+        "</div></div>"
+    )
+
+    data_notes: list[str] = []
+    if not nw_chart:
+        data_notes.append("Net-worth chart could not be rendered in this runtime.")
+    if not unrec_chart:
+        data_notes.append("Ongoing-cost chart could not be rendered in this runtime.")
+    if not gap_chart:
+        data_notes.append("Buyer-advantage chart could not be rendered in this runtime.")
+    if not milestones:
+        data_notes.append("Milestone table uses fallback because no milestone rows were available.")
+    if not input_rows:
+        data_notes.append("Scenario input rows were unavailable from the provided config payload.")
+
+    data_notes_html = ""
+    if data_notes:
+        data_notes_html = (
+            "<div class='data-notes'>"
+            "<div class='data-notes-title'>Data Availability Notes</div>"
+            "<ul>"
+            + "".join(f"<li>{html.escape(x)}</li>" for x in data_notes)
+            + "</ul></div>"
+        )
+
     summary_points = [
         f"Verdict: {verdict_text}",
         f"Final buyer vs renter net worth: {_fmt_currency(buyer_nw)} vs {_fmt_currency(renter_nw)}.",
@@ -409,6 +469,10 @@ def build_pdf_report(
 <div class='verdict-box {verdict_cls}'>{html.escape(verdict_text)}</div>
 
 {summary_html}
+
+{confidence_html}
+
+{data_notes_html}
 
 <div class='section'><h2>Key Results</h2>
 <div class='kpi-grid'>
