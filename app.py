@@ -1733,11 +1733,6 @@ def _rbv_pct(v) -> str:
 
 
 def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, win_pct=None):
-    try:
-        from weasyprint import HTML
-    except Exception as e:
-        return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
-
     if not isinstance(df, pd.DataFrame) or df.empty:
         return None, "Run a simulation first to enable PDF export."
 
@@ -1747,6 +1742,35 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
     meta = payload.get("meta") if isinstance(payload, dict) else {}
     meta = meta if isinstance(meta, dict) else {}
     last = df.iloc[-1]
+
+    # Primary renderer: richer PDF from rbv.ui.pdf_report (charts + KPI cards + milestones + bias snapshot).
+    _rich_pdf_err = None
+    try:
+        from rbv.ui.pdf_export import try_build_rich_pdf
+        from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
+
+        pdf_bytes, _rich_pdf_err = try_build_rich_pdf(
+            df,
+            state,
+            meta,
+            compare_export=st.session_state.get("_rbv_compare_last_export"),
+            version_line=str(_rbv_version_line()),
+            generated_at=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            bias_result=st.session_state.get("_bias_dash_result"),
+            close_cash=close_cash,
+            monthly_pmt=m_pmt,
+            win_pct=win_pct,
+            build_pdf_report=_build_pdf_report,
+        )
+        if isinstance(pdf_bytes, (bytes, bytearray)) and len(pdf_bytes) > 0:
+            return bytes(pdf_bytes), None
+    except (ImportError, RuntimeError, TypeError, ValueError) as _e:
+        _rich_pdf_err = f"Rich PDF renderer failed: {_e}"
+
+    try:
+        from weasyprint import HTML
+    except (ImportError, ModuleNotFoundError) as e:
+        return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
 
     summary_rows = [
         ("Scenario", state.get("scenario_select", "—")),
@@ -1943,11 +1967,22 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
     </html>
     """
 
-    try:
-        pdf_bytes = HTML(string=report_html).write_pdf()
-        return pdf_bytes, None
-    except Exception as e:
-        return None, f"Failed to build PDF: {e}"
+    from rbv.ui.pdf_export import finalize_pdf_with_fallback
+
+    def _legacy_builder() -> bytes:
+        return HTML(string=report_html).write_pdf()
+
+    def _warn_sink(msg: str) -> None:
+        try:
+            st.session_state["_pdf_export_last_warning"] = str(msg)
+        except (TypeError, RuntimeError, AttributeError):
+            pass
+
+    return finalize_pdf_with_fallback(
+        rich_warning=_rich_pdf_err,
+        legacy_builder=_legacy_builder,
+        warning_sink=_warn_sink,
+    )
 
 # --- CALLBACKS ---
 def apply_preset():
@@ -5308,47 +5343,6 @@ try:
             f'<div class="rbv-warning-banner">{_msg_html}</div>',
             unsafe_allow_html=True,
         )
-except Exception:
-    pass
-
-# --- PDF Report bytes (built here so they're available in the Export section below) ---
-_pdf_bytes: bytes | None = None
-try:
-    from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
-    _pdf_cfg = {
-        k: st.session_state.get(k, v)
-        for k, v in {
-            "years": 25,
-            "province": "Ontario",
-            "price": 800000.0,
-            "down": 160000.0,
-            "rent": 3000.0,
-            "rate": 5.0,
-            "amort": 25,
-            "p_tax_rate_pct": 1.0,
-            "maint_rate_pct": 1.0,
-            "repair_rate_pct": 0.5,
-            "sell_cost_pct": 5.0,
-            "condo_fee_monthly": 0.0,
-            "home_ins": 0.0,
-            "renter_ins": 0.0,
-            "rent_inf": 2.5,
-            "general_inf": 2.0,
-            "nm": 300,
-        }.items()
-    }
-    _pdf_bytes = _build_pdf_report(
-        df,
-        _pdf_cfg,
-        buyer_ret_pct=float(st.session_state.get("buyer_ret_pct", 7.0)),
-        renter_ret_pct=float(st.session_state.get("renter_ret_pct", 7.0)),
-        apprec_pct=float(st.session_state.get("apprec_pct", 3.0)),
-        close_cash=close_cash,
-        monthly_pmt=m_pmt,
-        win_pct=win_pct,
-        scenario_name=str(st.session_state.get("scenario_select", "Custom Scenario")),
-        bias_result=st.session_state.get("_bias_dash_result"),
-    )
 except Exception:
     pass
 
@@ -9104,6 +9098,9 @@ try:
         )
         if (not _pdf_ok) and _pdf_err:
             st.caption(_pdf_err)
+        _pdf_warn = st.session_state.pop("_pdf_export_last_warning", None)
+        if _pdf_ok and _pdf_warn:
+            st.caption(f"PDF note: {_pdf_warn}")
 
         # Keep bundle directly under PDF: expected export order is PDF -> ZIP -> CSV -> JSON -> Compare.
         try:
