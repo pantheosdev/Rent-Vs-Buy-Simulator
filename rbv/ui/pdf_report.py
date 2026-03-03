@@ -15,7 +15,7 @@ _PDF_CSS = """
 @page { size: A4; margin: 16mm 14mm; }
 * { box-sizing: border-box; }
 body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.5pt; color: #1a2340; margin: 0; }
-.report-header { border-bottom: 3px solid #14D8FF; padding-bottom: 8px; margin-bottom: 14px; }
+.report-header { border-bottom: 3px solid #14D8FF; padding-bottom: 8px; margin-bottom: 14px; background: linear-gradient(120deg, #f8fbff 0%, #f2f7ff 100%); border-radius: 8px; padding: 10px 12px 8px 12px; }
 .report-title { font-size: 20pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
 .report-subtitle { font-size: 10pt; color: #4a5a7a; margin: 0; }
 .report-date { font-size: 8pt; color: #8a9ab0; text-align: right; margin-top: -24px; }
@@ -25,7 +25,7 @@ h2 { font-size: 11.5pt; font-weight: 700; color: #0B1020; border-bottom: 1px sol
 .small-note { font-size: 7.5pt; color: #7081a1; margin-top: -2px; margin-bottom: 8px; }
 
 .kpi-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.kpi-card { flex: 1 1 140px; border: 1px solid #d0d8e8; border-radius: 6px; padding: 7px 10px; background: #f7f9fc; }
+.kpi-card { flex: 1 1 140px; border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: linear-gradient(180deg, #fbfdff 0%, #f3f7fd 100%); box-shadow: 0 1px 2px rgba(11, 16, 32, 0.05); }
 .kpi-label { font-size: 7.2pt; color: #5a6a8a; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
 .kpi-value { font-size: 12pt; font-weight: 700; color: #0B1020; }
 .kpi-value.positive { color: #1a8a2e; }
@@ -33,6 +33,11 @@ h2 { font-size: 11.5pt; font-weight: 700; color: #0B1020; border-bottom: 1px sol
 .kpi-value.neutral { color: #1460a8; }
 
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.summary-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.summary-card { border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: #f9fbff; }
+.summary-title { font-size: 8.5pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
+.summary-list { margin: 0; padding-left: 16px; font-size: 8pt; color: #425172; }
+.summary-list li { margin-bottom: 3px; }
 .chart-card { border: 1px solid #d0d8e8; border-radius: 6px; padding: 6px; background: #fcfdff; }
 .chart-title { font-size: 8pt; color: #4a5a7a; margin: 0 0 4px 0; font-weight: 600; }
 .chart-card img { width: 100%; height: auto; }
@@ -139,6 +144,26 @@ def _line_chart(df: pd.DataFrame, title: str, s1: pd.Series, s2: pd.Series, l1: 
         return ""
 
 
+def _single_line_chart(df: pd.DataFrame, title: str, s1: pd.Series, l1: str) -> str:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return ""
+    try:
+        x = _time_axis_years(df)
+        fig, ax = plt.subplots(figsize=(5.3, 2.5))
+        ax.plot(x, s1, color="#0b7fab", linewidth=1.9, label=l1)
+        ax.axhline(0.0, color="#94a3b8", linewidth=1.0, linestyle="--", alpha=0.7)
+        ax.set_title(title, fontsize=9)
+        ax.grid(alpha=0.25)
+        ax.tick_params(labelsize=8)
+        ax.set_xlabel("Years", fontsize=8)
+        ax.legend(loc="best", fontsize=7)
+        return _fig_to_uri(fig, plt)
+    except Exception:
+        return ""
+
+
 def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
     fields = [
         (("price",), "Home price", "money"),
@@ -241,6 +266,8 @@ def build_pdf_report(
     renter_unrec_series = _pick_series(df, ["Renter Unrecoverable"])
     nw_chart = _line_chart(df, "Net Worth Trajectory", buyer_nw_series, renter_nw_series, "Buyer NW", "Renter NW")
     unrec_chart = _line_chart(df, "Cumulative Ongoing Costs", buyer_unrec_series, renter_unrec_series, "Buyer costs", "Renter costs")
+    gap_series = buyer_nw_series - renter_nw_series
+    gap_chart = _single_line_chart(df, "Buyer Advantage (Δ) Over Time", gap_series, "Buyer - Renter")
 
     milestones: list[dict[str, float | int]] = []
     time_years = _time_axis_years(df)
@@ -334,6 +361,28 @@ def build_pdf_report(
                     f"<table><thead><tr>{sens_head}</tr></thead><tbody>{''.join(sens_rows)}</tbody></table>"
                 )
 
+    summary_points = [
+        f"Verdict: {verdict_text}",
+        f"Final buyer vs renter net worth: {_fmt_currency(buyer_nw)} vs {_fmt_currency(renter_nw)}.",
+        f"Cumulative ongoing costs: buyer {_fmt_currency(buyer_unrec)}, renter {_fmt_currency(renter_unrec)}.",
+        f"Horizon: {years} years in {province}.",
+    ]
+    risk_points = [
+        "Interpretation depends heavily on assumptions for returns, appreciation, and inflation.",
+        "Bias flip points indicate where the decision can reverse under parameter stress.",
+        "Treat this report as educational guidance, not financial advice.",
+    ]
+    summary_html = (
+        "<div class='summary-grid'>"
+        "<div class='summary-card'><div class='summary-title'>Executive Summary</div><ul class='summary-list'>"
+        + "".join(f"<li>{html.escape(x)}</li>" for x in summary_points)
+        + "</ul></div>"
+        "<div class='summary-card'><div class='summary-title'>Interpretation Notes</div><ul class='summary-list'>"
+        + "".join(f"<li>{html.escape(x)}</li>" for x in risk_points)
+        + "</ul></div>"
+        "</div>"
+    )
+
     context_html = ""
     if isinstance(report_context, dict) and report_context:
         blocks: list[str] = []
@@ -356,6 +405,8 @@ def build_pdf_report(
 <p class='disclaimer'>Educational purposes only. Not financial, legal, or tax advice. Results depend on assumptions and will vary.</p>
 <div class='verdict-box {verdict_cls}'>{html.escape(verdict_text)}</div>
 
+{summary_html}
+
 <h2>Key Results</h2>
 <div class='kpi-grid'>
 <div class='kpi-card'><div class='kpi-label'>Final Buyer Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(buyer_nw)}</div></div>
@@ -372,6 +423,7 @@ def build_pdf_report(
 <div class='chart-grid'>
 <div class='chart-card'><div class='chart-title'>Net worth trajectory</div>{(f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
 <div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div>{(f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
+<div class='chart-card'><div class='chart-title'>Buyer advantage over time</div>{(f"<img src='{gap_chart}' alt='Gap chart' />" if gap_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
 </div>
 <table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>
 

@@ -162,5 +162,7 @@ def test_build_pdf_report_includes_ongoing_and_bias_sections(monkeypatch):
     assert "Bias Sensitivity Drivers" in html
     assert "Assumptions &amp; Policy Snapshot" in html
     assert "A/B Compare Snapshot" in html
+    assert "Executive Summary" in html
+    assert "Buyer advantage over time" in html
     assert "&lt;Ontario&gt;" in html
     assert "A&lt;script&gt;" in html
