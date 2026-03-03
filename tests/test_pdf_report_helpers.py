@@ -75,3 +75,9 @@ def test_line_chart_gracefully_falls_back_on_render_errors(monkeypatch):
         "b",
     )
     assert out == ""
+
+
+def test_compact_input_rows_formats_moving_frequency_never_sentinel():
+    rows = dict(_compact_input_rows({"moving_freq": 9999, "moving_cost": 1200}))
+    assert rows["Moving frequency"] == "Never"
+    assert rows["Moving cost / move"] == "$1,200"

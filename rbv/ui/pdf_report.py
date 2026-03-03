@@ -157,6 +157,10 @@ def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
         (("r_ins", "renter_ins", "rent_insurance_monthly"), "Renter insurance", "money"),
         (("rent_inf", "rent_inflation_rate_annual"), "Rent inflation", "pct"),
         (("general_inf", "general_inflation_rate_annual"), "General inflation", "pct"),
+        (("moving_cost",), "Moving cost / move", "money"),
+        (("moving_freq",), "Moving frequency", "years"),
+        (("o_util", "owner_utilities_monthly"), "Owner utilities", "money"),
+        (("r_util", "renter_utilities_monthly"), "Renter utilities", "money"),
     ]
     rows: list[tuple[str, str]] = []
     seen_labels: set[str] = set()
@@ -173,7 +177,11 @@ def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
             elif kind == "pct":
                 disp = _fmt_input_pct(float(val))
             elif kind == "years":
-                disp = f"{int(float(val))} years"
+                yrs = int(float(val))
+                if label == "Moving frequency" and yrs >= 9999:
+                    disp = "Never"
+                else:
+                    disp = f"{yrs} years"
             else:
                 disp = html.escape(str(val))
         except (TypeError, ValueError):
@@ -268,7 +276,19 @@ def build_pdf_report(
         for k, v in input_rows
     )
 
+    ongoing_rows = [
+        ("Final buyer ongoing costs", _fmt_currency(buyer_unrec)),
+        ("Final renter ongoing costs", _fmt_currency(renter_unrec)),
+        ("Annual property tax input", _fmt_input_pct(cfg.get("p_tax_rate_pct") if cfg.get("p_tax_rate_pct") is not None else cfg.get("property_tax_rate_annual"))),
+        ("Annual maintenance input", _fmt_input_pct(cfg.get("maint_rate_pct") if cfg.get("maint_rate_pct") is not None else cfg.get("maintenance_rate_annual"))),
+        ("Annual repairs input", _fmt_input_pct(cfg.get("repair_rate_pct") if cfg.get("repair_rate_pct") is not None else cfg.get("repair_rate_annual"))),
+        ("Annual rent inflation input", _fmt_input_pct(cfg.get("rent_inf") if cfg.get("rent_inf") is not None else cfg.get("rent_inflation_rate_annual"))),
+        ("Annual general inflation input", _fmt_input_pct(cfg.get("general_inf") if cfg.get("general_inf") is not None else cfg.get("general_inflation_rate_annual"))),
+    ]
+    ongoing_html = "".join(f"<tr><th>{html.escape(k)}</th><td>{html.escape(v)}</td></tr>" for k, v in ongoing_rows)
+
     bias_html = ""
+    bias_sens_html = ""
     if isinstance(bias_result, dict) and bias_result:
         adv_flips = bias_result.get("adv_flips") if isinstance(bias_result.get("adv_flips"), dict) else {}
         bias_values = [
@@ -278,8 +298,17 @@ def build_pdf_report(
             ("Flip mortgage rate", _fmt_input_pct(bias_result.get("flip_rate"))),
             ("Flip renter return", _fmt_input_pct(bias_result.get("flip_renter_ret"))),
         ]
-        for k, v in list(adv_flips.items())[:4]:
-            bias_values.append((f"Flip {k}", _fmt_input_pct(v) if "rate" in str(k).lower() or "pct" in str(k).lower() else _fmt_currency(v)))
+        for k, meta in list(adv_flips.items())[:6]:
+            if isinstance(meta, dict):
+                v = meta.get("value")
+                fmt = str(meta.get("fmt") or "")
+                if fmt.startswith("pct"):
+                    disp = _fmt_input_pct(v)
+                else:
+                    disp = _fmt_currency(v)
+                bias_values.append((str(k), disp))
+            else:
+                bias_values.append((str(k), _fmt_input_pct(meta) if "rate" in str(k).lower() or "pct" in str(k).lower() else _fmt_currency(meta)))
         cards = "".join(
             f"<div class='kpi-card'><div class='kpi-label'>{html.escape(k)}</div><div class='kpi-value neutral'>{html.escape(v)}</div></div>"
             for k, v in bias_values
@@ -289,6 +318,20 @@ def build_pdf_report(
             "<div class='small-note'>Latest bias run from this session. Flip points indicate where the verdict tends to change.</div>"
             f"<div class='kpi-grid'>{cards}</div>"
         )
+
+        sens = bias_result.get("sens_df")
+        if isinstance(sens, pd.DataFrame) and not sens.empty:
+            cols = [c for c in ["Parameter", "Base", "+ Step", "- Step", "Δ(+)", "Δ(-)"] if c in sens.columns]
+            if cols:
+                sens_rows = []
+                for _, row in sens.head(8)[cols].iterrows():
+                    sens_rows.append("<tr>" + "".join(f"<td>{html.escape(str(row.get(c, '—')))}</td>" for c in cols) + "</tr>")
+                sens_head = "".join(f"<th>{html.escape(str(c))}</th>" for c in cols)
+                bias_sens_html = (
+                    "<h2>Bias Sensitivity Drivers</h2>"
+                    "<div class='small-note'>Top directional sensitivities from the latest Bias & Sensitivity dashboard run.</div>"
+                    f"<table><thead><tr>{sens_head}</tr></thead><tbody>{''.join(sens_rows)}</tbody></table>"
+                )
 
     html_content = f"""<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Rent vs Buy Analysis</title></head><body>
 <div class='report-header'><div class='report-title'>Rent vs Buy Analysis</div><div class='report-subtitle'>{html.escape(str(scenario_name))} · {province} · {years}-Year Horizon</div><div class='report-date'>Generated: {now}</div></div>
@@ -323,7 +366,12 @@ def build_pdf_report(
 <div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_input_pct(apprec_pct)}/yr</span></div>
 </div>
 
+<h2>Ongoing-Cost Context</h2>
+<table><tbody>{ongoing_html}</tbody></table>
+
 {bias_html}
+
+{bias_sens_html}
 
 <div class='footer'>Generated by Rent vs Buy Simulator (Canada). Methodology: docs/METHODOLOGY.md</div>
 </body></html>"""

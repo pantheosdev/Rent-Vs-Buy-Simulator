@@ -1733,11 +1733,6 @@ def _rbv_pct(v) -> str:
 
 
 def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, win_pct=None):
-    try:
-        from weasyprint import HTML
-    except Exception as e:
-        return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
-
     if not isinstance(df, pd.DataFrame) or df.empty:
         return None, "Run a simulation first to enable PDF export."
 
@@ -1747,6 +1742,62 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
     meta = payload.get("meta") if isinstance(payload, dict) else {}
     meta = meta if isinstance(meta, dict) else {}
     last = df.iloc[-1]
+
+    def _pick(*keys, default=None):
+        for k in keys:
+            if k in state and state.get(k) is not None:
+                return state.get(k)
+        return default
+
+    # Primary renderer: richer PDF from rbv.ui.pdf_report (charts + KPI cards + milestones + bias snapshot).
+    try:
+        from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
+
+        rich_cfg = {
+            "years": _pick("years", default=25),
+            "province": _pick("province", default="Ontario"),
+            "price": _pick("price", default=0.0),
+            "down": _pick("down", default=0.0),
+            "rent": _pick("rent", default=0.0),
+            "rate": _pick("rate", default=0.0),
+            "amort": _pick("amort", default=25),
+            "p_tax_rate_pct": _pick("p_tax_rate_pct", "property_tax_rate_annual", default=0.0),
+            "maint_rate_pct": _pick("maint_rate_pct", "maintenance_rate_annual", default=0.0),
+            "repair_rate_pct": _pick("repair_rate_pct", "repair_rate_annual", default=0.0),
+            "sell_cost_pct": _pick("sell_cost_pct", "selling_cost_pct", default=0.0),
+            "condo": _pick("condo", "condo_fees", "condo_fee_monthly", default=0.0),
+            "h_ins": _pick("h_ins", "home_ins", "home_insurance_monthly", default=0.0),
+            "r_ins": _pick("r_ins", "renter_ins", "rent_insurance_monthly", default=0.0),
+            "rent_inf": _pick("rent_inf", "rent_inflation_rate_annual", default=0.0),
+            "general_inf": _pick("general_inf", "general_inflation_rate_annual", default=0.0),
+            "moving_cost": _pick("moving_cost", default=0.0),
+            "moving_freq": _pick("moving_freq", default=None),
+            "r_util": _pick("r_util", default=0.0),
+            "o_util": _pick("o_util", default=0.0),
+        }
+
+        pdf_bytes = _build_pdf_report(
+            df,
+            rich_cfg,
+            buyer_ret_pct=float(_pick("buyer_ret", default=7.0) or 7.0),
+            renter_ret_pct=float(_pick("renter_ret", default=7.0) or 7.0),
+            apprec_pct=float(_pick("apprec", default=3.0) or 3.0),
+            close_cash=close_cash,
+            monthly_pmt=m_pmt,
+            win_pct=win_pct,
+            scenario_name=str(_pick("scenario_select", default="Custom Scenario") or "Custom Scenario"),
+            bias_result=st.session_state.get("_bias_dash_result"),
+        )
+        if isinstance(pdf_bytes, (bytes, bytearray)) and len(pdf_bytes) > 0:
+            return bytes(pdf_bytes), None
+    except Exception:
+        # Fall through to legacy renderer below.
+        pass
+
+    try:
+        from weasyprint import HTML
+    except Exception as e:
+        return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
 
     summary_rows = [
         ("Scenario", state.get("scenario_select", "—")),
