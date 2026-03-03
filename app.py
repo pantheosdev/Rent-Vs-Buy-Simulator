@@ -1775,7 +1775,7 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
                 ("Scenario A hash", str(_meta_cmp.get("a_hash", ""))),
                 ("Scenario B hash", str(_meta_cmp.get("b_hash", ""))),
             ]
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError):
         _report_context = {}
 
     # Primary renderer: richer PDF from rbv.ui.pdf_report (charts + KPI cards + milestones + bias snapshot).
@@ -1822,7 +1822,7 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
         if isinstance(pdf_bytes, (bytes, bytearray)) and len(pdf_bytes) > 0:
             return bytes(pdf_bytes), None
         _rich_pdf_err = "Rich PDF renderer returned no data."
-    except Exception as _e:
+    except (ImportError, RuntimeError, TypeError, ValueError) as _e:
         # Fall through to legacy renderer below, but preserve reason for diagnostics.
         _rich_pdf_err = f"Rich PDF renderer failed: {_e}"
 
@@ -2031,7 +2031,7 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
         if _rich_pdf_err:
             try:
                 st.session_state["_pdf_export_last_warning"] = str(_rich_pdf_err)
-            except Exception:
+            except (TypeError, RuntimeError, AttributeError):
                 pass
         return pdf_bytes, None
     except Exception as e:

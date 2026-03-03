@@ -14,7 +14,7 @@ import pandas as pd
 _PDF_CSS = """
 @page { size: A4; margin: 16mm 14mm; }
 * { box-sizing: border-box; }
-body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.5pt; color: #1a2340; margin: 0; }
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.5pt; color: #1a2340; margin: 0; orphans: 3; widows: 3; }
 .report-header { border-bottom: 3px solid #14D8FF; padding-bottom: 8px; margin-bottom: 14px; background: linear-gradient(120deg, #f8fbff 0%, #f2f7ff 100%); border-radius: 8px; padding: 10px 12px 8px 12px; }
 .report-title { font-size: 20pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
 .report-subtitle { font-size: 10pt; color: #4a5a7a; margin: 0; }
@@ -22,6 +22,9 @@ body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.5pt; color: #1a2
 .disclaimer { font-size: 7.5pt; color: #8a9ab0; border-left: 2px solid #e0e6ef; padding-left: 8px; margin-bottom: 12px; font-style: italic; }
 
 h2 { font-size: 11.5pt; font-weight: 700; color: #0B1020; border-bottom: 1px solid #d0d8e8; padding-bottom: 3px; margin: 14px 0 7px 0; }
+
+.section { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8px; }
+h2 { page-break-after: avoid; }
 .small-note { font-size: 7.5pt; color: #7081a1; margin-top: -2px; margin-bottom: 8px; }
 
 .kpi-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
@@ -38,11 +41,11 @@ h2 { font-size: 11.5pt; font-weight: 700; color: #0B1020; border-bottom: 1px sol
 .summary-title { font-size: 8.5pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
 .summary-list { margin: 0; padding-left: 16px; font-size: 8pt; color: #425172; }
 .summary-list li { margin-bottom: 3px; }
-.chart-card { border: 1px solid #d0d8e8; border-radius: 6px; padding: 6px; background: #fcfdff; }
+.chart-card { border: 1px solid #d0d8e8; border-radius: 6px; padding: 6px; background: #fcfdff; break-inside: avoid; page-break-inside: avoid; }
 .chart-title { font-size: 8pt; color: #4a5a7a; margin: 0 0 4px 0; font-weight: 600; }
 .chart-card img { width: 100%; height: auto; }
 
-table { width: 100%; border-collapse: collapse; font-size: 8.4pt; margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 8.4pt; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
 th { background: #0B1020; color: #E8EEF8; padding: 4px 6px; text-align: left; font-weight: 600; }
 td { padding: 3px 6px; border-bottom: 1px solid #e8ecf4; }
 tr:nth-child(even) td { background: #f4f7fb; }
@@ -407,7 +410,7 @@ def build_pdf_report(
 
 {summary_html}
 
-<h2>Key Results</h2>
+<div class='section'><h2>Key Results</h2>
 <div class='kpi-grid'>
 <div class='kpi-card'><div class='kpi-label'>Final Buyer Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(buyer_nw)}</div></div>
 <div class='kpi-card'><div class='kpi-label'>Final Renter Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(renter_nw)}</div></div>
@@ -417,33 +420,33 @@ def build_pdf_report(
 <div class='kpi-card'><div class='kpi-label'>Renter Ongoing Costs</div><div class='kpi-value neutral'>{_fmt_currency(renter_unrec)}</div></div>
 <div class='kpi-card'><div class='kpi-label'>Monthly Payment</div><div class='kpi-value neutral'>{_fmt_currency(monthly_pmt)}</div></div>
 <div class='kpi-card'><div class='kpi-label'>Buyer Win Rate (MC)</div><div class='kpi-value neutral'>{win_display}</div></div>
-</div>
+</div></div>
 
-<h2>Trends & Milestones</h2>
+<div class='section'><h2>Trends & Milestones</h2>
 <div class='chart-grid'>
 <div class='chart-card'><div class='chart-title'>Net worth trajectory</div>{(f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
 <div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div>{(f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
 <div class='chart-card'><div class='chart-title'>Buyer advantage over time</div>{(f"<img src='{gap_chart}' alt='Gap chart' />" if gap_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
 </div>
-<table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>
+<table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table></div>
 
-<h2>Scenario Inputs</h2>
+<div class='section'><h2>Scenario Inputs</h2>
 <div class='params-grid'>{input_html}
 <div class='param-row'><span class='param-label'>Down Payment Share</span><span class='param-value'>{_fmt_pct((down / price * 100.0) if price else None)}</span></div>
 <div class='param-row'><span class='param-label'>Cash to Close</span><span class='param-value'>{_fmt_currency(close_cash)}</span></div>
 <div class='param-row'><span class='param-label'>Buyer Return</span><span class='param-value'>{_fmt_input_pct(buyer_ret_pct)}/yr</span></div>
 <div class='param-row'><span class='param-label'>Renter Return</span><span class='param-value'>{_fmt_input_pct(renter_ret_pct)}/yr</span></div>
 <div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_input_pct(apprec_pct)}/yr</span></div>
-</div>
+</div></div>
 
-<h2>Ongoing-Cost Context</h2>
-<table><tbody>{ongoing_html}</tbody></table>
+<div class='section'><h2>Ongoing-Cost Context</h2>
+<table><tbody>{ongoing_html}</tbody></table></div>
 
-{bias_html}
+<div class='section'>{bias_html}
 
-{bias_sens_html}
+{bias_sens_html}</div>
 
-{context_html}
+<div class='section'>{context_html}</div>
 
 <div class='footer'>Generated by Rent vs Buy Simulator (Canada). Methodology: docs/METHODOLOGY.md</div>
 </body></html>"""

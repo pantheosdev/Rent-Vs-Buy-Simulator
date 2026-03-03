@@ -1,9 +1,10 @@
+import re
 import sys
 import types
 
 import pandas as pd
 
-from rbv.ui.pdf_report import _compact_input_rows, _fmt_input_pct, _time_axis_years, build_pdf_report
+from rbv.ui.pdf_report import _PDF_CSS, _compact_input_rows, _fmt_input_pct, _time_axis_years, build_pdf_report
 
 
 def test_fmt_input_pct_supports_fraction_and_percent_inputs():
@@ -166,3 +167,50 @@ def test_build_pdf_report_includes_ongoing_and_bias_sections(monkeypatch):
     assert "Buyer advantage over time" in html
     assert "&lt;Ontario&gt;" in html
     assert "A&lt;script&gt;" in html
+
+
+def test_pdf_css_has_print_layout_tuning_rules():
+    assert "orphans: 3" in _PDF_CSS
+    assert "widows: 3" in _PDF_CSS
+    assert "page-break-inside: avoid" in _PDF_CSS
+    assert "page-break-after: avoid" in _PDF_CSS
+
+
+def test_build_pdf_report_section_order_snapshot(monkeypatch):
+    captured = {"html": None}
+
+    class _FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, stylesheets=None):
+            return b"%PDF-fake"
+
+    class _FakeCSS:
+        def __init__(self, string):
+            self.string = string
+
+    monkeypatch.setitem(sys.modules, "weasyprint", types.SimpleNamespace(HTML=_FakeHTML, CSS=_FakeCSS))
+
+    df = pd.DataFrame({
+        "Year": [1, 2],
+        "Buyer Net Worth": [1000, 2000],
+        "Renter Net Worth": [900, 1950],
+        "Buyer Home Equity": [400, 800],
+        "Buyer Unrecoverable": [100, 220],
+        "Renter Unrecoverable": [80, 170],
+    })
+
+    _ = build_pdf_report(df, {"years": 2, "province": "ON", "price": 1, "down": 1})
+    html = re.sub(r"\s+", " ", captured["html"] or "")
+
+    markers = [
+        "Executive Summary",
+        "<h2>Key Results</h2>",
+        "<h2>Trends & Milestones</h2>",
+        "<h2>Scenario Inputs</h2>",
+        "<h2>Ongoing-Cost Context</h2>",
+    ]
+    idx = [html.find(m) for m in markers]
+    assert all(i >= 0 for i in idx)
+    assert idx == sorted(idx)
