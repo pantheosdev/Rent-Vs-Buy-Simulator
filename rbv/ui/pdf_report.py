@@ -123,16 +123,20 @@ def _line_chart(df: pd.DataFrame, title: str, s1: pd.Series, s2: pd.Series, l1: 
         import matplotlib.pyplot as plt
     except Exception:
         return ""
-    x = _time_axis_years(df)
-    fig, ax = plt.subplots(figsize=(5.3, 2.5))
-    ax.plot(x, s1, color="#1460a8", linewidth=1.8, label=l1)
-    ax.plot(x, s2, color="#c0392b", linewidth=1.8, label=l2)
-    ax.set_title(title, fontsize=9)
-    ax.grid(alpha=0.25)
-    ax.tick_params(labelsize=8)
-    ax.set_xlabel("Years", fontsize=8)
-    ax.legend(loc="best", fontsize=7)
-    return _fig_to_uri(fig, plt)
+    try:
+        x = _time_axis_years(df)
+        fig, ax = plt.subplots(figsize=(5.3, 2.5))
+        ax.plot(x, s1, color="#1460a8", linewidth=1.8, label=l1)
+        ax.plot(x, s2, color="#c0392b", linewidth=1.8, label=l2)
+        ax.set_title(title, fontsize=9)
+        ax.grid(alpha=0.25)
+        ax.tick_params(labelsize=8)
+        ax.set_xlabel("Years", fontsize=8)
+        ax.legend(loc="best", fontsize=7)
+        return _fig_to_uri(fig, plt)
+    except Exception:
+        # Keep PDF export available even when chart rendering fails at runtime.
+        return ""
 
 
 def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
@@ -148,27 +152,34 @@ def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
         (("p_tax_rate_pct", "property_tax_rate_annual"), "Property tax", "pct"),
         (("maint_rate_pct", "maintenance_rate_annual"), "Maintenance", "pct"),
         (("repair_rate_pct", "repair_rate_annual"), "Repairs", "pct"),
-        (("condo_fees", "condo_fee_monthly"), "Condo fees", "money"),
-        (("home_ins", "home_insurance_monthly"), "Home insurance", "money"),
-        (("renter_ins", "rent_insurance_monthly"), "Renter insurance", "money"),
+        (("condo", "condo_fees", "condo_fee_monthly"), "Condo fees", "money"),
+        (("h_ins", "home_ins", "home_insurance_monthly"), "Home insurance", "money"),
+        (("r_ins", "renter_ins", "rent_insurance_monthly"), "Renter insurance", "money"),
         (("rent_inf", "rent_inflation_rate_annual"), "Rent inflation", "pct"),
         (("general_inf", "general_inflation_rate_annual"), "General inflation", "pct"),
     ]
     rows: list[tuple[str, str]] = []
+    seen_labels: set[str] = set()
     for keys, label, kind in fields:
+        if label in seen_labels:
+            continue
         key = next((k for k in keys if k in cfg and cfg.get(k) is not None), None)
         if key is None:
             continue
         val = cfg.get(key)
-        if kind == "money":
-            disp = _fmt_currency(float(val))
-        elif kind == "pct":
-            disp = _fmt_input_pct(float(val))
-        elif kind == "years":
-            disp = f"{int(float(val))} years"
-        else:
-            disp = html.escape(str(val))
+        try:
+            if kind == "money":
+                disp = _fmt_currency(float(val))
+            elif kind == "pct":
+                disp = _fmt_input_pct(float(val))
+            elif kind == "years":
+                disp = f"{int(float(val))} years"
+            else:
+                disp = html.escape(str(val))
+        except (TypeError, ValueError):
+            disp = html.escape(str(val)) if kind == "text" else "—"
         rows.append((label, disp))
+        seen_labels.add(label)
     return rows
 
 

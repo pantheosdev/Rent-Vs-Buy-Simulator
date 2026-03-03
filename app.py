@@ -5316,26 +5316,23 @@ _pdf_bytes: bytes | None = None
 try:
     from rbv.ui.pdf_report import build_pdf_report as _build_pdf_report
     _pdf_cfg = {
-        k: st.session_state.get(k, v)
-        for k, v in {
-            "years": 25,
-            "province": "Ontario",
-            "price": 800000.0,
-            "down": 160000.0,
-            "rent": 3000.0,
-            "rate": 5.0,
-            "amort": 25,
-            "p_tax_rate_pct": 1.0,
-            "maint_rate_pct": 1.0,
-            "repair_rate_pct": 0.5,
-            "sell_cost_pct": 5.0,
-            "condo_fee_monthly": 0.0,
-            "home_ins": 0.0,
-            "renter_ins": 0.0,
-            "rent_inf": 2.5,
-            "general_inf": 2.0,
-            "nm": 300,
-        }.items()
+        "years": st.session_state.get("years", 25),
+        "province": st.session_state.get("province", "Ontario"),
+        "price": st.session_state.get("price", 800000.0),
+        "down": st.session_state.get("down", 160000.0),
+        "rent": st.session_state.get("rent", 3000.0),
+        "rate": st.session_state.get("rate", 5.0),
+        "amort": st.session_state.get("amort", 25),
+        "p_tax_rate_pct": st.session_state.get("p_tax_rate_pct", 1.0),
+        "maint_rate_pct": st.session_state.get("maint_rate_pct", 1.0),
+        "repair_rate_pct": st.session_state.get("repair_rate_pct", 0.5),
+        "sell_cost_pct": st.session_state.get("sell_cost_pct", 5.0),
+        "condo": st.session_state.get("condo", 0.0),
+        "h_ins": st.session_state.get("h_ins", 0.0),
+        "r_ins": st.session_state.get("r_ins", 0.0),
+        "rent_inf": st.session_state.get("rent_inf", 2.5),
+        "general_inf": st.session_state.get("general_inf", 2.0),
+        "nm": st.session_state.get("nm", 300),
     }
     _pdf_bytes = _build_pdf_report(
         df,
