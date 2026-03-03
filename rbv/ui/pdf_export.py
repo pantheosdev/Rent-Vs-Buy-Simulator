@@ -116,3 +116,24 @@ def try_build_rich_pdf(
         return None, "Rich PDF renderer returned no data."
     except (ImportError, RuntimeError, TypeError, ValueError) as exc:
         return None, f"Rich PDF renderer failed: {exc}"
+
+
+
+def finalize_pdf_with_fallback(
+    *,
+    rich_warning: str | None,
+    legacy_builder: Callable[[], bytes],
+    warning_sink: Callable[[str], None] | None = None,
+) -> tuple[bytes | None, str | None]:
+    """Finalize PDF bytes from legacy builder while preserving rich-render warning context."""
+
+    try:
+        pdf_bytes = legacy_builder()
+        if rich_warning and warning_sink is not None:
+            warning_sink(str(rich_warning))
+        return pdf_bytes, None
+    except (RuntimeError, ValueError, TypeError, OSError) as exc:
+        msg = f"Failed to build PDF: {exc}"
+        if rich_warning:
+            msg = f"{msg} (fallback attempted after: {rich_warning})"
+        return None, msg

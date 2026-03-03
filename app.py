@@ -1967,19 +1967,22 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
     </html>
     """
 
-    try:
-        pdf_bytes = HTML(string=report_html).write_pdf()
-        if _rich_pdf_err:
-            try:
-                st.session_state["_pdf_export_last_warning"] = str(_rich_pdf_err)
-            except (TypeError, RuntimeError, AttributeError):
-                pass
-        return pdf_bytes, None
-    except (RuntimeError, ValueError, TypeError, OSError) as e:
-        msg = f"Failed to build PDF: {e}"
-        if _rich_pdf_err:
-            msg = f"{msg} (fallback attempted after: {_rich_pdf_err})"
-        return None, msg
+    from rbv.ui.pdf_export import finalize_pdf_with_fallback
+
+    def _legacy_builder() -> bytes:
+        return HTML(string=report_html).write_pdf()
+
+    def _warn_sink(msg: str) -> None:
+        try:
+            st.session_state["_pdf_export_last_warning"] = str(msg)
+        except (TypeError, RuntimeError, AttributeError):
+            pass
+
+    return finalize_pdf_with_fallback(
+        rich_warning=_rich_pdf_err,
+        legacy_builder=_legacy_builder,
+        warning_sink=_warn_sink,
+    )
 
 # --- CALLBACKS ---
 def apply_preset():

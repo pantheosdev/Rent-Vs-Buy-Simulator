@@ -488,6 +488,45 @@ def build_pdf_report(
                 blocks.append(_render_section(section_title, _render_kv_table(rows_html)))
         context_html = "".join(blocks)
 
+    key_results_html = (
+        "<div class='kpi-grid'>"
+        f"<div class='kpi-card'><div class='kpi-label'>Final Buyer Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(buyer_nw)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Final Renter Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(renter_nw)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Buyer Advantage (Δ)</div><div class='kpi-value {delta_cls}'>{_fmt_currency(delta)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Home Equity at Horizon</div><div class='kpi-value neutral'>{_fmt_currency(buyer_equity)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Buyer Ongoing Costs</div><div class='kpi-value neutral'>{_fmt_currency(buyer_unrec)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Renter Ongoing Costs</div><div class='kpi-value neutral'>{_fmt_currency(renter_unrec)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Monthly Payment</div><div class='kpi-value neutral'>{_fmt_currency(monthly_pmt)}</div></div>"
+        f"<div class='kpi-card'><div class='kpi-label'>Buyer Win Rate (MC)</div><div class='kpi-value neutral'>{win_display}</div></div>"
+        "</div>"
+    )
+
+    nw_chart_html = f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
+    unrec_chart_html = f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
+    gap_chart_html = f"<img src='{gap_chart}' alt='Gap chart' />" if gap_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
+
+    trends_html = (
+        "<div class='chart-grid'>"
+        f"<div class='chart-card'><div class='chart-title'>Net worth trajectory</div>{nw_chart_html}</div>"
+        f"<div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div>{unrec_chart_html}</div>"
+        f"<div class='chart-card'><div class='chart-title'>Buyer advantage over time</div>{gap_chart_html}</div>"
+        "</div>"
+        f"<table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>"
+    )
+
+
+    scenario_inputs_html = (
+        f"<div class='params-grid'>{input_html}"
+        f"<div class='param-row'><span class='param-label'>Down Payment Share</span><span class='param-value'>{_fmt_pct((down / price * 100.0) if price else None)}</span></div>"
+        f"<div class='param-row'><span class='param-label'>Cash to Close</span><span class='param-value'>{_fmt_currency(close_cash)}</span></div>"
+        f"<div class='param-row'><span class='param-label'>Buyer Return</span><span class='param-value'>{_fmt_input_pct(buyer_ret_pct)}/yr</span></div>"
+        f"<div class='param-row'><span class='param-label'>Renter Return</span><span class='param-value'>{_fmt_input_pct(renter_ret_pct)}/yr</span></div>"
+        f"<div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_input_pct(apprec_pct)}/yr</span></div>"
+        "</div>"
+    )
+
+    bias_context_html = f"{bias_html}{bias_sens_html}" if (bias_html or bias_sens_html) else ""
+
     html_content = f"""<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Rent vs Buy Analysis</title></head><body>
 <div class='report-header'><div class='report-title'>Rent vs Buy Analysis</div><div class='report-subtitle'>{html.escape(str(scenario_name))} · {province} · {years}-Year Horizon</div><div class='report-date'>Generated: {now}</div></div>
 <p class='disclaimer'>Educational purposes only. Not financial, legal, or tax advice. Results depend on assumptions and will vary.</p>
@@ -501,42 +540,17 @@ def build_pdf_report(
 
 {data_notes_html}
 
-<div class='section'><h2>Key Results</h2>
-<div class='kpi-grid'>
-<div class='kpi-card'><div class='kpi-label'>Final Buyer Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(buyer_nw)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Final Renter Net Worth</div><div class='kpi-value neutral'>{_fmt_currency(renter_nw)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Buyer Advantage (Δ)</div><div class='kpi-value {delta_cls}'>{_fmt_currency(delta)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Home Equity at Horizon</div><div class='kpi-value neutral'>{_fmt_currency(buyer_equity)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Buyer Ongoing Costs</div><div class='kpi-value neutral'>{_fmt_currency(buyer_unrec)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Renter Ongoing Costs</div><div class='kpi-value neutral'>{_fmt_currency(renter_unrec)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Monthly Payment</div><div class='kpi-value neutral'>{_fmt_currency(monthly_pmt)}</div></div>
-<div class='kpi-card'><div class='kpi-label'>Buyer Win Rate (MC)</div><div class='kpi-value neutral'>{win_display}</div></div>
-</div></div>
+{_render_section('Key Results', key_results_html)}
 
-<div class='section'><h2>Trends & Milestones</h2>
-<div class='chart-grid'>
-<div class='chart-card'><div class='chart-title'>Net worth trajectory</div>{(f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
-<div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div>{(f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
-<div class='chart-card'><div class='chart-title'>Buyer advantage over time</div>{(f"<img src='{gap_chart}' alt='Gap chart' />" if gap_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>")}</div>
-</div>
-<table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table></div>
+{_render_section('Trends & Milestones', trends_html)}
 
-<div class='section'><h2>Scenario Inputs</h2>
-<div class='params-grid'>{input_html}
-<div class='param-row'><span class='param-label'>Down Payment Share</span><span class='param-value'>{_fmt_pct((down / price * 100.0) if price else None)}</span></div>
-<div class='param-row'><span class='param-label'>Cash to Close</span><span class='param-value'>{_fmt_currency(close_cash)}</span></div>
-<div class='param-row'><span class='param-label'>Buyer Return</span><span class='param-value'>{_fmt_input_pct(buyer_ret_pct)}/yr</span></div>
-<div class='param-row'><span class='param-label'>Renter Return</span><span class='param-value'>{_fmt_input_pct(renter_ret_pct)}/yr</span></div>
-<div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_input_pct(apprec_pct)}/yr</span></div>
-</div></div>
+{_render_section('Scenario Inputs', scenario_inputs_html)}
 
 {_render_section('Ongoing-Cost Context', _render_kv_table(ongoing_html))}
 
-<div class='section'>{bias_html}
+{_render_section('Bias & Sensitivity Context', bias_context_html) if bias_context_html else ''}
 
-{bias_sens_html}</div>
-
-<div class='section'>{context_html}</div>
+{context_html}
 
 <div class='footer'>Generated by Rent vs Buy Simulator (Canada). Methodology: docs/METHODOLOGY.md</div>
 </body></html>"""

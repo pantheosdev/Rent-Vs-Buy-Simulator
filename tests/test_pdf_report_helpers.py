@@ -211,7 +211,7 @@ def test_build_pdf_report_section_order_snapshot(monkeypatch):
     markers = [
         "Executive Summary",
         "<h2>Key Results</h2>",
-        "<h2>Trends & Milestones</h2>",
+        "<h2>Trends &amp; Milestones</h2>",
         "<h2>Scenario Inputs</h2>",
         "<h2>Ongoing-Cost Context</h2>",
     ]
@@ -295,7 +295,7 @@ def test_build_pdf_report_golden_verdict_snapshots(monkeypatch, buyer_last, rent
     assert expected_class in html
     assert expected_phrase in html
     assert "Decision Confidence Snapshot" in html
-    assert "<h2>Trends & Milestones</h2>" in html
+    assert "<h2>Trends &amp; Milestones</h2>" in html
     assert "<h2>Ongoing-Cost Context</h2>" in html
 
 

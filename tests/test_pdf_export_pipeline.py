@@ -1,6 +1,6 @@
 import pandas as pd
 
-from rbv.ui.pdf_export import build_report_context, try_build_rich_pdf
+from rbv.ui.pdf_export import build_report_context, finalize_pdf_with_fallback, try_build_rich_pdf
 
 
 def _df():
@@ -70,3 +70,31 @@ def test_try_build_rich_pdf_failure_path_returns_warning():
     )
     assert out is None
     assert "Rich PDF renderer failed" in str(warn)
+
+
+def test_finalize_pdf_with_fallback_success_records_warning():
+    sink: dict[str, str] = {}
+
+    def _legacy():
+        return b"%PDF-fallback"
+
+    out, err = finalize_pdf_with_fallback(
+        rich_warning="Rich PDF renderer failed: x",
+        legacy_builder=_legacy,
+        warning_sink=lambda m: sink.setdefault("w", m),
+    )
+    assert out == b"%PDF-fallback"
+    assert err is None
+    assert sink.get("w") == "Rich PDF renderer failed: x"
+
+
+def test_finalize_pdf_with_fallback_failure_includes_rich_context():
+    def _legacy():
+        raise RuntimeError("legacy boom")
+
+    out, err = finalize_pdf_with_fallback(
+        rich_warning="Rich PDF renderer failed: x",
+        legacy_builder=_legacy,
+    )
+    assert out is None
+    assert "fallback attempted after" in str(err)
