@@ -167,6 +167,8 @@ def test_build_pdf_report_includes_ongoing_and_bias_sections(monkeypatch):
     assert "Executive Summary" in html
     assert "Buyer advantage over time" in html
     assert "Decision Confidence Snapshot" in html
+    assert "Methodology & Confidence Legend" in html
+    assert "High ≥ $50k" in html
     assert "&lt;Ontario&gt;" in html
     assert "A&lt;script&gt;" in html
 
@@ -295,3 +297,34 @@ def test_build_pdf_report_golden_verdict_snapshots(monkeypatch, buyer_last, rent
     assert "Decision Confidence Snapshot" in html
     assert "<h2>Trends & Milestones</h2>" in html
     assert "<h2>Ongoing-Cost Context</h2>" in html
+
+
+def test_methodology_note_present_in_snapshot(monkeypatch):
+    captured = {"html": None}
+
+    class _FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, stylesheets=None):
+            return b"%PDF-fake"
+
+    class _FakeCSS:
+        def __init__(self, string):
+            self.string = string
+
+    monkeypatch.setitem(sys.modules, "weasyprint", types.SimpleNamespace(HTML=_FakeHTML, CSS=_FakeCSS))
+
+    df = pd.DataFrame({
+        "Year": [1, 2],
+        "Buyer Net Worth": [1000, 2000],
+        "Renter Net Worth": [900, 1500],
+        "Buyer Home Equity": [200, 500],
+        "Buyer Unrecoverable": [100, 220],
+        "Renter Unrecoverable": [80, 180],
+    })
+
+    _ = build_pdf_report(df, {"years": 2, "province": "ON", "price": 1, "down": 1})
+    html = captured["html"] or ""
+    assert "Methodology & Confidence Legend" in html
+    assert "Confidence is based on absolute terminal net-worth gap" in html

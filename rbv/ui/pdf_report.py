@@ -70,6 +70,10 @@ tr:nth-child(even) td { background: #f4f7fb; }
 .data-notes-title { font-size: 8.2pt; font-weight: 700; color: #8b5e00; margin: 0 0 4px 0; }
 .data-notes ul { margin: 0; padding-left: 16px; }
 .data-notes li { font-size: 7.8pt; color: #7a5a18; margin-bottom: 2px; }
+.methodology-note { border: 1px solid #d6e3f8; border-radius: 8px; background: #f7fbff; padding: 8px 10px; margin: 8px 0 10px 0; break-inside: avoid; page-break-inside: avoid; }
+.methodology-title { font-size: 8.2pt; font-weight: 700; color: #0e3d70; margin: 0 0 4px 0; }
+.methodology-note ul { margin: 0; padding-left: 16px; }
+.methodology-note li { font-size: 7.8pt; color: #35567f; margin-bottom: 2px; }
 
 .footer { font-size: 7pt; color: #aab8cc; text-align: center; margin-top: 20px; border-top: 1px solid #e0e6ef; padding-top: 6px; }
 """
@@ -410,6 +414,19 @@ def build_pdf_report(
         "</div></div>"
     )
 
+    methodology_points = [
+        "Confidence is based on absolute terminal net-worth gap (|Δ|): High ≥ $50k, Medium ≥ $15k, else Low.",
+        "Flip-point metrics indicate where verdict direction can change under one-variable stress.",
+        "Charts/tables may degrade in constrained runtimes; see Data Availability Notes when applicable.",
+    ]
+    methodology_html = (
+        "<div class='methodology-note'>"
+        "<div class='methodology-title'>Methodology & Confidence Legend</div>"
+        "<ul>"
+        + "".join(f"<li>{html.escape(x)}</li>" for x in methodology_points)
+        + "</ul></div>"
+    )
+
     data_notes: list[str] = []
     if not nw_chart:
         data_notes.append("Net-worth chart could not be rendered in this runtime.")
@@ -479,6 +496,8 @@ def build_pdf_report(
 {summary_html}
 
 {confidence_html}
+
+{methodology_html}
 
 {data_notes_html}
 
