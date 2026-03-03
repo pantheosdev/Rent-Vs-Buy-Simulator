@@ -1828,7 +1828,7 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
 
     try:
         from weasyprint import HTML
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
 
     summary_rows = [
@@ -2034,7 +2034,7 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
             except (TypeError, RuntimeError, AttributeError):
                 pass
         return pdf_bytes, None
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError, OSError) as e:
         msg = f"Failed to build PDF: {e}"
         if _rich_pdf_err:
             msg = f"{msg} (fallback attempted after: {_rich_pdf_err})"
