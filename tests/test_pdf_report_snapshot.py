@@ -33,7 +33,8 @@ def test_build_pdf_report_html_snapshot(monkeypatch):
     monkeypatch.setattr(pdf_report, "CSS", _FakeCSS, raising=False)
 
     # monkeypatch module import path used inside build_pdf_report
-    import sys, types
+    import sys
+    import types
     monkeypatch.setitem(sys.modules, "weasyprint", types.SimpleNamespace(HTML=_FakeHTML, CSS=_FakeCSS))
 
     df = pd.DataFrame(
