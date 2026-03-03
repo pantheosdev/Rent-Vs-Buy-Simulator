@@ -230,6 +230,14 @@ def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
     return rows
 
 
+
+
+def _render_section(title: str, body_html: str) -> str:
+    return f"<div class='section'><h2>{html.escape(title)}</h2>{body_html}</div>"
+
+
+def _render_kv_table(rows_html: str) -> str:
+    return f"<table><tbody>{rows_html}</tbody></table>"
 def build_pdf_report(
     df: pd.DataFrame,
     cfg: dict[str, Any],
@@ -460,7 +468,7 @@ def build_pdf_report(
                     f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>"
                     for k, v in rows
                 )
-                blocks.append(f"<h2>{html.escape(section_title)}</h2><table><tbody>{rows_html}</tbody></table>")
+                blocks.append(_render_section(section_title, _render_kv_table(rows_html)))
         context_html = "".join(blocks)
 
     html_content = f"""<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Rent vs Buy Analysis</title></head><body>
@@ -503,8 +511,7 @@ def build_pdf_report(
 <div class='param-row'><span class='param-label'>Home Appreciation</span><span class='param-value'>{_fmt_input_pct(apprec_pct)}/yr</span></div>
 </div></div>
 
-<div class='section'><h2>Ongoing-Cost Context</h2>
-<table><tbody>{ongoing_html}</tbody></table></div>
+{_render_section('Ongoing-Cost Context', _render_kv_table(ongoing_html))}
 
 <div class='section'>{bias_html}
 
