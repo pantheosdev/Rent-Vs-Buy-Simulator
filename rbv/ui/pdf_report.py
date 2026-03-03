@@ -38,6 +38,7 @@ h2 { page-break-after: avoid; }
 .kpi-value.neutral { color: #1460a8; }
 
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: start; }
+.chart-card.full-span { grid-column: 1 / -1; }
 .summary-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .summary-card { border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: #f9fbff; box-shadow: 0 1px 2px rgba(11, 16, 32, 0.04); }
 .summary-title { font-size: 8.5pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
@@ -117,7 +118,7 @@ def _fmt_input_pct(val: float | None, decimals: int = 2) -> str:
         return "—"
     try:
         x = float(val)
-        if abs(x) <= 1.0:
+        if abs(x) < 1.0:
             x *= 100.0
         return f"{x:.{decimals}f}%"
     except (TypeError, ValueError):
@@ -333,6 +334,8 @@ def build_pdf_report(
     unrec_chart = _line_chart(df, "Cumulative Ongoing Costs", buyer_unrec_series, renter_unrec_series, "Buyer costs", "Renter costs")
     gap_series = buyer_nw_series - renter_nw_series
     gap_chart = _single_line_chart(df, "Buyer Advantage (Δ) Over Time", gap_series, "Buyer - Renter")
+    equity_series = _pick_series(df, ["Buyer Home Equity", "Home Equity", "Equity"])
+    equity_chart = _single_line_chart(df, "Buyer Home Equity Over Time", equity_series, "Home equity")
 
     buyer_nw_low_series = _pick_series(df, ["Buyer NW Low"])
     buyer_nw_high_series = _pick_series(df, ["Buyer NW High"])
@@ -379,9 +382,9 @@ def build_pdf_report(
     ongoing_rows = [
         ("Final buyer ongoing costs", _fmt_currency(buyer_unrec)),
         ("Final renter ongoing costs", _fmt_currency(renter_unrec)),
-        ("Annual property tax input", _fmt_input_pct(cfg.get("p_tax_rate_pct") if cfg.get("p_tax_rate_pct") is not None else cfg.get("property_tax_rate_annual"))),
-        ("Annual maintenance input", _fmt_input_pct(cfg.get("maint_rate_pct") if cfg.get("maint_rate_pct") is not None else cfg.get("maintenance_rate_annual"))),
-        ("Annual repairs input", _fmt_input_pct(cfg.get("repair_rate_pct") if cfg.get("repair_rate_pct") is not None else cfg.get("repair_rate_annual"))),
+        ("Property tax input rate", _fmt_input_pct(cfg.get("p_tax_rate_pct") if cfg.get("p_tax_rate_pct") is not None else cfg.get("property_tax_rate_annual"))),
+        ("Maintenance input rate", _fmt_input_pct(cfg.get("maint_rate_pct") if cfg.get("maint_rate_pct") is not None else cfg.get("maintenance_rate_annual"))),
+        ("Repairs input rate", _fmt_input_pct(cfg.get("repair_rate_pct") if cfg.get("repair_rate_pct") is not None else cfg.get("repair_rate_annual"))),
         ("Annual rent inflation input", _fmt_input_pct(cfg.get("rent_inf") if cfg.get("rent_inf") is not None else cfg.get("rent_inflation_rate_annual"))),
         ("Annual general inflation input", _fmt_input_pct(cfg.get("general_inf") if cfg.get("general_inf") is not None else cfg.get("general_inflation_rate_annual"))),
     ]
@@ -463,6 +466,7 @@ def build_pdf_report(
     methodology_points = [
         "Confidence is based on absolute terminal net-worth gap (|Δ|): High ≥ $50k, Medium ≥ $15k, else Low.",
         "Flip-point metrics indicate where verdict direction can change under one-variable stress.",
+        "Input percentages accept both decimal (0.01) and percent-style (1.0) entries.",
         "Charts/tables may degrade in constrained runtimes; see Data Availability Notes when applicable.",
     ]
     methodology_html = (
@@ -480,6 +484,8 @@ def build_pdf_report(
         data_notes.append("Ongoing-cost chart could not be rendered in this runtime.")
     if not gap_chart:
         data_notes.append("Buyer-advantage chart could not be rendered in this runtime.")
+    if not equity_chart:
+        data_notes.append("Home-equity chart could not be rendered in this runtime.")
     if not milestones:
         data_notes.append("Milestone table uses fallback because no milestone rows were available.")
     if not input_rows:
@@ -572,6 +578,7 @@ def build_pdf_report(
     nw_chart_html = f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
     unrec_chart_html = f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
     gap_chart_html = f"<img src='{gap_chart}' alt='Gap chart' />" if gap_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
+    equity_chart_html = f"<img src='{equity_chart}' alt='Home equity chart' />" if equity_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
     buyer_band_chart_html = f"<img src='{buyer_band_chart}' alt='Buyer distribution chart' />" if buyer_band_chart else "<div class='small-note'>Distribution chart unavailable in this runtime.</div>"
     renter_band_chart_html = f"<img src='{renter_band_chart}' alt='Renter distribution chart' />" if renter_band_chart else "<div class='small-note'>Distribution chart unavailable in this runtime.</div>"
 
@@ -583,6 +590,7 @@ def build_pdf_report(
         f"<div class='chart-card'><div class='chart-title'>Buyer advantage over time</div><div class='chart-subtitle'>Positive values favour buying; negative values favour renting.</div>{gap_chart_html}</div>"
         f"<div class='chart-card'><div class='chart-title'>Buyer net-worth distribution</div><div class='chart-subtitle'>Median with 5th–95th percentile band when Monte Carlo data is available.</div>{buyer_band_chart_html}</div>"
         f"<div class='chart-card'><div class='chart-title'>Renter net-worth distribution</div><div class='chart-subtitle'>Median with 5th–95th percentile band when Monte Carlo data is available.</div>{renter_band_chart_html}</div>"
+        f"<div class='chart-card full-span'><div class='chart-title'>Buyer home equity trend</div><div class='chart-subtitle'>Tracks principal buildup plus home-price appreciation effects over time.</div>{equity_chart_html}</div>"
         "</div>"
         f"<table><thead><tr><th>Milestone</th><th class='th-buy'>Buyer NW</th><th class='th-rent'>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th class='th-buy'>Buyer Costs</th><th class='th-rent'>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>"
     )
