@@ -28,7 +28,7 @@ jobs:
           python tools/visual_regression/vr_playwright.py --smoke
 
       - name: Upload snapshots
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: visual-regression-snapshots
           path: tools/visual_regression/output
