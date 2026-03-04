@@ -11,44 +11,50 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from rbv.ui.theme import BUY_COLOR, RENT_COLOR
+
 _PDF_CSS = """
-@page { size: A4; margin: 16mm 14mm; }
+@page { size: A4; margin: 14mm 12mm; }
 * { box-sizing: border-box; }
-body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.5pt; color: #1a2340; margin: 0; orphans: 3; widows: 3; }
-.report-header { border-bottom: 3px solid #14D8FF; padding-bottom: 8px; margin-bottom: 14px; background: linear-gradient(120deg, #f8fbff 0%, #f2f7ff 100%); border-radius: 8px; padding: 10px 12px 8px 12px; }
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.4pt; color: #1b2235; margin: 0; background: #ffffff; orphans: 3; widows: 3; }
+.report-header { border: 1px solid #d7def2; border-top: 4px solid __BUY_COLOR__; margin-bottom: 14px; background: #ffffff; border-radius: 8px; padding: 10px 12px 8px 12px; }
 .report-title { font-size: 20pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
 .report-subtitle { font-size: 10pt; color: #4a5a7a; margin: 0; }
 .report-date { font-size: 8pt; color: #8a9ab0; text-align: right; margin-top: -24px; }
 .disclaimer { font-size: 7.5pt; color: #8a9ab0; border-left: 2px solid #e0e6ef; padding-left: 8px; margin-bottom: 12px; font-style: italic; }
 
-h2 { font-size: 11.5pt; font-weight: 700; color: #0B1020; border-bottom: 1px solid #d0d8e8; padding-bottom: 3px; margin: 14px 0 7px 0; }
+h2 { font-size: 11.5pt; font-weight: 700; color: #0B1020; border-bottom: 2px solid #dbe3f3; padding-bottom: 4px; margin: 14px 0 7px 0; }
 
 .section { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8px; }
 h2 { page-break-after: avoid; }
 .small-note { font-size: 7.5pt; color: #7081a1; margin-top: -2px; margin-bottom: 8px; }
 
 .kpi-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.kpi-card { flex: 1 1 140px; border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: linear-gradient(180deg, #fbfdff 0%, #f3f7fd 100%); box-shadow: 0 1px 2px rgba(11, 16, 32, 0.05); }
+.kpi-card { flex: 1 1 140px; border: 1px solid #d8e0f2; border-radius: 8px; padding: 8px 10px; background: #ffffff; box-shadow: 0 1px 2px rgba(11, 16, 32, 0.05); }
 .kpi-label { font-size: 7.2pt; color: #5a6a8a; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
 .kpi-value { font-size: 12pt; font-weight: 700; color: #0B1020; }
 .kpi-value.positive { color: #1a8a2e; }
 .kpi-value.negative { color: #c0392b; }
 .kpi-value.neutral { color: #1460a8; }
 
-.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: start; }
+.chart-card.full-span { grid-column: 1 / -1; }
 .summary-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .summary-card { border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px 10px; background: #f9fbff; box-shadow: 0 1px 2px rgba(11, 16, 32, 0.04); }
 .summary-title { font-size: 8.5pt; font-weight: 700; color: #0B1020; margin: 0 0 4px 0; }
 .summary-list { margin: 0; padding-left: 16px; font-size: 8pt; color: #425172; }
 .summary-list li { margin-bottom: 3px; }
-.chart-card { border: 1px solid #d0d8e8; border-radius: 6px; padding: 6px; background: #fcfdff; break-inside: avoid; page-break-inside: avoid; }
+.chart-card { border: 1px solid #d0d8e8; border-radius: 8px; padding: 8px; background: #ffffff; break-inside: avoid; page-break-inside: avoid; min-height: 215px; }
 .chart-title { font-size: 8pt; color: #4a5a7a; margin: 0 0 4px 0; font-weight: 600; }
+.chart-subtitle { font-size: 7.2pt; color: #6c7b98; margin: 0 0 6px 0; }
 .chart-card img { width: 100%; height: auto; }
 
 table { width: 100%; border-collapse: collapse; font-size: 8.4pt; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
 th { background: #0B1020; color: #E8EEF8; padding: 4px 6px; text-align: left; font-weight: 600; }
 td { padding: 3px 6px; border-bottom: 1px solid #e8ecf4; }
 tr:nth-child(even) td { background: #f4f7fb; }
+.th-buy { background: __BUY_COLOR__; color: #062330; }
+.th-rent { background: __RENT_COLOR__; color: #29153f; }
 
 .params-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .param-row { flex: 1 1 235px; display: flex; justify-content: space-between; border-bottom: 1px solid #e8ecf4; padding: 2px 0; gap: 8px; }
@@ -76,7 +82,17 @@ tr:nth-child(even) td { background: #f4f7fb; }
 .methodology-note li { font-size: 7.8pt; color: #35567f; margin-bottom: 2px; }
 
 .footer { font-size: 7pt; color: #aab8cc; text-align: center; margin-top: 20px; border-top: 1px solid #e0e6ef; padding-top: 6px; }
-"""
+
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+.detail-card { border: 1px solid #d8e0f2; border-radius: 8px; background: #ffffff; padding: 8px; }
+.detail-title { font-size: 8.2pt; font-weight: 700; margin: 0 0 6px 0; }
+.detail-title.buy { color: #0b7a8f; }
+.detail-title.rent { color: #7d45af; }
+.detail-row { display: flex; justify-content: space-between; gap: 8px; font-size: 7.8pt; border-bottom: 1px solid #edf1f8; padding: 2px 0; }
+.detail-row:last-child { border-bottom: none; }
+.detail-key { color: #5a6a8a; }
+.detail-value { color: #1f2c45; font-weight: 600; }
+""".replace("__BUY_COLOR__", BUY_COLOR).replace("__RENT_COLOR__", RENT_COLOR)
 
 
 def _fmt_currency(val: float | None, decimals: int = 0) -> str:
@@ -102,7 +118,7 @@ def _fmt_input_pct(val: float | None, decimals: int = 2) -> str:
         return "—"
     try:
         x = float(val)
-        if abs(x) <= 1.0:
+        if abs(x) < 1.0:
             x *= 100.0
         return f"{x:.{decimals}f}%"
     except (TypeError, ValueError):
@@ -148,11 +164,12 @@ def _line_chart(df: pd.DataFrame, title: str, s1: pd.Series, s2: pd.Series, l1: 
         return ""
     try:
         x = _time_axis_years(df)
-        fig, ax = plt.subplots(figsize=(5.3, 2.5))
-        ax.plot(x, s1, color="#1460a8", linewidth=1.8, label=l1)
-        ax.plot(x, s2, color="#c0392b", linewidth=1.8, label=l2)
+        fig, ax = plt.subplots(figsize=(5.3, 2.5), facecolor="white")
+        ax.plot(x, s1, color=BUY_COLOR, linewidth=2.0, label=l1)
+        ax.plot(x, s2, color=RENT_COLOR, linewidth=2.0, label=l2)
         ax.set_title(title, fontsize=9)
-        ax.grid(alpha=0.25)
+        ax.set_facecolor("white")
+        ax.grid(alpha=0.22, color="#cad5ea")
         ax.tick_params(labelsize=8)
         ax.set_xlabel("Years", fontsize=8)
         ax.legend(loc="best", fontsize=7)
@@ -169,11 +186,12 @@ def _single_line_chart(df: pd.DataFrame, title: str, s1: pd.Series, l1: str) -> 
         return ""
     try:
         x = _time_axis_years(df)
-        fig, ax = plt.subplots(figsize=(5.3, 2.5))
-        ax.plot(x, s1, color="#0b7fab", linewidth=1.9, label=l1)
+        fig, ax = plt.subplots(figsize=(5.3, 2.5), facecolor="white")
+        ax.plot(x, s1, color=BUY_COLOR, linewidth=2.0, label=l1)
         ax.axhline(0.0, color="#94a3b8", linewidth=1.0, linestyle="--", alpha=0.7)
         ax.set_title(title, fontsize=9)
-        ax.grid(alpha=0.25)
+        ax.set_facecolor("white")
+        ax.grid(alpha=0.22, color="#cad5ea")
         ax.tick_params(labelsize=8)
         ax.set_xlabel("Years", fontsize=8)
         ax.legend(loc="best", fontsize=7)
@@ -181,6 +199,28 @@ def _single_line_chart(df: pd.DataFrame, title: str, s1: pd.Series, l1: str) -> 
     except Exception:
         return ""
 
+
+
+
+def _band_chart(df: pd.DataFrame, title: str, med: pd.Series, low: pd.Series, high: pd.Series, label: str, color: str) -> str:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return ""
+    try:
+        x = _time_axis_years(df)
+        fig, ax = plt.subplots(figsize=(5.3, 2.5), facecolor="white")
+        ax.fill_between(x, low, high, color=color, alpha=0.20, linewidth=0.0, label=f"{label} 5–95%")
+        ax.plot(x, med, color=color, linewidth=2.0, label=f"{label} median")
+        ax.set_facecolor("white")
+        ax.set_title(title, fontsize=9)
+        ax.grid(alpha=0.22, color="#cad5ea")
+        ax.tick_params(labelsize=8)
+        ax.set_xlabel("Years", fontsize=8)
+        ax.legend(loc="best", fontsize=7)
+        return _fig_to_uri(fig, plt)
+    except Exception:
+        return ""
 
 def _compact_input_rows(cfg: dict[str, Any]) -> list[tuple[str, str]]:
     fields = [
@@ -294,6 +334,15 @@ def build_pdf_report(
     unrec_chart = _line_chart(df, "Cumulative Ongoing Costs", buyer_unrec_series, renter_unrec_series, "Buyer costs", "Renter costs")
     gap_series = buyer_nw_series - renter_nw_series
     gap_chart = _single_line_chart(df, "Buyer Advantage (Δ) Over Time", gap_series, "Buyer - Renter")
+    equity_series = _pick_series(df, ["Buyer Home Equity", "Home Equity", "Equity"])
+    equity_chart = _single_line_chart(df, "Buyer Home Equity Over Time", equity_series, "Home equity")
+
+    buyer_nw_low_series = _pick_series(df, ["Buyer NW Low"])
+    buyer_nw_high_series = _pick_series(df, ["Buyer NW High"])
+    renter_nw_low_series = _pick_series(df, ["Renter NW Low"])
+    renter_nw_high_series = _pick_series(df, ["Renter NW High"])
+    buyer_band_chart = _band_chart(df, "Buyer Net Worth Distribution", buyer_nw_series, buyer_nw_low_series, buyer_nw_high_series, "Buyer", BUY_COLOR)
+    renter_band_chart = _band_chart(df, "Renter Net Worth Distribution", renter_nw_series, renter_nw_low_series, renter_nw_high_series, "Renter", RENT_COLOR)
 
     milestones: list[dict[str, float | int]] = []
     time_years = _time_axis_years(df)
@@ -315,7 +364,7 @@ def build_pdf_report(
     milestone_rows = "".join(
         f"<tr><td>Year {m['year']}</td><td>{_fmt_currency(float(m['buyer_nw']))}</td>"
         f"<td>{_fmt_currency(float(m['renter_nw']))}</td><td>{_fmt_currency(float(m['equity']))}</td>"
-        f"<td style='font-weight:600;color:{'#1a8a2e' if float(m['buyer_nw']) >= float(m['renter_nw']) else '#c0392b'}'>{_fmt_currency(float(m['buyer_nw']) - float(m['renter_nw']))}</td>"
+        f"<td style='font-weight:600;color:{BUY_COLOR if float(m['buyer_nw']) >= float(m['renter_nw']) else RENT_COLOR}'>{_fmt_currency(float(m['buyer_nw']) - float(m['renter_nw']))}</td>"
         f"<td>{_fmt_currency(float(m['buyer_unrec']))}</td><td>{_fmt_currency(float(m['renter_unrec']))}</td></tr>"
         for m in milestones
     ) or "<tr><td colspan='7'>No milestone data available for this run.</td></tr>"
@@ -333,9 +382,9 @@ def build_pdf_report(
     ongoing_rows = [
         ("Final buyer ongoing costs", _fmt_currency(buyer_unrec)),
         ("Final renter ongoing costs", _fmt_currency(renter_unrec)),
-        ("Annual property tax input", _fmt_input_pct(cfg.get("p_tax_rate_pct") if cfg.get("p_tax_rate_pct") is not None else cfg.get("property_tax_rate_annual"))),
-        ("Annual maintenance input", _fmt_input_pct(cfg.get("maint_rate_pct") if cfg.get("maint_rate_pct") is not None else cfg.get("maintenance_rate_annual"))),
-        ("Annual repairs input", _fmt_input_pct(cfg.get("repair_rate_pct") if cfg.get("repair_rate_pct") is not None else cfg.get("repair_rate_annual"))),
+        ("Property tax input rate", _fmt_input_pct(cfg.get("p_tax_rate_pct") if cfg.get("p_tax_rate_pct") is not None else cfg.get("property_tax_rate_annual"))),
+        ("Maintenance input rate", _fmt_input_pct(cfg.get("maint_rate_pct") if cfg.get("maint_rate_pct") is not None else cfg.get("maintenance_rate_annual"))),
+        ("Repairs input rate", _fmt_input_pct(cfg.get("repair_rate_pct") if cfg.get("repair_rate_pct") is not None else cfg.get("repair_rate_annual"))),
         ("Annual rent inflation input", _fmt_input_pct(cfg.get("rent_inf") if cfg.get("rent_inf") is not None else cfg.get("rent_inflation_rate_annual"))),
         ("Annual general inflation input", _fmt_input_pct(cfg.get("general_inf") if cfg.get("general_inf") is not None else cfg.get("general_inflation_rate_annual"))),
     ]
@@ -417,6 +466,7 @@ def build_pdf_report(
     methodology_points = [
         "Confidence is based on absolute terminal net-worth gap (|Δ|): High ≥ $50k, Medium ≥ $15k, else Low.",
         "Flip-point metrics indicate where verdict direction can change under one-variable stress.",
+        "Input percentages accept both decimal (0.01) and percent-style (1.0) entries.",
         "Charts/tables may degrade in constrained runtimes; see Data Availability Notes when applicable.",
     ]
     methodology_html = (
@@ -434,6 +484,8 @@ def build_pdf_report(
         data_notes.append("Ongoing-cost chart could not be rendered in this runtime.")
     if not gap_chart:
         data_notes.append("Buyer-advantage chart could not be rendered in this runtime.")
+    if not equity_chart:
+        data_notes.append("Home-equity chart could not be rendered in this runtime.")
     if not milestones:
         data_notes.append("Milestone table uses fallback because no milestone rows were available.")
     if not input_rows:
@@ -501,17 +553,46 @@ def build_pdf_report(
         "</div>"
     )
 
+    detail_rows_buy = [
+        ("Final net worth", _fmt_currency(buyer_nw)),
+        ("Home equity", _fmt_currency(buyer_equity)),
+        ("Unrecoverable costs", _fmt_currency(buyer_unrec)),
+        ("Assumed return", f"{_fmt_input_pct(buyer_ret_pct)}/yr"),
+    ]
+    detail_rows_rent = [
+        ("Final net worth", _fmt_currency(renter_nw)),
+        ("Unrecoverable costs", _fmt_currency(renter_unrec)),
+        ("Assumed return", f"{_fmt_input_pct(renter_ret_pct)}/yr"),
+        ("Monthly rent", _fmt_currency(cfg.get("rent"))),
+    ]
+    detail_cards_html = (
+        "<div class='detail-grid'>"
+        "<div class='detail-card'><div class='detail-title buy'>Buyer Detail Snapshot</div>"
+        + "".join(f"<div class='detail-row'><span class='detail-key'>{html.escape(str(k))}</span><span class='detail-value'>{html.escape(str(v))}</span></div>" for k, v in detail_rows_buy)
+        + "</div>"
+        "<div class='detail-card'><div class='detail-title rent'>Renter Detail Snapshot</div>"
+        + "".join(f"<div class='detail-row'><span class='detail-key'>{html.escape(str(k))}</span><span class='detail-value'>{html.escape(str(v))}</span></div>" for k, v in detail_rows_rent)
+        + "</div></div>"
+    )
+
     nw_chart_html = f"<img src='{nw_chart}' alt='Net worth chart' />" if nw_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
     unrec_chart_html = f"<img src='{unrec_chart}' alt='Costs chart' />" if unrec_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
     gap_chart_html = f"<img src='{gap_chart}' alt='Gap chart' />" if gap_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
+    equity_chart_html = f"<img src='{equity_chart}' alt='Home equity chart' />" if equity_chart else "<div class='small-note'>Chart unavailable in this runtime.</div>"
+    buyer_band_chart_html = f"<img src='{buyer_band_chart}' alt='Buyer distribution chart' />" if buyer_band_chart else "<div class='small-note'>Distribution chart unavailable in this runtime.</div>"
+    renter_band_chart_html = f"<img src='{renter_band_chart}' alt='Renter distribution chart' />" if renter_band_chart else "<div class='small-note'>Distribution chart unavailable in this runtime.</div>"
 
     trends_html = (
-        "<div class='chart-grid'>"
-        f"<div class='chart-card'><div class='chart-title'>Net worth trajectory</div>{nw_chart_html}</div>"
-        f"<div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div>{unrec_chart_html}</div>"
-        f"<div class='chart-card'><div class='chart-title'>Buyer advantage over time</div>{gap_chart_html}</div>"
+        detail_cards_html
+        + "<div class='chart-grid'>"
+        f"<div class='chart-card'><div class='chart-title'>Net worth trajectory</div><div class='chart-subtitle'>Uses the same buyer/renter series as the main dashboard.</div>{nw_chart_html}</div>"
+        f"<div class='chart-card'><div class='chart-title'>Cumulative ongoing costs</div><div class='chart-subtitle'>Buyer vs renter running non-recoverable costs.</div>{unrec_chart_html}</div>"
+        f"<div class='chart-card'><div class='chart-title'>Buyer advantage over time</div><div class='chart-subtitle'>Positive values favour buying; negative values favour renting.</div>{gap_chart_html}</div>"
+        f"<div class='chart-card'><div class='chart-title'>Buyer net-worth distribution</div><div class='chart-subtitle'>Median with 5th–95th percentile band when Monte Carlo data is available.</div>{buyer_band_chart_html}</div>"
+        f"<div class='chart-card'><div class='chart-title'>Renter net-worth distribution</div><div class='chart-subtitle'>Median with 5th–95th percentile band when Monte Carlo data is available.</div>{renter_band_chart_html}</div>"
+        f"<div class='chart-card full-span'><div class='chart-title'>Buyer home equity trend</div><div class='chart-subtitle'>Tracks principal buildup plus home-price appreciation effects over time.</div>{equity_chart_html}</div>"
         "</div>"
-        f"<table><thead><tr><th>Milestone</th><th>Buyer NW</th><th>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th>Buyer Costs</th><th>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>"
+        f"<table><thead><tr><th>Milestone</th><th class='th-buy'>Buyer NW</th><th class='th-rent'>Renter NW</th><th>Home Equity</th><th>Buyer Advantage</th><th class='th-buy'>Buyer Costs</th><th class='th-rent'>Renter Costs</th></tr></thead><tbody>{milestone_rows}</tbody></table>"
     )
 
 

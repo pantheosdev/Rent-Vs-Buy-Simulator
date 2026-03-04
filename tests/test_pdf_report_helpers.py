@@ -11,6 +11,7 @@ from rbv.ui.pdf_report import _PDF_CSS, _compact_input_rows, _fmt_input_pct, _ti
 def test_fmt_input_pct_supports_fraction_and_percent_inputs():
     assert _fmt_input_pct(0.05) == "5.00%"
     assert _fmt_input_pct(5.0) == "5.00%"
+    assert _fmt_input_pct(1.0) == "1.00%"
 
 
 def test_compact_input_rows_supports_live_session_aliases():
