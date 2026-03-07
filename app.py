@@ -1764,12 +1764,12 @@ def _rbv_build_pdf_report_bytes(df: pd.DataFrame, close_cash=None, m_pmt=None, w
         )
         if isinstance(pdf_bytes, (bytes, bytearray)) and len(pdf_bytes) > 0:
             return bytes(pdf_bytes), None
-    except (ImportError, RuntimeError, TypeError, ValueError) as _e:
+    except (ImportError, RuntimeError, TypeError, ValueError, OSError) as _e:
         _rich_pdf_err = f"Rich PDF renderer failed: {_e}"
 
     try:
         from weasyprint import HTML
-    except (ImportError, ModuleNotFoundError) as e:
+    except (ImportError, ModuleNotFoundError, OSError) as e:
         return None, f"PDF export unavailable (WeasyPrint import failed: {e})"
 
     summary_rows = [
