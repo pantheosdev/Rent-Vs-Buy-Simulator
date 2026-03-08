@@ -114,7 +114,7 @@ def try_build_rich_pdf(
         if isinstance(pdf_bytes, (bytes, bytearray)) and len(pdf_bytes) > 0:
             return bytes(pdf_bytes), None
         return None, "Rich PDF renderer returned no data."
-    except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+    except (ImportError, RuntimeError, TypeError, ValueError, OSError) as exc:
         return None, f"Rich PDF renderer failed: {exc}"
 
 

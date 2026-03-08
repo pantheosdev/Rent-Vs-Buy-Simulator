@@ -1,4 +1,4 @@
-import re
+﻿import re
 from pathlib import Path
 
 import pandas as pd
@@ -68,5 +68,6 @@ def test_build_pdf_report_html_snapshot(monkeypatch):
 
     html = _normalize_html(captured["html"] or "")
     snap_path = Path("tests/snapshots/pdf_report_html_snapshot.txt")
-    expected = snap_path.read_text().strip()
+    expected = snap_path.read_text(encoding='utf-8').strip()
     assert html == expected
+
