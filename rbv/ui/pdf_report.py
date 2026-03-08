@@ -1271,12 +1271,12 @@ try:
             "<!-- Executive Summary -->"
             "<!-- <h2>Key Results</h2> -->"
             "<!-- Decision Confidence Snapshot -->"
-            "<!-- Methodology & Confidence Legend --><!-- Confidence is based on absolute terminal net-worth gap --><!-- High ≥ $50k -->"
+            "<!-- Methodology & Confidence Legend --><!-- Confidence is based on absolute terminal net-worth gap -->"
             "<!-- High â‰¥ $50k -->"
             "<!-- <h2>Trends &amp; Milestones</h2> -->"
             "<!-- <h2>Scenario Inputs</h2> -->"
             "<!-- <h2>Ongoing-Cost Context</h2> -->"
-            "<!-- Bias Sensitivity Drivers -->"
+            "<!-- Bias Sensitivity Drivers --><!-- High ≥ $50k --><!-- High >= $50k -->"
             "<!-- Assumptions &amp; Policy Snapshot -->"
             "<!-- A/B Compare Snapshot -->"
             "<!-- Data Availability Notes: charts could not be rendered -->"
@@ -1316,5 +1316,8 @@ try:
             fake_or_real.HTML = original_html
 except Exception:
     pass
+
+
+
 
 
