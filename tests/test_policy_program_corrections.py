@@ -12,7 +12,6 @@ from rbv.core.policy_canada import (
     toronto_municipal_non_resident_tax_rate,
 )
 
-
 _BASE_CFG = {
     "years": 5,
     "price": 700_000.0,
@@ -89,9 +88,15 @@ def test_ontario_nrst_rate_changes_on_2022_10_25() -> None:
 
 
 def test_toronto_mnrst_applies_from_2025_01_01() -> None:
-    assert toronto_municipal_non_resident_tax_rate("Ontario", toronto_property=True, asof_date=dt.date(2024, 12, 31)) == pytest.approx(0.0)
-    assert toronto_municipal_non_resident_tax_rate("Ontario", toronto_property=True, asof_date=dt.date(2025, 1, 1)) == pytest.approx(0.10)
-    assert foreign_buyer_tax_amount(1_000_000.0, "Ontario", dt.date(2025, 1, 15), toronto_property=True) == pytest.approx(350_000.0)
+    assert toronto_municipal_non_resident_tax_rate(
+        "Ontario", toronto_property=True, asof_date=dt.date(2024, 12, 31)
+    ) == pytest.approx(0.0)
+    assert toronto_municipal_non_resident_tax_rate(
+        "Ontario", toronto_property=True, asof_date=dt.date(2025, 1, 1)
+    ) == pytest.approx(0.10)
+    assert foreign_buyer_tax_amount(
+        1_000_000.0, "Ontario", dt.date(2025, 1, 15), toronto_property=True
+    ) == pytest.approx(350_000.0)
 
 
 def test_hbp_grace_years_temp_relief_window() -> None:
@@ -102,37 +107,43 @@ def test_hbp_grace_years_temp_relief_window() -> None:
 
 
 def test_engine_hbp_limit_and_repayment_start_are_asof_date_aware() -> None:
-    df_old, _, _, _ = _run({
-        "asof_date": "2024-01-01",
-        "hbp_enabled": True,
-        "hbp_withdrawal": 60_000.0,
-        "first_time": True,
-    })
+    df_old, _, _, _ = _run(
+        {
+            "asof_date": "2024-01-01",
+            "hbp_enabled": True,
+            "hbp_withdrawal": 60_000.0,
+            "first_time": True,
+        }
+    )
     assert df_old.attrs["phase_d_hbp_withdrawal"] == pytest.approx(35_000.0)
     assert df_old.attrs["phase_d_hbp_repayment_start_month"] == 61
 
-    df_new, _, _, _ = _run({
-        "asof_date": "2026-01-01",
-        "hbp_enabled": True,
-        "hbp_withdrawal": 60_000.0,
-        "first_time": True,
-    })
+    df_new, _, _, _ = _run(
+        {
+            "asof_date": "2026-01-01",
+            "hbp_enabled": True,
+            "hbp_withdrawal": 60_000.0,
+            "first_time": True,
+        }
+    )
     assert df_new.attrs["phase_d_hbp_withdrawal"] == pytest.approx(60_000.0)
     assert df_new.attrs["phase_d_hbp_repayment_start_month"] == 25
 
 
 def test_engine_hbp_and_fhsa_require_first_time_buyer_flag() -> None:
-    df, _, _, _ = _run({
-        "asof_date": "2026-01-01",
-        "first_time": False,
-        "hbp_enabled": True,
-        "hbp_withdrawal": 60_000.0,
-        "fhsa_enabled": True,
-        "fhsa_annual_contribution": 8_000.0,
-        "fhsa_years_contributed": 5,
-        "fhsa_return_pct": 5.0,
-        "fhsa_marginal_tax_rate_pct": 40.0,
-    })
+    df, _, _, _ = _run(
+        {
+            "asof_date": "2026-01-01",
+            "first_time": False,
+            "hbp_enabled": True,
+            "hbp_withdrawal": 60_000.0,
+            "fhsa_enabled": True,
+            "fhsa_annual_contribution": 8_000.0,
+            "fhsa_years_contributed": 5,
+            "fhsa_return_pct": 5.0,
+            "fhsa_marginal_tax_rate_pct": 40.0,
+        }
+    )
     assert df.attrs["phase_d_hbp_eligible"] is False
     assert df.attrs["phase_d_hbp_withdrawal"] == pytest.approx(0.0)
     assert df.attrs["phase_d_fhsa_eligible"] is False
@@ -141,15 +152,17 @@ def test_engine_hbp_and_fhsa_require_first_time_buyer_flag() -> None:
 
 
 def test_engine_foreign_buyer_tax_attrs_include_toronto_municipal_component() -> None:
-    df, close_cash, _, _ = _run({
-        "price": 1_000_000.0,
-        "down": 200_000.0,
-        "mort": 800_000.0,
-        "province": "Ontario",
-        "toronto": True,
-        "is_foreign_buyer": True,
-        "asof_date": "2025-01-15",
-    })
+    df, close_cash, _, _ = _run(
+        {
+            "price": 1_000_000.0,
+            "down": 200_000.0,
+            "mort": 800_000.0,
+            "province": "Ontario",
+            "toronto": True,
+            "is_foreign_buyer": True,
+            "asof_date": "2025-01-15",
+        }
+    )
     assert df.attrs["phase_d_foreign_buyer_tax_provincial"] == pytest.approx(250_000.0)
     assert df.attrs["phase_d_foreign_buyer_tax_municipal"] == pytest.approx(100_000.0)
     assert df.attrs["phase_d_foreign_buyer_tax"] == pytest.approx(350_000.0)
