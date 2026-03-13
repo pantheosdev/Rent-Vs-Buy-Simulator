@@ -222,7 +222,7 @@ def foreign_buyer_tax_rate(province: str, asof_date: dt.date | None = None) -> f
     Ontario: Non-Resident Speculation Tax (NRST)
       - 2017-04-21: introduced at 15%
       - 2022-03-30: raised to 20%
-      - 2023-03-29: raised to 25%
+      - 2022-10-25: raised to 25%
 
     All other provinces: 0% (not modeled).
 
@@ -263,7 +263,7 @@ def foreign_buyer_tax_rate(province: str, asof_date: dt.date | None = None) -> f
         return 0.0
 
     if prov == "ontario":
-        if d >= dt.date(2023, 3, 29):
+        if d >= dt.date(2022, 10, 25):
             return 0.25
         if d >= dt.date(2022, 3, 30):
             return 0.20
@@ -274,23 +274,55 @@ def foreign_buyer_tax_rate(province: str, asof_date: dt.date | None = None) -> f
     return 0.0
 
 
-def foreign_buyer_tax_amount(price: float, province: str, asof_date: dt.date | None = None) -> float:
-    """Compute the foreign buyer additional tax on a purchase.
+def toronto_municipal_non_resident_tax_rate(
+    province: str,
+    *,
+    toronto_property: bool = False,
+    asof_date: dt.date | None = None,
+) -> float:
+    """Municipal Non-Resident Speculation Tax (MNRST) rate for Toronto.
 
-    Args:
-        price: Purchase price in dollars.
-        province: Province name (full name or two-letter code).
-        asof_date: As-of date for the applicable rate.
+    The City of Toronto introduced a 10% Municipal Non-Resident Speculation
+    Tax effective 2025-01-01 for certain Toronto residential purchases by
+    foreign buyers. The model only applies it when the property is explicitly
+    marked as being in Toronto and the province is Ontario.
+    """
+    if not bool(toronto_property):
+        return 0.0
+    d = _coerce_date(asof_date)
+    prov_raw = (province or "").strip().lower()
+    prov = {"on": "ontario"}.get(prov_raw, prov_raw)
+    if prov != "ontario":
+        return 0.0
+    return 0.10 if d >= dt.date(2025, 1, 1) else 0.0
 
-    Returns:
-        Tax amount in dollars.
+
+
+
+def foreign_buyer_tax_amount(
+    price: float,
+    province: str,
+    asof_date: dt.date | None = None,
+    *,
+    toronto_property: bool = False,
+) -> float:
+    """Compute modeled foreign-buyer additional taxes on a purchase.
+
+    Includes provincial foreign-buyer/speculation taxes where modeled and, for
+    Toronto properties, the municipal non-resident speculation tax from
+    2025-01-01 onward.
     """
     try:
         p = max(0.0, float(price))
     except Exception:
         p = 0.0
-    rate = foreign_buyer_tax_rate(province, asof_date)
-    return p * rate
+    provincial_rate = foreign_buyer_tax_rate(province, asof_date)
+    municipal_rate = toronto_municipal_non_resident_tax_rate(
+        province,
+        toronto_property=toronto_property,
+        asof_date=asof_date,
+    )
+    return p * (provincial_rate + municipal_rate)
 
 
 def mortgage_default_insurance_sales_tax_rate(province: str, asof_date: dt.date) -> float:

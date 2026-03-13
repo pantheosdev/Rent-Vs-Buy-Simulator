@@ -3640,7 +3640,7 @@ try:
 except Exception:
     pass
 
-taxrow = st.columns([0.95, 0.75, 0.75, 1.05])
+taxrow = st.columns([0.95, 0.72, 0.72, 1.16])
 with taxrow[0]:
     _prov_raw = str(vals.get("province", "Ontario") or "Ontario")
     _prov = _prov_raw if _prov_raw in PROVINCES else "Ontario"
@@ -3672,7 +3672,7 @@ with taxrow[2]:
         toronto = False
         st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
 with taxrow[3]:
-    # Foreign buyer tax toggle (BC APTT / Ontario NRST)
+    # Foreign buyer tax toggle (BC APTT / Ontario NRST / Toronto MNRST)
     _fb_provinces = ("British Columbia", "Ontario")
     if str(province) in _fb_provinces:
         is_foreign_buyer = rbv_checkbox(
@@ -3680,18 +3680,38 @@ with taxrow[3]:
             tooltip=(
                 "BC: Additional Property Transfer Tax (APTT) 20% of purchase price. "
                 "Ontario: Non-Resident Speculation Tax (NRST) 25% of purchase price. "
+                "Toronto residential properties also add Municipal NRST 10% from 2025-01-01. "
                 "Added to one-time closing costs."
             ),
             value=bool(vals.get("is_foreign_buyer", False)),
             key="is_foreign_buyer",
         )
         if is_foreign_buyer:
-            _fb_pct = 0.20 if str(province) == "British Columbia" else 0.25
-            _fb_label = "BC APTT 20%" if str(province) == "British Columbia" else "ON NRST 25%"
+            if str(province) == "British Columbia":
+                _fb_pct = 0.20
+                _fb_label = "BC APTT 20%"
+            else:
+                _fb_pct = 0.35 if bool(toronto) else 0.25
+                _fb_label = "ON NRST 25% + Toronto MNRST 10%" if bool(toronto) else "ON NRST 25%"
             sidebar_hint(f"{_fb_label} · ≈ ${price * _fb_pct:,.0f} on ${price:,.0f} purchase")
     else:
         is_foreign_buyer = False
         st.markdown('<div style="height:34px"></div>', unsafe_allow_html=True)
+
+policyrow = st.columns([0.9, 3.0])
+with policyrow[0]:
+    new_construction = rbv_checkbox(
+        "New construction",
+        tooltip=(
+            "Used for insured 30-year amortization eligibility in some policy windows. "
+            "Does not change transfer tax or closing-cost rules directly."
+        ),
+        value=bool(vals.get("new_construction", False)),
+        key="new_construction",
+    )
+with policyrow[1]:
+    if bool(new_construction):
+        sidebar_hint("New construction flag is active for insured-amortization eligibility checks.")
 
 
 # Province-specific transfer tax inputs (only shown when relevant).
@@ -3768,11 +3788,18 @@ with _prog_row[2]:
 # --- RRSP Home Buyers' Plan (HBP) sub-options ---
 hbp_withdrawal = 0.0
 if hbp_enabled:
+    from rbv.core.government_programs import hbp_grace_years as _hbp_grace_fn
     from rbv.core.government_programs import hbp_max_withdrawal as _hbp_max_fn
-    _hbp_limit = _hbp_max_fn(datetime.date.today())
+    _hbp_asof_raw = st.session_state.get("tax_rules_asof", datetime.date.today().isoformat())
+    try:
+        _hbp_asof = _hbp_asof_raw if hasattr(_hbp_asof_raw, "year") else datetime.date.fromisoformat(str(_hbp_asof_raw)[:10])
+    except Exception:
+        _hbp_asof = datetime.date.today()
+    _hbp_limit = _hbp_max_fn(_hbp_asof)
+    _hbp_grace = _hbp_grace_fn(_hbp_asof)
     hbp_withdrawal = rbv_number_input(
         "HBP withdrawal ($)",
-        tooltip=f"Amount withdrawn from RRSP under HBP (max ${_hbp_limit:,.0f} per person as of purchase date). Adds to down payment and creates a 15-year repayment obligation.",
+        tooltip=f"Amount withdrawn from RRSP under HBP (max ${_hbp_limit:,.0f} per person as of purchase date). First-time buyer eligibility is required. Repayment starts after {_hbp_grace} years under the modeled policy schedule and runs for 15 years.",
         min_value=0.0,
         max_value=float(_hbp_limit),
         value=float(min(vals.get("hbp_withdrawal", min(35_000.0, _hbp_limit)), _hbp_limit)),
@@ -4412,6 +4439,8 @@ def _build_cfg():
         "discount_rate": float(discount_rate),
         "tax_r": float(tax_r),
         "province": str(province),
+        "first_time": bool(first_time),
+        "new_construction": bool(st.session_state.get("new_construction", False)),
 
         "use_volatility": bool(use_volatility),
         "num_sims": int(num_sims),

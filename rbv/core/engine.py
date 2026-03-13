@@ -10,7 +10,13 @@ import warnings as _warnings
 import numpy as np
 import pandas as pd
 
-from .government_programs import fhsa_balance, fhsa_tax_savings, hbp_repayment_monthly_schedule
+from .government_programs import (
+    fhsa_balance,
+    fhsa_tax_savings,
+    hbp_grace_years,
+    hbp_max_withdrawal,
+    hbp_repayment_monthly_schedule,
+)
 from .mortgage import (
     _annual_nominal_pct_to_monthly_rate,
     _monthly_rate_to_annual_nominal_pct,
@@ -19,7 +25,9 @@ from .mortgage import (
 from .policy_canada import (
     cmhc_premium_rate_from_ltv,
     foreign_buyer_tax_amount,
+    foreign_buyer_tax_rate,
     insured_mortgage_price_cap,
+    toronto_municipal_non_resident_tax_rate,
     min_down_payment_canada,
     mortgage_default_insurance_sales_tax_rate,
 )
@@ -41,6 +49,21 @@ def _i(x, default=0):
         return int(default)
 
 
+
+def _cfg_asof_date(cfg, default_today: bool = True):
+    raw = cfg.get("asof_date", None)
+    if raw:
+        try:
+            if hasattr(raw, "year"):
+                return raw
+            import datetime as _dt
+            return _dt.date.fromisoformat(str(raw)[:10])
+        except Exception:
+            pass
+    if default_today:
+        import datetime as _dt
+        return _dt.date.today()
+    return None
 
 
 def _clamp_monthly_rate(mr: float) -> float:
@@ -2072,20 +2095,9 @@ def run_simulation_core(
 
         # Mortgage loan insurance (CMHC / other insurer proxies).
         # We key eligibility rules off an as-of date so results remain auditable over time.
-        _asof_raw = _overrides.get("asof_date", cfg.get("asof_date", None))
-        asof_date = None
-        if _asof_raw:
-            try:
-                if hasattr(_asof_raw, "year"):
-                    asof_date = _asof_raw
-                else:
-                    import datetime as _dt
-                    asof_date = _dt.date.fromisoformat(str(_asof_raw)[:10])
-            except Exception:
-                asof_date = None
-        if asof_date is None:
-            import datetime as _dt
-            asof_date = _dt.date.today()
+        _cfg_date_source = dict(cfg)
+        _cfg_date_source.update(_overrides)
+        asof_date = _cfg_asof_date(_cfg_date_source, default_today=True)
 
         price_cap = insured_mortgage_price_cap(asof_date)
         min_down = min_down_payment_canada(float(price_use), asof_date)
@@ -2204,39 +2216,47 @@ def run_simulation_core(
 
     # --- Phase D: Government Programs & Penalties ---
 
-    # Foreign buyer tax (BC APTT / Ontario NRST)
+    # Foreign buyer tax (BC APTT / Ontario NRST / Toronto MNRST)
     is_foreign_buyer = bool(cfg.get("is_foreign_buyer", False))
+    first_time_buyer = bool(cfg.get("first_time", cfg.get("first_time_buyer", True)))
+    new_construction = bool(cfg.get("new_construction", cfg.get("new_build", False)))
+    _policy_asof = _cfg_asof_date(cfg, default_today=True)
     _fb_tax_amount = 0.0
+    _fb_tax_provincial = 0.0
+    _fb_tax_municipal = 0.0
     if is_foreign_buyer:
         _fb_province = str(cfg.get("province", "") or "").strip()
-        _fb_asof = None
-        _asof_raw2 = cfg.get("asof_date", None)
-        if _asof_raw2:
-            try:
-                import datetime as _dt2
-                _fb_asof = _asof_raw2 if hasattr(_asof_raw2, "year") else _dt2.date.fromisoformat(str(_asof_raw2)[:10])
-            except Exception:
-                pass
-        _fb_tax_amount = foreign_buyer_tax_amount(price_use, _fb_province, _fb_asof)
+        _fb_toronto = bool(cfg.get("toronto", False))
+        _fb_tax_provincial = float(price_use) * float(foreign_buyer_tax_rate(_fb_province, _policy_asof))
+        _fb_tax_municipal = float(price_use) * float(
+            toronto_municipal_non_resident_tax_rate(
+                _fb_province,
+                toronto_property=_fb_toronto,
+                asof_date=_policy_asof,
+            )
+        )
+        _fb_tax_amount = _fb_tax_provincial + _fb_tax_municipal
 
     # RRSP Home Buyers' Plan (HBP)
-    hbp_enabled = bool(cfg.get("hbp_enabled", False))
+    hbp_enabled = bool(cfg.get("hbp_enabled", False)) and bool(first_time_buyer)
     hbp_withdrawal = 0.0
     hbp_monthly_cost = 0.0
     hbp_repayment_start_month = 0
     hbp_repayment_end_month = 0
     if hbp_enabled:
-        _hbp_max = _f(cfg.get("hbp_max_withdrawal", 60_000.0), 60_000.0)
+        _hbp_limit_default = hbp_max_withdrawal(_policy_asof)
+        _hbp_max = _f(cfg.get("hbp_max_withdrawal", _hbp_limit_default), _hbp_limit_default)
         hbp_withdrawal = min(max(0.0, _f(cfg.get("hbp_withdrawal", 0.0), 0.0)), _hbp_max)
         if hbp_withdrawal > 0:
-            from .government_programs import HBP_GRACE_YEARS, HBP_REPAYMENT_YEARS, hbp_monthly_repayment
+            from .government_programs import HBP_REPAYMENT_YEARS, hbp_monthly_repayment
             hbp_monthly_cost = hbp_monthly_repayment(hbp_withdrawal)
-            _grace = max(0, _i(cfg.get("hbp_grace_years", HBP_GRACE_YEARS), HBP_GRACE_YEARS))
+            _grace_default = hbp_grace_years(_policy_asof)
+            _grace = max(0, _i(cfg.get("hbp_grace_years", _grace_default), _grace_default))
             hbp_repayment_start_month = _grace * 12 + 1
             hbp_repayment_end_month = (_grace + HBP_REPAYMENT_YEARS) * 12
 
     # FHSA (First Home Savings Account)
-    fhsa_enabled = bool(cfg.get("fhsa_enabled", False))
+    fhsa_enabled = bool(cfg.get("fhsa_enabled", False)) and bool(first_time_buyer)
     fhsa_supplement = 0.0
     fhsa_tax_saving = 0.0
     if fhsa_enabled:
@@ -2244,16 +2264,8 @@ def run_simulation_core(
         _fhsa_years = _i(cfg.get("fhsa_years_contributed", 0), 0)
         _fhsa_ret = _f(cfg.get("fhsa_return_pct", 5.0), 5.0)
         _fhsa_mtr = _f(cfg.get("fhsa_marginal_tax_rate_pct", 40.0), 40.0)
-        _fhsa_asof = None
-        _asof_raw3 = cfg.get("asof_date", None)
-        if _asof_raw3:
-            try:
-                import datetime as _dt3
-                _fhsa_asof = _asof_raw3 if hasattr(_asof_raw3, "year") else _dt3.date.fromisoformat(str(_asof_raw3)[:10])
-            except Exception:
-                pass
         fhsa_supplement, _fhsa_cumulative = fhsa_balance(
-            _fhsa_contrib, _fhsa_years, _fhsa_ret, asof_date=_fhsa_asof
+            _fhsa_contrib, _fhsa_years, _fhsa_ret, asof_date=_policy_asof
         )
         fhsa_tax_saving = fhsa_tax_savings(_fhsa_cumulative, _fhsa_mtr)
 
@@ -2267,17 +2279,7 @@ def run_simulation_core(
         loan_use = max(price_use - down_use, 0.0)
         ltv_use = (loan_use / price_use) if price_use > 0 else 0.0
         # Re-check CMHC eligibility with new LTV
-        _asof_hbp = None
-        _asof_raw4 = cfg.get("asof_date", None)
-        if _asof_raw4:
-            try:
-                import datetime as _dt4
-                _asof_hbp = _asof_raw4 if hasattr(_asof_raw4, "year") else _dt4.date.fromisoformat(str(_asof_raw4)[:10])
-            except Exception:
-                pass
-        if _asof_hbp is None:
-            import datetime as _dt5
-            _asof_hbp = _dt5.date.today()
+        _asof_hbp = _policy_asof
         _price_cap_hbp = insured_mortgage_price_cap(_asof_hbp)
         _min_down_hbp = min_down_payment_canada(price_use, _asof_hbp)
         _cmhc_elig = (price_use > 0) and (ltv_use > 0.8) and (price_use < _price_cap_hbp) and (down_use + 1e-9 >= _min_down_hbp)
@@ -2308,7 +2310,7 @@ def run_simulation_core(
     # IRD prepayment penalty
     ird_enabled = bool(cfg.get("ird_enabled", False))
     prepayment_penalty_amount = 0.0
-    if ird_enabled and mort_use > 0:
+    if ird_enabled and assume_sale_end and mort_use > 0:
         _mort_term_months = _i(cfg.get("mortgage_term_months", 60), 60)
         _sim_months = years * 12
         if _sim_months < _mort_term_months:
@@ -2680,8 +2682,14 @@ def run_simulation_core(
     # Attach Phase D metadata to df for UI consumption
     try:
         df.attrs["phase_d_foreign_buyer_tax"] = float(_fb_tax_amount)
+        df.attrs["phase_d_foreign_buyer_tax_provincial"] = float(_fb_tax_provincial)
+        df.attrs["phase_d_foreign_buyer_tax_municipal"] = float(_fb_tax_municipal)
+        df.attrs["phase_d_hbp_eligible"] = bool(hbp_enabled)
         df.attrs["phase_d_hbp_withdrawal"] = float(hbp_withdrawal)
         df.attrs["phase_d_hbp_monthly_cost"] = float(hbp_monthly_cost)
+        df.attrs["phase_d_hbp_repayment_start_month"] = int(hbp_repayment_start_month)
+        df.attrs["phase_d_hbp_repayment_end_month"] = int(hbp_repayment_end_month)
+        df.attrs["phase_d_fhsa_eligible"] = bool(fhsa_enabled)
         df.attrs["phase_d_fhsa_supplement"] = float(fhsa_supplement)
         df.attrs["phase_d_fhsa_tax_saving"] = float(fhsa_tax_saving)
         df.attrs["phase_d_ird_penalty"] = float(prepayment_penalty_amount)

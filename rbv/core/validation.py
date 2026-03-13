@@ -152,6 +152,11 @@ def get_validation_warnings(cfg: dict) -> List[str]:
                 f"Requested amortization of {amort_years:.1f} years exceeds the maximum insured amortization of {max_insured} years for your buyer profile."
             )
 
+    if bool(cfg.get("hbp_enabled", False)) and not ftb:
+        warnings.append("RRSP Home Buyers' Plan is enabled but the scenario is not marked as first-time buyer eligible.")
+    if bool(cfg.get("fhsa_enabled", False)) and not ftb:
+        warnings.append("FHSA is enabled but the scenario is not marked as first-time buyer eligible.")
+
     return warnings
 
 

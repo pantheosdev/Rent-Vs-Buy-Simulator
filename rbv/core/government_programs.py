@@ -28,10 +28,17 @@ _HBP_LIMIT_SCHEDULE = [
 #: Repayment window (years). 15-year schedule mandated by CRA.
 HBP_REPAYMENT_YEARS = 15
 
-#: Repayment grace period (years before first required repayment). The HBP
-#: withdrawal year and the following year do not require a repayment; the
+#: Standard repayment grace period (years before first required repayment).
+#: The withdrawal year and the following year do not require repayment; the
 #: first required repayment is in the *second* year after the withdrawal year.
 HBP_GRACE_YEARS = 2
+
+#: Temporary repayment relief grace period for participants making a first
+#: withdrawal between 2022-01-01 and 2025-12-31. CRA states the 15-year
+#: repayment period starts in the fifth year following the withdrawal year.
+HBP_TEMP_RELIEF_GRACE_YEARS = 5
+HBP_TEMP_RELIEF_START_DATE = dt.date(2022, 1, 1)
+HBP_TEMP_RELIEF_END_DATE = dt.date(2025, 12, 31)
 
 
 def hbp_max_withdrawal(asof_date: dt.date | None = None) -> float:
@@ -49,6 +56,20 @@ def hbp_max_withdrawal(asof_date: dt.date | None = None) -> float:
         if asof_date >= cutoff:
             return limit
     return 35_000.0
+
+
+def hbp_grace_years(asof_date: dt.date | None = None) -> int:
+    """Return the modeled HBP grace period for the given first-withdrawal date.
+
+    CRA provides temporary relief for participants making a first withdrawal
+    from 2022-01-01 through 2025-12-31 inclusive. During that window the
+    15-year repayment period starts in the fifth year following the withdrawal
+    year instead of the standard second year.
+    """
+    d = asof_date if isinstance(asof_date, dt.date) else dt.date.today()
+    if HBP_TEMP_RELIEF_START_DATE <= d <= HBP_TEMP_RELIEF_END_DATE:
+        return HBP_TEMP_RELIEF_GRACE_YEARS
+    return HBP_GRACE_YEARS
 
 
 def hbp_annual_repayment(withdrawal: float) -> float:
