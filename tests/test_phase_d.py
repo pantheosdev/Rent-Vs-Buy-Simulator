@@ -366,18 +366,26 @@ class TestEnginePhaseD:
         # (so values should be approximately equal when horizon == term)
         assert b_ird == pytest.approx(b_base, rel=1e-5)
 
-    def test_ird_penalty_when_horizon_shorter_than_term(self):
-        """When sim horizon < term, IRD penalty reduces buyer NW."""
-        df_base, _, _ = _run({"years": 3})
-        df_ird, _, _ = _run({
+    def test_ird_penalty_when_horizon_shorter_than_term_requires_sale(self):
+        """IRD penalty should apply only when the modeled scenario actually sells at horizon."""
+        df_base, _, _ = _run({"years": 3, "assume_sale_end": False})
+        df_ird_no_sale, _, _ = _run({
             "years": 3,
+            "assume_sale_end": False,
             "ird_enabled": True,
-            "mortgage_term_months": 60,  # 5-year term, sell at year 3
+            "mortgage_term_months": 60,
             "ird_rate_drop_pp": 1.5,
         })
-        b_base = df_base.iloc[-1]["Buyer Net Worth"]
-        b_ird = df_ird.iloc[-1]["Buyer Net Worth"]
-        assert b_ird < b_base  # IRD penalty reduces buyer NW
+        assert df_ird_no_sale.iloc[-1]["Buyer Net Worth"] == pytest.approx(df_base.iloc[-1]["Buyer Net Worth"], rel=1e-8)
+
+        df_ird_sale, _, _ = _run({
+            "years": 3,
+            "assume_sale_end": True,
+            "ird_enabled": True,
+            "mortgage_term_months": 60,
+            "ird_rate_drop_pp": 1.5,
+        })
+        assert df_ird_sale.iloc[-1]["Buyer Net Worth"] < df_base.iloc[-1]["Buyer Net Worth"]
 
     def test_phase_d_attrs_present(self):
         """Engine should attach Phase D metadata to df.attrs."""

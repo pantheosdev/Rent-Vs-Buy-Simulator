@@ -10,7 +10,13 @@ import warnings as _warnings
 import numpy as np
 import pandas as pd
 
-from .government_programs import fhsa_balance, fhsa_tax_savings, hbp_repayment_monthly_schedule
+from .government_programs import (
+    fhsa_balance,
+    fhsa_tax_savings,
+    hbp_grace_years,
+    hbp_max_withdrawal,
+    hbp_repayment_monthly_schedule,
+)
 from .mortgage import (
     _annual_nominal_pct_to_monthly_rate,
     _monthly_rate_to_annual_nominal_pct,
@@ -19,9 +25,11 @@ from .mortgage import (
 from .policy_canada import (
     cmhc_premium_rate_from_ltv,
     foreign_buyer_tax_amount,
+    foreign_buyer_tax_rate,
     insured_mortgage_price_cap,
     min_down_payment_canada,
     mortgage_default_insurance_sales_tax_rate,
+    toronto_municipal_non_resident_tax_rate,
 )
 from .purchase_derivations import enrich_cfg_with_purchase_derivations
 from .validation import validate_simulation_params
@@ -41,6 +49,22 @@ def _i(x, default=0):
         return int(default)
 
 
+def _cfg_asof_date(cfg, default_today: bool = True):
+    raw = cfg.get("asof_date", None)
+    if raw:
+        try:
+            if hasattr(raw, "year"):
+                return raw
+            import datetime as _dt
+
+            return _dt.date.fromisoformat(str(raw)[:10])
+        except Exception:
+            pass
+    if default_today:
+        import datetime as _dt
+
+        return _dt.date.today()
+    return None
 
 
 def _clamp_monthly_rate(mr: float) -> float:
@@ -87,6 +111,7 @@ def _mortgage_payment(principal: float, mr: float, rem_months: int) -> float:
 
     return p * (r * pow_) / denom
 
+
 def _annual_effective_dec_to_monthly_log_mu(r_annual: float) -> float:
     """Convert an annual *effective* return (decimal, e.g., 0.06) into monthly log drift (mu).
 
@@ -102,12 +127,14 @@ def _annual_effective_dec_to_monthly_log_mu(r_annual: float) -> float:
         r = -0.999999
     return math.log1p(r) / 12.0
 
+
 def _annual_effective_pct_to_monthly_log_mu(pct_annual: float) -> float:
     """Annual effective % (e.g., 6.0) -> monthly log drift."""
     try:
         return _annual_effective_dec_to_monthly_log_mu(float(pct_annual) / 100.0)
     except Exception:
         return 0.0
+
 
 def _annual_effective_dec_to_monthly_eff(r_annual: float) -> float:
     """Annual *effective* rate (decimal) -> monthly effective rate (decimal)."""
@@ -134,12 +161,14 @@ def _normalize_percent_like_decimal(x, *, threshold: float = 1.0) -> float:
         return v / 100.0
     return v
 
+
 def _estimate_mc_mem_bytes(num_sims: int, months: int, arrays: int = 8, dtype_bytes: int = 4) -> int:
     """Rough memory estimate for vectorized MC path arrays."""
     try:
         return int(max(0, int(num_sims)) * max(0, int(months)) * int(arrays) * int(dtype_bytes))
     except Exception:
         return 0
+
 
 def _taxable_gain_after_reg_shelter(gain, basis, years, enabled, initial_room, annual_room):
     """Conservative registered-shelter approximation.
@@ -218,7 +247,6 @@ def _cg_tax_due(taxable_gain, eff_cg_rate, policy, threshold):
     except Exception:
         pass
     return tax
-
 
 
 def _run_monte_carlo_vectorized(
@@ -321,7 +349,6 @@ def _run_monte_carlo_vectorized(
     r_nw = np.full(num_sims, init_r, dtype=np.float64)
     b_nw = np.zeros(num_sims, dtype=np.float64)
 
-
     # If monthly surplus investing is OFF, we still track the monthly cost difference as cash (0% return)
     # so comparisons remain economically meaningful.
     r_cash = np.zeros(num_sims, dtype=np.float64)
@@ -354,7 +381,11 @@ def _run_monte_carlo_vectorized(
     c_r_util = float(r_util)
 
     # Track nominal annual rate across resets/shocks
-    cur_rate_nominal_pct = float(mort_rate_nominal_pct) if mort_rate_nominal_pct is not None else float(_monthly_rate_to_annual_nominal_pct(float(mr_init), bool(canadian_compounding)))
+    cur_rate_nominal_pct = (
+        float(mort_rate_nominal_pct)
+        if mort_rate_nominal_pct is not None
+        else float(_monthly_rate_to_annual_nominal_pct(float(mr_init), bool(canadian_compounding)))
+    )
     mr = float(mr_init)
     pmt = float(pmt_init)
     shock_was_active = False
@@ -370,9 +401,9 @@ def _run_monte_carlo_vectorized(
     ret_std_mo = float(ret_std) / math.sqrt(12.0) if ret_std else 0.0
     app_std_mo = float(apprec_std) / math.sqrt(12.0) if apprec_std else 0.0
 
-    buyer_mu = float(buyer_mo) - 0.5 * (ret_std_mo ** 2)
-    renter_mu = float(renter_mo) - 0.5 * (ret_std_mo ** 2)
-    home_mu = _annual_effective_dec_to_monthly_log_mu(float(apprec_annual_dec)) - 0.5 * (app_std_mo ** 2)
+    buyer_mu = float(buyer_mo) - 0.5 * (ret_std_mo**2)
+    renter_mu = float(renter_mo) - 0.5 * (ret_std_mo**2)
+    home_mu = _annual_effective_dec_to_monthly_log_mu(float(apprec_annual_dec)) - 0.5 * (app_std_mo**2)
 
     rng = np.random.default_rng(int(mc_seed)) if mc_seed is not None else np.random.default_rng()
 
@@ -477,7 +508,7 @@ def _run_monte_carlo_vectorized(
                 end_m = start_m + max(0, dur_m) - 1
             except (TypeError, ValueError):
                 start_m, end_m = 61, 120
-            shock_active = (start_m <= m <= end_m)
+            shock_active = start_m <= m <= end_m
 
         eff_nominal = float(cur_rate_nominal_pct) + (float(rate_shock_pp) if shock_active else 0.0)
         mr = _clamp_monthly_rate(float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding))))
@@ -496,7 +527,9 @@ def _run_monte_carlo_vectorized(
             cap_mo = (1.0 + float(inf_mo)) * (1.0 + float(addon_mo)) - 1.0
             target = c_home
             up = target >= tax_base
-            tax_base = np.where(up, np.minimum(tax_base * (1.0 + cap_mo), target), np.maximum(tax_base / (1.0 + cap_mo), target))
+            tax_base = np.where(
+                up, np.minimum(tax_base * (1.0 + cap_mo), target), np.maximum(tax_base / (1.0 + cap_mo), target)
+            )
 
         m_tax = tax_base * float(p_tax_rate) / 12.0
         m_maint = c_home * float(maint_rate) / 12.0
@@ -521,15 +554,30 @@ def _run_monte_carlo_vectorized(
 
         b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
         # HBP repayment (monthly obligation within repayment window)
-        _hbp_repay_det = float(hbp_monthly_cost) if (
-            float(hbp_monthly_cost) > 0
-            and int(hbp_repayment_start_month) > 0
-            and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
-        ) else 0.0
+        _hbp_repay_det = (
+            float(hbp_monthly_cost)
+            if (
+                float(hbp_monthly_cost) > 0
+                and int(hbp_repayment_start_month) > 0
+                and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
+            )
+            else 0.0
+        )
         b_out = b_pmt0 + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special + _hbp_repay_det
         # IRD is a sale cost; tracked in b_op but not in monthly cash flows.
         _ird_det = float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == months) else 0.0
-        b_op = float(inte) + m_tax + m_maint + m_repair + condo_paid + h_ins_paid + o_util_paid + m_special + _hbp_repay_det + _ird_det
+        b_op = (
+            float(inte)
+            + m_tax
+            + m_maint
+            + m_repair
+            + condo_paid
+            + h_ins_paid
+            + o_util_paid
+            + m_special
+            + _hbp_repay_det
+            + _ird_det
+        )
 
         # Renter outflows (deterministic)
         rent_paid = float(c_rent)
@@ -537,7 +585,9 @@ def _run_monte_carlo_vectorized(
         r_util_paid = float(c_r_util)
         skip_last_move = bool(assume_sale_end) and (m == months)
         m_moving = float(moving_cost) if (m == next_move and not skip_last_move) else 0.0
-        r_out = float(c_rent) + float(c_r_ins) + float(c_r_util) + float(m_moving)  # Total renter outflow (incl. moving)
+        r_out = (
+            float(c_rent) + float(c_r_ins) + float(c_r_util) + float(m_moving)
+        )  # Total renter outflow (incl. moving)
         if m == next_move:
             next_move += float(moving_freq) * 12.0
 
@@ -574,7 +624,9 @@ def _run_monte_carlo_vectorized(
                         # adjust basis proportionally
                         nz = have_ok > 0
                         if np.any(nz):
-                            b_basis[idx[nz]] = b_basis[idx[nz]] * np.maximum(0.0, (have_ok[nz] - need_ok[nz]) / have_ok[nz])
+                            b_basis[idx[nz]] = b_basis[idx[nz]] * np.maximum(
+                                0.0, (have_ok[nz] - need_ok[nz]) / have_ok[nz]
+                            )
                         b_nw[idx] = have_ok - need_ok
                     if np.any(~ok):
                         idx2 = np.flatnonzero(neg)[~ok]
@@ -650,11 +702,11 @@ def _run_monte_carlo_vectorized(
                 house_dd = float(np.clip(crisis_house_dd, 0.0, 0.95))
                 b_invested = b_nw - b_cash
                 r_invested = r_nw - r_cash
-                b_invested *= (1.0 - stock_dd)
-                r_invested *= (1.0 - stock_dd)
+                b_invested *= 1.0 - stock_dd
+                r_invested *= 1.0 - stock_dd
                 b_nw = b_invested + b_cash
                 r_nw = r_invested + r_cash
-                c_home *= (1.0 - house_dd)
+                c_home *= 1.0 - house_dd
 
         # Mortgage balance update
         if float(c_mort) > 0:
@@ -665,14 +717,16 @@ def _run_monte_carlo_vectorized(
         # Rent inflation (stepwise cadence when rent control frequency > 1)
         if rent_step_years <= 1:
             if (m % 12) == 0:
-                c_rent *= (1.0 + float(rent_inf_eff))
+                c_rent *= 1.0 + float(rent_inf_eff)
         else:
             if (m % (12 * rent_step_years)) == 0:
                 c_rent *= (1.0 + float(rent_inf_eff)) ** float(rent_step_years)
 
         # Exit costs at horizon
         exit_cost = (c_home * float(sell_cost)) if (assume_sale_end and m == months) else 0.0
-        exit_legal_fee = float(home_sale_legal_fee) if (assume_sale_end and m == months and home_sale_legal_fee is not None) else 0.0
+        exit_legal_fee = (
+            float(home_sale_legal_fee) if (assume_sale_end and m == months and home_sale_legal_fee is not None) else 0.0
+        )
 
         # Accumulate unrecoverable costs (match simulate_single order: update then report)
         cum_b_op += b_op
@@ -710,11 +764,11 @@ def _run_monte_carlo_vectorized(
             renter_unrec_vec[idx] = float(cum_r_op)
 
         # CPI inflation for deterministic fees (applied AFTER storing the month-m values)
-        c_condo *= (1.0 + (float(condo_inf_mo) if condo_inf_mo is not None else float(inf_mo)))
-        c_h_ins *= (1.0 + float(inf_mo))
-        c_o_util *= (1.0 + float(inf_mo))
-        c_r_ins *= (1.0 + float(inf_mo))
-        c_r_util *= (1.0 + float(inf_mo))
+        c_condo *= 1.0 + (float(condo_inf_mo) if condo_inf_mo is not None else float(inf_mo))
+        c_h_ins *= 1.0 + float(inf_mo)
+        c_o_util *= 1.0 + float(inf_mo)
+        c_r_ins *= 1.0 + float(inf_mo)
+        c_r_util *= 1.0 + float(inf_mo)
 
         # Progress
         if progress_cb is not None and ((m % prog_step == 0) or (m == months)):
@@ -759,14 +813,16 @@ def _run_monte_carlo_vectorized(
             b_med = float("nan")
             r_med = float("nan")
 
-        df = pd.DataFrame({
-            "Month": [int(months)],
-            "Year": [int(years)],
-            "Buyer Net Worth": [b_med],
-            "Renter Net Worth": [r_med],
-            "Buyer NW Mean": [b_mean],
-            "Renter NW Mean": [r_mean],
-        })
+        df = pd.DataFrame(
+            {
+                "Month": [int(months)],
+                "Year": [int(years)],
+                "Buyer Net Worth": [b_med],
+                "Renter Net Worth": [r_med],
+                "Buyer NW Mean": [b_mean],
+                "Renter NW Mean": [r_mean],
+            }
+        )
 
         # Optional after-tax liquidation view at horizon (summary-only)
         liq_win_pct = None
@@ -782,13 +838,19 @@ def _run_monte_carlo_vectorized(
                     eff_cg = 0.0
 
                 exit_cost_final = (c_home * float(sell_cost)) if bool(assume_sale_end) else 0.0
-                exit_legal_fee_final = float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
+                exit_legal_fee_final = (
+                    float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
+                )
 
                 b_gain = np.maximum(0.0, b_nw - b_basis)
                 r_gain = np.maximum(0.0, r_nw - r_basis)
 
-                b_taxable_gain = _taxable_gain_after_reg_shelter(b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
-                r_taxable_gain = _taxable_gain_after_reg_shelter(r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+                b_taxable_gain = _taxable_gain_after_reg_shelter(
+                    b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room
+                )
+                r_taxable_gain = _taxable_gain_after_reg_shelter(
+                    r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room
+                )
 
                 b_tax = _cg_tax_due(b_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
                 r_tax = _cg_tax_due(r_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
@@ -807,11 +869,19 @@ def _run_monte_carlo_vectorized(
                 home_tax_final = 0.0
                 if bool(assume_sale_end) and (not is_principal_residence) and eff_home_cg > 0.0:
                     home_acb = float(price) + float(close)  # purchase price + acquisition costs proxy
-                    home_proceeds_net = np.asarray(c_home, dtype=np.float64) - np.asarray(exit_cost_final, dtype=np.float64) - float(exit_legal_fee_final)
+                    home_proceeds_net = (
+                        np.asarray(c_home, dtype=np.float64)
+                        - np.asarray(exit_cost_final, dtype=np.float64)
+                        - float(exit_legal_fee_final)
+                    )
                     home_gain = np.maximum(0.0, home_proceeds_net - float(home_acb))
                     home_tax_final = _cg_tax_due(home_gain, eff_home_cg, cg_inclusion_policy, cg_inclusion_threshold)
 
-                home_cash = (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64)) if bool(assume_sale_end) else 0.0
+                home_cash = (
+                    (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64))
+                    if bool(assume_sale_end)
+                    else 0.0
+                )
 
                 b_liq_vals = (
                     np.asarray(home_cash, dtype=np.float64)
@@ -903,7 +973,6 @@ def _run_monte_carlo_vectorized(
     else:
         win_pct = None
 
-
     # Summary series
     buyer_nw_med = np.median(buyer_nw_paths, axis=0)
     renter_nw_med = np.median(renter_nw_paths, axis=0)
@@ -924,39 +993,41 @@ def _run_monte_carlo_vectorized(
     buy_pmt_med = np.median(buy_pmt_paths, axis=0)
     deficit_med = np.median(deficit_paths, axis=0)
 
-    df = pd.DataFrame({
-        "Month": np.arange(1, months + 1, dtype=int),
-        "Year": ((np.arange(1, months + 1, dtype=int) - 1) // 12 + 1),
-        "Buyer Net Worth": buyer_nw_med,
-        "Renter Net Worth": renter_nw_med,
-        "Buyer NW Mean": buyer_nw_mean,
-        "Renter NW Mean": renter_nw_mean,
-        "Buyer NW Low": buyer_nw_low,
-        "Buyer NW High": buyer_nw_high,
-        "Renter NW Low": renter_nw_low,
-        "Renter NW High": renter_nw_high,
-        "Buyer Unrecoverable": buyer_unrec_med,
-        "Renter Unrecoverable": renter_unrec_vec,
-        "Buyer Unrec Mean": buyer_unrec_mean,
-        "Renter Unrec Mean": renter_unrec_vec,
-        "Interest": interest_vec,
-        "Property Tax": prop_tax_med,
-        "Maintenance": maint_med,
-        "Repairs": repair_med,
-        "Special Assessment": sa_vec,
-        "Condo Fees": condo_vec,
-        "Home Insurance": hins_vec,
-        "Utilities": util_vec,
-        "Rent": rent_vec,
-        "Rent Insurance": rins_vec,
-        "Rent Utilities": rutil_vec,
-        "Moving": moving_vec,
-        "Buy Payment": buy_pmt_med,
-        "Rent Payment": rent_pmt_vec,
-        # Smooth recurring rent cost (excludes moving spikes). Useful for charts.
-        "Rent Cost (Recurring)": (rent_vec + rins_vec + rutil_vec),
-        "Deficit": deficit_med,
-    })
+    df = pd.DataFrame(
+        {
+            "Month": np.arange(1, months + 1, dtype=int),
+            "Year": ((np.arange(1, months + 1, dtype=int) - 1) // 12 + 1),
+            "Buyer Net Worth": buyer_nw_med,
+            "Renter Net Worth": renter_nw_med,
+            "Buyer NW Mean": buyer_nw_mean,
+            "Renter NW Mean": renter_nw_mean,
+            "Buyer NW Low": buyer_nw_low,
+            "Buyer NW High": buyer_nw_high,
+            "Renter NW Low": renter_nw_low,
+            "Renter NW High": renter_nw_high,
+            "Buyer Unrecoverable": buyer_unrec_med,
+            "Renter Unrecoverable": renter_unrec_vec,
+            "Buyer Unrec Mean": buyer_unrec_mean,
+            "Renter Unrec Mean": renter_unrec_vec,
+            "Interest": interest_vec,
+            "Property Tax": prop_tax_med,
+            "Maintenance": maint_med,
+            "Repairs": repair_med,
+            "Special Assessment": sa_vec,
+            "Condo Fees": condo_vec,
+            "Home Insurance": hins_vec,
+            "Utilities": util_vec,
+            "Rent": rent_vec,
+            "Rent Insurance": rins_vec,
+            "Rent Utilities": rutil_vec,
+            "Moving": moving_vec,
+            "Buy Payment": buy_pmt_med,
+            "Rent Payment": rent_pmt_vec,
+            # Smooth recurring rent cost (excludes moving spikes). Useful for charts.
+            "Rent Cost (Recurring)": (rent_vec + rins_vec + rutil_vec),
+            "Deficit": deficit_med,
+        }
+    )
 
     # Attach MC diagnostics for UI/debug (non-breaking; attrs are optional)
     try:
@@ -1015,18 +1086,63 @@ def _run_monte_carlo_vectorized(
         if bool(mc_degenerate):
             df_det = simulate_single(
                 years,
-                buyer_mo, renter_mo, apprec_annual_dec, mr_init, nm, pmt_init, down, close, mort, price, rent,
-                p_tax_rate, maint_rate, repair_rate, condo, h_ins, o_util, r_ins, r_util,
-                sell_cost, rent_inf_eff, rent_control_frequency_years, moving_cost, moving_freq, inf_mo,
-                0.0, 0.0,
-                invest_diff, rent_closing, mkt_corr,
-                rate_mode, rate_reset_years, rate_reset_to, rate_reset_step_pp,
-                rate_shock_enabled, rate_shock_start_year, rate_shock_duration_years, rate_shock_pp,
-                crisis_enabled, crisis_year, crisis_stock_dd, crisis_house_dd, crisis_duration_months,
-                budget_enabled, monthly_income, monthly_nonhousing, income_growth_pct, budget_allow_withdraw,
-                condo_inf_mo, assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
-                mort_rate_nominal_pct, canadian_compounding,
-                prop_tax_growth_model, prop_tax_hybrid_addon_pct,
+                buyer_mo,
+                renter_mo,
+                apprec_annual_dec,
+                mr_init,
+                nm,
+                pmt_init,
+                down,
+                close,
+                mort,
+                price,
+                rent,
+                p_tax_rate,
+                maint_rate,
+                repair_rate,
+                condo,
+                h_ins,
+                o_util,
+                r_ins,
+                r_util,
+                sell_cost,
+                rent_inf_eff,
+                rent_control_frequency_years,
+                moving_cost,
+                moving_freq,
+                inf_mo,
+                0.0,
+                0.0,
+                invest_diff,
+                rent_closing,
+                mkt_corr,
+                rate_mode,
+                rate_reset_years,
+                rate_reset_to,
+                rate_reset_step_pp,
+                rate_shock_enabled,
+                rate_shock_start_year,
+                rate_shock_duration_years,
+                rate_shock_pp,
+                crisis_enabled,
+                crisis_year,
+                crisis_stock_dd,
+                crisis_house_dd,
+                crisis_duration_months,
+                budget_enabled,
+                monthly_income,
+                monthly_nonhousing,
+                income_growth_pct,
+                budget_allow_withdraw,
+                condo_inf_mo,
+                assume_sale_end,
+                show_liquidation_view,
+                cg_tax_end,
+                home_sale_legal_fee,
+                mort_rate_nominal_pct,
+                canadian_compounding,
+                prop_tax_growth_model,
+                prop_tax_hybrid_addon_pct,
                 investment_tax_mode,
                 special_assessment_amount,
                 special_assessment_month,
@@ -1039,12 +1155,14 @@ def _run_monte_carlo_vectorized(
             b_ok = np.allclose(
                 df["Buyer Net Worth"].to_numpy(dtype=np.float64),
                 df_det["Buyer Net Worth"].to_numpy(dtype=np.float64),
-                rtol=1e-6, atol=1.0
+                rtol=1e-6,
+                atol=1.0,
             )
             r_ok = np.allclose(
                 df["Renter Net Worth"].to_numpy(dtype=np.float64),
                 df_det["Renter Net Worth"].to_numpy(dtype=np.float64),
-                rtol=1e-6, atol=1.0
+                rtol=1e-6,
+                atol=1.0,
             )
             det_ok = bool(b_ok and r_ok)
             df.attrs["mc_det_equiv_ok"] = det_ok
@@ -1075,14 +1193,20 @@ def _run_monte_carlo_vectorized(
 
             # Final-period exit costs/fees (only if selling at horizon)
             exit_cost_final = (c_home * float(sell_cost)) if bool(assume_sale_end) else 0.0
-            exit_legal_fee_final = float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
+            exit_legal_fee_final = (
+                float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
+            )
 
             # After-tax portfolios (principal residence assumed tax-free; portfolio CG taxed)
             b_gain = np.maximum(0.0, b_nw - b_basis)
             r_gain = np.maximum(0.0, r_nw - r_basis)
 
-            b_taxable_gain = _taxable_gain_after_reg_shelter(b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
-            r_taxable_gain = _taxable_gain_after_reg_shelter(r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+            b_taxable_gain = _taxable_gain_after_reg_shelter(
+                b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room
+            )
+            r_taxable_gain = _taxable_gain_after_reg_shelter(
+                r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room
+            )
 
             b_tax = _cg_tax_due(b_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
             r_tax = _cg_tax_due(r_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
@@ -1101,20 +1225,28 @@ def _run_monte_carlo_vectorized(
             home_tax_final = 0.0
             if bool(assume_sale_end) and (not is_principal_residence) and eff_home_cg > 0.0:
                 home_acb = float(price) + float(close)  # purchase price + acquisition costs proxy
-                home_proceeds_net = np.asarray(c_home, dtype=np.float64) - np.asarray(exit_cost_final, dtype=np.float64) - float(exit_legal_fee_final)
+                home_proceeds_net = (
+                    np.asarray(c_home, dtype=np.float64)
+                    - np.asarray(exit_cost_final, dtype=np.float64)
+                    - float(exit_legal_fee_final)
+                )
                 home_gain = np.maximum(0.0, home_proceeds_net - float(home_acb))
                 home_tax_final = _cg_tax_due(home_gain, eff_home_cg, cg_inclusion_policy, cg_inclusion_threshold)
 
-            home_cash = (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64)) if bool(assume_sale_end) else 0.0
+            home_cash = (
+                (np.asarray(c_home, dtype=np.float64) - np.asarray(c_mort, dtype=np.float64))
+                if bool(assume_sale_end)
+                else 0.0
+            )
 
             b_liq_vals = (
-                    np.asarray(home_cash, dtype=np.float64)
-                    + np.asarray(b_port_after_tax, dtype=np.float64)
-                    - np.asarray(close, dtype=np.float64)
-                    - np.asarray(exit_cost_final, dtype=np.float64)
-                    - float(exit_legal_fee_final)
-                    - np.asarray(home_tax_final, dtype=np.float64)
-                )
+                np.asarray(home_cash, dtype=np.float64)
+                + np.asarray(b_port_after_tax, dtype=np.float64)
+                - np.asarray(close, dtype=np.float64)
+                - np.asarray(exit_cost_final, dtype=np.float64)
+                - float(exit_legal_fee_final)
+                - np.asarray(home_tax_final, dtype=np.float64)
+            )
             r_liq_vals = r_port_after_tax
 
             # Win% on a cash-out basis (tolerance-based ties)
@@ -1176,7 +1308,6 @@ def _run_monte_carlo_vectorized(
         pass
 
     return df, win_pct
-
 
 
 def run_heatmap_mc_batch(
@@ -1271,8 +1402,12 @@ def run_heatmap_mc_batch(
             for j, a in enumerate(app_vals_pct):
                 df, _close, _pmt, win = run_simulation_core(
                     cfg,
-                    float(buyer_ret_pct), float(r) if y_axis_norm == 'renter_ret' else float(renter_ret_pct), float(a),
-                    bool(invest_diff), bool(rent_closing), float(mkt_corr),
+                    float(buyer_ret_pct),
+                    float(r) if y_axis_norm == 'renter_ret' else float(renter_ret_pct),
+                    float(a),
+                    bool(invest_diff),
+                    bool(rent_closing),
+                    float(mkt_corr),
                     force_deterministic=False,
                     mc_seed=mc_seed,
                     rate_override_pct=rate_override_pct,
@@ -1291,8 +1426,12 @@ def run_heatmap_mc_batch(
                     num_sims_override=int(num_sims),
                 )
                 # Expected deltas use mean columns when present
-                b_mean = float(df.iloc[-1]["Buyer NW Mean"] if "Buyer NW Mean" in df.columns else df.iloc[-1]["Buyer Net Worth"])
-                r_mean = float(df.iloc[-1]["Renter NW Mean"] if "Renter NW Mean" in df.columns else df.iloc[-1]["Renter Net Worth"])
+                b_mean = float(
+                    df.iloc[-1]["Buyer NW Mean"] if "Buyer NW Mean" in df.columns else df.iloc[-1]["Buyer Net Worth"]
+                )
+                r_mean = float(
+                    df.iloc[-1]["Renter NW Mean"] if "Renter NW Mean" in df.columns else df.iloc[-1]["Renter Net Worth"]
+                )
                 disc_annual = _f(cfg.get("discount_rate", 0.0), 0.0)
                 # Defensive normalization: UI widgets often express % as percent-points (e.g., 3.0 for 3%),
                 # but the engine expects a decimal fraction (0.03). If a caller accidentally passes
@@ -1419,13 +1558,13 @@ def run_heatmap_mc_batch(
     ret_std_mo = float(ret_std) / math.sqrt(12.0) if ret_std else 0.0
     app_std_mo = float(apprec_std) / math.sqrt(12.0) if apprec_std else 0.0
 
-    buyer_mu = float(buyer_mo) - 0.5 * (ret_std_mo ** 2)
-    renter_mu = float(renter_mo) - 0.5 * (ret_std_mo ** 2)
+    buyer_mu = float(buyer_mo) - 0.5 * (ret_std_mo**2)
+    renter_mu = float(renter_mo) - 0.5 * (ret_std_mo**2)
 
     # Build scenario grid (cells = n_rent * n_app)
     # x-axis is always app_vals_pct (home appreciation).
     A, Y = np.meshgrid(app_vals_pct, rent_vals_pct, indexing="xy")
-    app_cells_dec = (A.reshape(-1) / 100.0).astype(np.float64)   # annual decimal
+    app_cells_dec = (A.reshape(-1) / 100.0).astype(np.float64)  # annual decimal
 
     if y_axis_norm == 'rent_inf':
         rent_cells_dec = (Y.reshape(-1) / 100.0).astype(np.float64)  # annual decimal
@@ -1456,15 +1595,15 @@ def run_heatmap_mc_batch(
             sel_idx = None
             n_sel = n_cells
 
-    home_mu_cells = (np.log1p(np.clip(app_cells_dec, -0.999999, None)) / 12.0) - 0.5 * (app_std_mo ** 2)
+    home_mu_cells = (np.log1p(np.clip(app_cells_dec, -0.999999, None)) / 12.0) - 0.5 * (app_std_mo**2)
 
     # Optional: per-cell renter drift when y-axis sweeps renter investment return.
     renter_mu_cells = None
     renter_mo_cells = None
     if renter_ret_cells_pct is not None:
         rr_dec = np.clip(renter_ret_cells_pct / 100.0, -0.999999, None)
-        renter_mo_cells = (np.log1p(rr_dec) / 12.0)
-        renter_mu_cells = renter_mo_cells - 0.5 * (ret_std_mo ** 2)
+        renter_mo_cells = np.log1p(rr_dec) / 12.0
+        renter_mu_cells = renter_mo_cells - 0.5 * (ret_std_mo**2)
 
     # RNG (shared across all cells -> common random numbers)
     rng = np.random.default_rng(int(mc_seed)) if mc_seed is not None else np.random.default_rng()
@@ -1539,13 +1678,17 @@ def run_heatmap_mc_batch(
             rent_chunk = rent_cells_dec[idx_block].astype(np.float64, copy=False)
             home_mu_chunk = home_mu_cells[idx_block].astype(np.float64, copy=False)
             app_chunk_dec = app_cells_dec[idx_block].astype(np.float64, copy=False)
-            renter_mu_chunk = (renter_mu_cells[idx_block].astype(np.float64, copy=False) if renter_mu_cells is not None else None)
+            renter_mu_chunk = (
+                renter_mu_cells[idx_block].astype(np.float64, copy=False) if renter_mu_cells is not None else None
+            )
             out_idx = idx_block
         else:
             rent_chunk = rent_cells_dec[s:e].astype(np.float64, copy=False)
             home_mu_chunk = home_mu_cells[s:e].astype(np.float64, copy=False)
             app_chunk_dec = app_cells_dec[s:e].astype(np.float64, copy=False)
-            renter_mu_chunk = (renter_mu_cells[s:e].astype(np.float64, copy=False) if renter_mu_cells is not None else None)
+            renter_mu_chunk = (
+                renter_mu_cells[s:e].astype(np.float64, copy=False) if renter_mu_cells is not None else None
+            )
             out_idx = slice(s, e)
 
         # --- Per-chunk state init (reset deterministic scalars each chunk) ---
@@ -1592,7 +1735,9 @@ def run_heatmap_mc_batch(
                     stock_shock = (a_corr * z_sys) + (b_corr * z_stock)
                     house_shock = (a_corr * rho_sign * z_sys) + (b_corr * z_house)
 
-                b_growth = np.exp(np.clip(buyer_mu + ret_std_mo * stock_shock, -_EXP_CLIP, _EXP_CLIP)).astype(np.float32, copy=False)
+                b_growth = np.exp(np.clip(buyer_mu + ret_std_mo * stock_shock, -_EXP_CLIP, _EXP_CLIP)).astype(
+                    np.float32, copy=False
+                )
                 # Renter growth must broadcast across (num_sims, chunk_cells) when y-axis varies renter return.
                 # stock_shock is (num_sims,), renter_mu_chunk is (chunk_cells,) -> add shock as (num_sims, 1)
                 if renter_mu_chunk is not None:
@@ -1601,7 +1746,9 @@ def run_heatmap_mc_batch(
                 else:
                     r_mu_term = renter_mu
                     r_shock_term = ret_std_mo * stock_shock
-                r_growth = np.exp(np.clip(r_mu_term + r_shock_term, -_EXP_CLIP, _EXP_CLIP)).astype(np.float32, copy=False)
+                r_growth = np.exp(np.clip(r_mu_term + r_shock_term, -_EXP_CLIP, _EXP_CLIP)).astype(
+                    np.float32, copy=False
+                )
 
                 # home growth varies by cell (different apprec means)
                 home_growth = np.exp(
@@ -1609,19 +1756,29 @@ def run_heatmap_mc_batch(
                 ).astype(np.float32, copy=False)
             else:
                 b_growth = bg_const
-                r_growth = (np.exp(renter_mu_chunk).astype(np.float32, copy=False) if renter_mu_chunk is not None else rg_const)
-                home_growth = np.exp(np.log1p(np.clip(app_chunk_dec, -0.999999, None))[None, :] / 12.0).astype(np.float32, copy=False)
+                r_growth = (
+                    np.exp(renter_mu_chunk).astype(np.float32, copy=False) if renter_mu_chunk is not None else rg_const
+                )
+                home_growth = np.exp(np.log1p(np.clip(app_chunk_dec, -0.999999, None))[None, :] / 12.0).astype(
+                    np.float32, copy=False
+                )
 
             # --- Mortgage rate resets (renewals) ---
             rate_changed = False
-            if rate_mode == "Reset every N years" and (rate_reset_years_eff is not None) and (rate_reset_to_eff is not None):
+            if (
+                rate_mode == "Reset every N years"
+                and (rate_reset_years_eff is not None)
+                and (rate_reset_to_eff is not None)
+            ):
                 try:
                     reset_months = int(rate_reset_years_eff) * 12
                 except Exception:
                     reset_months = 0
                 if reset_months > 0 and m > 1 and ((m - 1) % reset_months == 0):
                     reset_idx = int((m - 1) / reset_months)
-                    cur_rate_nominal_pct = float(rate_reset_to_eff) + float(rate_reset_step_pp_eff) * max(0, reset_idx - 1)
+                    cur_rate_nominal_pct = float(rate_reset_to_eff) + float(rate_reset_step_pp_eff) * max(
+                        0, reset_idx - 1
+                    )
                     rate_changed = True
 
             shock_active = False
@@ -1632,10 +1789,12 @@ def run_heatmap_mc_batch(
                     end_m = start_m + max(0, dur_m) - 1
                 except (TypeError, ValueError):
                     start_m, end_m = 61, 120
-                shock_active = (start_m <= m <= end_m)
+                shock_active = start_m <= m <= end_m
 
             eff_nominal = float(cur_rate_nominal_pct) + (float(rate_shock_pp_eff) if shock_active else 0.0)
-            mr = _clamp_monthly_rate(float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding))))
+            mr = _clamp_monthly_rate(
+                float(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding)))
+            )
 
             if rate_changed or (shock_active != shock_was_active):
                 rem_months = max(1, int(nm) - (m - 1))
@@ -1667,7 +1826,11 @@ def run_heatmap_mc_batch(
                 princ = float(c_mort)
 
             # Special assessment (one-time buyer shock)
-            m_special = float(special_assessment_amount) if (int(special_assessment_month) > 0 and m == int(special_assessment_month)) else 0.0
+            m_special = (
+                float(special_assessment_amount)
+                if (int(special_assessment_month) > 0 and m == int(special_assessment_month))
+                else 0.0
+            )
 
             # HBP repayment (monthly obligation within repayment window)
             # run_heatmap_mc_batch sweeps appreciation/rent axes; Phase D recurring
@@ -1677,9 +1840,30 @@ def run_heatmap_mc_batch(
 
             # Buyer outflows (arrays per sim×cell)
             b_pmt0 = float(pmt) if float(c_mort) > 0 else 0.0
-            b_out = b_pmt0 + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special + _hbp_repay
+            b_out = (
+                b_pmt0
+                + m_tax
+                + m_maint
+                + m_repair
+                + float(c_condo)
+                + float(c_h_ins)
+                + float(c_o_util)
+                + m_special
+                + _hbp_repay
+            )
             # IRD is a sale cost (not monthly); tracked in b_op for unrecoverable accounting.
-            b_op = float(inte) + m_tax + m_maint + m_repair + float(c_condo) + float(c_h_ins) + float(c_o_util) + m_special + _hbp_repay + _ird_cost
+            b_op = (
+                float(inte)
+                + m_tax
+                + m_maint
+                + m_repair
+                + float(c_condo)
+                + float(c_h_ins)
+                + float(c_o_util)
+                + m_special
+                + _hbp_repay
+                + _ird_cost
+            )
 
             # Renter outflows (per cell, broadcast over sims)
             skip_last_move = bool(assume_sale_end) and (m == months)
@@ -1696,15 +1880,15 @@ def run_heatmap_mc_batch(
                 if np.any(mask):
                     r_nw[mask] += diff[mask]
                 if np.any(~mask):
-                    b_nw[~mask] += (-diff[~mask])
+                    b_nw[~mask] += -diff[~mask]
             else:
                 mask = diff > 0
                 if np.any(mask):
                     r_nw[mask] += diff[mask]
                     r_cash[mask] += diff[mask]
                 if np.any(~mask):
-                    b_nw[~mask] += (-diff[~mask])
-                    b_cash[~mask] += (-diff[~mask])
+                    b_nw[~mask] += -diff[~mask]
+                    b_cash[~mask] += -diff[~mask]
 
             # Apply growth
             if bool(invest_diff):
@@ -1762,16 +1946,16 @@ def run_heatmap_mc_batch(
                     stock_dd = float(np.clip(crisis_stock_dd, 0.0, 0.95))
                     house_dd = float(np.clip(crisis_house_dd, 0.0, 0.95))
                     if bool(invest_diff):
-                        b_nw *= (1.0 - stock_dd)
-                        r_nw *= (1.0 - stock_dd)
+                        b_nw *= 1.0 - stock_dd
+                        r_nw *= 1.0 - stock_dd
                     else:
                         b_invested = b_nw - b_cash
                         r_invested = r_nw - r_cash
-                        b_invested *= (1.0 - stock_dd)
-                        r_invested *= (1.0 - stock_dd)
+                        b_invested *= 1.0 - stock_dd
+                        r_invested *= 1.0 - stock_dd
                         b_nw = b_invested + b_cash
                         r_nw = r_invested + r_cash
-                    c_home *= (1.0 - house_dd)
+                    c_home *= 1.0 - house_dd
 
             # Mortgage balance update (deterministic)
             if float(c_mort) > 0:
@@ -1782,32 +1966,36 @@ def run_heatmap_mc_batch(
             # Rent inflation (respects rent control frequency cadence)
             if rent_control_frequency_years <= 1:
                 if (m % 12) == 0:
-                    c_rent *= (1.0 + rent_chunk.astype(np.float32, copy=False))
+                    c_rent *= 1.0 + rent_chunk.astype(np.float32, copy=False)
             else:
                 if (m % (12 * rent_control_frequency_years)) == 0:
-                    compound = np.power(1.0 + rent_chunk, float(rent_control_frequency_years)).astype(np.float32, copy=False)
+                    compound = np.power(1.0 + rent_chunk, float(rent_control_frequency_years)).astype(
+                        np.float32, copy=False
+                    )
                     c_rent *= compound
 
             # Accumulate buyer unrecoverable operating costs
             cum_b_op += b_op.astype(np.float32, copy=False)
 
             # CPI inflation for deterministic fees (applied AFTER month-m calculation)
-            c_condo *= (1.0 + (float(condo_inf_mo) if condo_inf_mo is not None else float(inf_mo)))
-            c_h_ins *= (1.0 + float(inf_mo))
-            c_o_util *= (1.0 + float(inf_mo))
-            c_r_ins *= (1.0 + float(inf_mo))
-            c_r_util *= (1.0 + float(inf_mo))
+            c_condo *= 1.0 + (float(condo_inf_mo) if condo_inf_mo is not None else float(inf_mo))
+            c_h_ins *= 1.0 + float(inf_mo)
+            c_o_util *= 1.0 + float(inf_mo)
+            c_r_ins *= 1.0 + float(inf_mo)
+            c_r_util *= 1.0 + float(inf_mo)
 
             # Progress (approx 100 updates)
             if progress_cb is not None and ((m % prog_step == 0) or (m == months)):
                 # Treat each month update as a fraction of the chunk to create a smooth progress bar.
-                frac = (m / months)
+                frac = m / months
                 done = int(min(n_cells, done_cells + round(frac * k)))
                 progress_cb(done, int(n_cells))
 
         # --- Terminal stats for this chunk ---
         exit_cost_final = (c_home * float(sell_cost)) if bool(assume_sale_end) else 0.0
-        exit_legal_fee_final = float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
+        exit_legal_fee_final = (
+            float(home_sale_legal_fee) if (bool(assume_sale_end) and home_sale_legal_fee is not None) else 0.0
+        )
 
         # IRD penalty not parameterized in run_heatmap_mc_batch (heatmap sweeps
         # appreciation/rent axes, not Phase D toggles); IRD defaults to 0 here.
@@ -1918,9 +2106,7 @@ def run_simulation_core(
             down=_f(cfg.get("down", 0.0), 0.0),
         )
     for _w in _validation_warns:
-        _warnings.warn_explicit(
-            _w.message, _w.category, _w.filename, _w.lineno, source=_w.source
-        )
+        _warnings.warn_explicit(_w.message, _w.category, _w.filename, _w.lineno, source=_w.source)
     buyer_ret_pct = _vp["buyer_ret_pct"]
     renter_ret_pct = _vp["renter_ret_pct"]
     apprec_pct = _vp["apprec_pct"]
@@ -1948,7 +2134,7 @@ def run_simulation_core(
     renter_mo = _annual_effective_pct_to_monthly_log_mu(_f(renter_ret_pct) * drag)
 
     # Annual appreciation decimal; simulate_single converts to monthly internally.
-    apprec_decimal = (_f(apprec_pct) / 100.0)
+    apprec_decimal = _f(apprec_pct) / 100.0
 
     # Apply overrides (no globals mutation)
     _overrides = dict(param_overrides or {})
@@ -2018,15 +2204,15 @@ def run_simulation_core(
         _purchase_autoderived_ltv = 0.0
 
     if _loan0 > 0.0 and float(mort) <= 0.0:
-    # Avoid emitting warnings by default (tests/CI expect clean runs).
-    # Opt-in via cfg["warn_on_autoderive_purchase_fields"]=True if desired.
+        # Avoid emitting warnings by default (tests/CI expect clean runs).
+        # Opt-in via cfg["warn_on_autoderive_purchase_fields"]=True if desired.
         _warn_autoderive = bool(cfg.get("warn_on_autoderive_purchase_fields", False))
         if _warn_autoderive:
             _warnings.warn(
-            "Engine cfg missing 'mort' (mortgage principal) while price > down. "
-            "Auto-deriving purchase fields for headless callers. For full fidelity, "
-            "supply 'mort', 'close', and 'pst' (as the UI does).",
-            stacklevel=2,
+                "Engine cfg missing 'mort' (mortgage principal) while price > down. "
+                "Auto-deriving purchase fields for headless callers. For full fidelity, "
+                "supply 'mort', 'close', and 'pst' (as the UI does).",
+                stacklevel=2,
             )
         try:
             from .purchase_derivations import derive_purchase_fields
@@ -2072,20 +2258,9 @@ def run_simulation_core(
 
         # Mortgage loan insurance (CMHC / other insurer proxies).
         # We key eligibility rules off an as-of date so results remain auditable over time.
-        _asof_raw = _overrides.get("asof_date", cfg.get("asof_date", None))
-        asof_date = None
-        if _asof_raw:
-            try:
-                if hasattr(_asof_raw, "year"):
-                    asof_date = _asof_raw
-                else:
-                    import datetime as _dt
-                    asof_date = _dt.date.fromisoformat(str(_asof_raw)[:10])
-            except Exception:
-                asof_date = None
-        if asof_date is None:
-            import datetime as _dt
-            asof_date = _dt.date.today()
+        _cfg_date_source = dict(cfg)
+        _cfg_date_source.update(_overrides)
+        asof_date = _cfg_asof_date(_cfg_date_source, default_today=True)
 
         price_cap = insured_mortgage_price_cap(asof_date)
         min_down = min_down_payment_canada(float(price_use), asof_date)
@@ -2095,10 +2270,14 @@ def run_simulation_core(
         pst_use = 0.0
 
         cmhc_attempt = (float(price_use) > 0.0) and (ltv_use > 0.8)
-        cmhc_eligible = cmhc_attempt and (float(price_use) < float(price_cap)) and (float(down_use) + 1e-9 >= float(min_down))
+        cmhc_eligible = (
+            cmhc_attempt and (float(price_use) < float(price_cap)) and (float(down_use) + 1e-9 >= float(min_down))
+        )
 
         if cmhc_eligible:
-            dp_source_use = str(_overrides.get("down_payment_source", cfg.get("down_payment_source", "Traditional")) or "Traditional")
+            dp_source_use = str(
+                _overrides.get("down_payment_source", cfg.get("down_payment_source", "Traditional")) or "Traditional"
+            )
             cmhc_r_use = cmhc_premium_rate_from_ltv(float(ltv_use), dp_source_use)
             prem_use = loan_use * float(cmhc_r_use)
 
@@ -2204,39 +2383,48 @@ def run_simulation_core(
 
     # --- Phase D: Government Programs & Penalties ---
 
-    # Foreign buyer tax (BC APTT / Ontario NRST)
+    # Foreign buyer tax (BC APTT / Ontario NRST / Toronto MNRST)
     is_foreign_buyer = bool(cfg.get("is_foreign_buyer", False))
+    first_time_buyer = bool(cfg.get("first_time", cfg.get("first_time_buyer", True)))
+    new_construction = bool(cfg.get("new_construction", cfg.get("new_build", False)))
+    _policy_asof = _cfg_asof_date(cfg, default_today=True)
     _fb_tax_amount = 0.0
+    _fb_tax_provincial = 0.0
+    _fb_tax_municipal = 0.0
     if is_foreign_buyer:
         _fb_province = str(cfg.get("province", "") or "").strip()
-        _fb_asof = None
-        _asof_raw2 = cfg.get("asof_date", None)
-        if _asof_raw2:
-            try:
-                import datetime as _dt2
-                _fb_asof = _asof_raw2 if hasattr(_asof_raw2, "year") else _dt2.date.fromisoformat(str(_asof_raw2)[:10])
-            except Exception:
-                pass
-        _fb_tax_amount = foreign_buyer_tax_amount(price_use, _fb_province, _fb_asof)
+        _fb_toronto = bool(cfg.get("toronto", False))
+        _fb_tax_provincial = float(price_use) * float(foreign_buyer_tax_rate(_fb_province, _policy_asof))
+        _fb_tax_municipal = float(price_use) * float(
+            toronto_municipal_non_resident_tax_rate(
+                _fb_province,
+                toronto_property=_fb_toronto,
+                asof_date=_policy_asof,
+            )
+        )
+        _fb_tax_amount = _fb_tax_provincial + _fb_tax_municipal
 
     # RRSP Home Buyers' Plan (HBP)
-    hbp_enabled = bool(cfg.get("hbp_enabled", False))
+    hbp_enabled = bool(cfg.get("hbp_enabled", False)) and bool(first_time_buyer)
     hbp_withdrawal = 0.0
     hbp_monthly_cost = 0.0
     hbp_repayment_start_month = 0
     hbp_repayment_end_month = 0
     if hbp_enabled:
-        _hbp_max = _f(cfg.get("hbp_max_withdrawal", 60_000.0), 60_000.0)
+        _hbp_limit_default = hbp_max_withdrawal(_policy_asof)
+        _hbp_max = _f(cfg.get("hbp_max_withdrawal", _hbp_limit_default), _hbp_limit_default)
         hbp_withdrawal = min(max(0.0, _f(cfg.get("hbp_withdrawal", 0.0), 0.0)), _hbp_max)
         if hbp_withdrawal > 0:
-            from .government_programs import HBP_GRACE_YEARS, HBP_REPAYMENT_YEARS, hbp_monthly_repayment
+            from .government_programs import HBP_REPAYMENT_YEARS, hbp_monthly_repayment
+
             hbp_monthly_cost = hbp_monthly_repayment(hbp_withdrawal)
-            _grace = max(0, _i(cfg.get("hbp_grace_years", HBP_GRACE_YEARS), HBP_GRACE_YEARS))
+            _grace_default = hbp_grace_years(_policy_asof)
+            _grace = max(0, _i(cfg.get("hbp_grace_years", _grace_default), _grace_default))
             hbp_repayment_start_month = _grace * 12 + 1
             hbp_repayment_end_month = (_grace + HBP_REPAYMENT_YEARS) * 12
 
     # FHSA (First Home Savings Account)
-    fhsa_enabled = bool(cfg.get("fhsa_enabled", False))
+    fhsa_enabled = bool(cfg.get("fhsa_enabled", False)) and bool(first_time_buyer)
     fhsa_supplement = 0.0
     fhsa_tax_saving = 0.0
     if fhsa_enabled:
@@ -2244,17 +2432,7 @@ def run_simulation_core(
         _fhsa_years = _i(cfg.get("fhsa_years_contributed", 0), 0)
         _fhsa_ret = _f(cfg.get("fhsa_return_pct", 5.0), 5.0)
         _fhsa_mtr = _f(cfg.get("fhsa_marginal_tax_rate_pct", 40.0), 40.0)
-        _fhsa_asof = None
-        _asof_raw3 = cfg.get("asof_date", None)
-        if _asof_raw3:
-            try:
-                import datetime as _dt3
-                _fhsa_asof = _asof_raw3 if hasattr(_asof_raw3, "year") else _dt3.date.fromisoformat(str(_asof_raw3)[:10])
-            except Exception:
-                pass
-        fhsa_supplement, _fhsa_cumulative = fhsa_balance(
-            _fhsa_contrib, _fhsa_years, _fhsa_ret, asof_date=_fhsa_asof
-        )
+        fhsa_supplement, _fhsa_cumulative = fhsa_balance(_fhsa_contrib, _fhsa_years, _fhsa_ret, asof_date=_policy_asof)
         fhsa_tax_saving = fhsa_tax_savings(_fhsa_cumulative, _fhsa_mtr)
 
     # Adjust down payment and mortgage for HBP + FHSA supplements
@@ -2267,20 +2445,12 @@ def run_simulation_core(
         loan_use = max(price_use - down_use, 0.0)
         ltv_use = (loan_use / price_use) if price_use > 0 else 0.0
         # Re-check CMHC eligibility with new LTV
-        _asof_hbp = None
-        _asof_raw4 = cfg.get("asof_date", None)
-        if _asof_raw4:
-            try:
-                import datetime as _dt4
-                _asof_hbp = _asof_raw4 if hasattr(_asof_raw4, "year") else _dt4.date.fromisoformat(str(_asof_raw4)[:10])
-            except Exception:
-                pass
-        if _asof_hbp is None:
-            import datetime as _dt5
-            _asof_hbp = _dt5.date.today()
+        _asof_hbp = _policy_asof
         _price_cap_hbp = insured_mortgage_price_cap(_asof_hbp)
         _min_down_hbp = min_down_payment_canada(price_use, _asof_hbp)
-        _cmhc_elig = (price_use > 0) and (ltv_use > 0.8) and (price_use < _price_cap_hbp) and (down_use + 1e-9 >= _min_down_hbp)
+        _cmhc_elig = (
+            (price_use > 0) and (ltv_use > 0.8) and (price_use < _price_cap_hbp) and (down_use + 1e-9 >= _min_down_hbp)
+        )
         if _cmhc_elig:
             _dp_src = str(cfg.get("down_payment_source", "Traditional") or "Traditional")
             _cmhc_r = cmhc_premium_rate_from_ltv(ltv_use, _dp_src)
@@ -2293,7 +2463,9 @@ def run_simulation_core(
         else:
             mort_use = loan_use
         # Recompute payment
-        mr_use = _clamp_monthly_rate(float(_annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding)))
+        mr_use = _clamp_monthly_rate(
+            float(_annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding))
+        )
         if mort_use > 0:
             pmt_use = _mortgage_payment(float(mort_use), float(mr_use), int(nm))
         else:
@@ -2308,7 +2480,7 @@ def run_simulation_core(
     # IRD prepayment penalty
     ird_enabled = bool(cfg.get("ird_enabled", False))
     prepayment_penalty_amount = 0.0
-    if ird_enabled and mort_use > 0:
+    if ird_enabled and assume_sale_end and mort_use > 0:
         _mort_term_months = _i(cfg.get("mortgage_term_months", 60), 60)
         _sim_months = years * 12
         if _sim_months < _mort_term_months:
@@ -2326,7 +2498,6 @@ def run_simulation_core(
                 rate_drop_pp=_ird_rate_drop,
                 canadian_compounding=bool(canadian_compounding),
             )
-
 
     prop_tax_growth_model = str(cfg.get("prop_tax_growth_model", "Hybrid (recommended for Toronto)"))
     prop_tax_hybrid_addon_pct = _f(cfg.get("prop_tax_hybrid_addon_pct", 0.5), 0.5)
@@ -2394,7 +2565,7 @@ def run_simulation_core(
                 monthly_nonhousing=monthly_nonhousing,
                 income_growth_pct=income_growth_pct,
                 budget_allow_withdraw=budget_allow_withdraw,
-                condo_inf_mo = _annual_effective_dec_to_monthly_eff(condo_inf),
+                condo_inf_mo=_annual_effective_dec_to_monthly_eff(condo_inf),
                 assume_sale_end=assume_sale_end,
                 is_principal_residence=is_principal_residence_cfg,
                 show_liquidation_view=show_liquidation_view,
@@ -2444,19 +2615,63 @@ def run_simulation_core(
 
                 df_sim = simulate_single(
                     years,
-                    buyer_mo, renter_mo, apprec_decimal, mr_use, nm, pmt_use, down_use, close_use, mort_use, price_use, rent_use,
-                    p_tax_rate_use, maint_rate_use, repair_rate_use, condo_use, h_ins_use, o_util_use, r_ins_use, r_util_use,
-                    sell_cost_use, rent_inf_use, rent_control_frequency_years, moving_cost_use, moving_freq_use, _annual_effective_dec_to_monthly_eff(general_inf),
+                    buyer_mo,
+                    renter_mo,
+                    apprec_decimal,
+                    mr_use,
+                    nm,
+                    pmt_use,
+                    down_use,
+                    close_use,
+                    mort_use,
+                    price_use,
+                    rent_use,
+                    p_tax_rate_use,
+                    maint_rate_use,
+                    repair_rate_use,
+                    condo_use,
+                    h_ins_use,
+                    o_util_use,
+                    r_ins_use,
+                    r_util_use,
+                    sell_cost_use,
+                    rent_inf_use,
+                    rent_control_frequency_years,
+                    moving_cost_use,
+                    moving_freq_use,
+                    _annual_effective_dec_to_monthly_eff(general_inf),
                     (ret_std / math.sqrt(12.0)) if ret_std else 0.0,
                     (apprec_std / math.sqrt(12.0)) if apprec_std else 0.0,
-                    invest_diff, rent_closing, mkt_corr,
-                    rate_mode, rate_reset_years_eff, rate_reset_to_eff, rate_reset_step_pp_eff,
-                    rate_shock_enabled_eff, rate_shock_start_year_eff, rate_shock_duration_years_eff, rate_shock_pp_eff,
-                    crisis_enabled, crisis_year, crisis_stock_dd, crisis_house_dd, crisis_duration_months,
-                    budget_enabled, monthly_income, monthly_nonhousing, income_growth_pct, budget_allow_withdraw,
-                    _annual_effective_dec_to_monthly_eff(float(condo_inf)), assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
-                    mort_rate_nominal_pct_use, canadian_compounding,
-                    prop_tax_growth_model, prop_tax_hybrid_addon_pct,
+                    invest_diff,
+                    rent_closing,
+                    mkt_corr,
+                    rate_mode,
+                    rate_reset_years_eff,
+                    rate_reset_to_eff,
+                    rate_reset_step_pp_eff,
+                    rate_shock_enabled_eff,
+                    rate_shock_start_year_eff,
+                    rate_shock_duration_years_eff,
+                    rate_shock_pp_eff,
+                    crisis_enabled,
+                    crisis_year,
+                    crisis_stock_dd,
+                    crisis_house_dd,
+                    crisis_duration_months,
+                    budget_enabled,
+                    monthly_income,
+                    monthly_nonhousing,
+                    income_growth_pct,
+                    budget_allow_withdraw,
+                    _annual_effective_dec_to_monthly_eff(float(condo_inf)),
+                    assume_sale_end,
+                    show_liquidation_view,
+                    cg_tax_end,
+                    home_sale_legal_fee,
+                    mort_rate_nominal_pct_use,
+                    canadian_compounding,
+                    prop_tax_growth_model,
+                    prop_tax_hybrid_addon_pct,
                     investment_tax_mode,
                     special_assessment_amount,
                     special_assessment_month,
@@ -2549,38 +2764,40 @@ def run_simulation_core(
             buyer_unrec_mean = np.mean(buyer_unrecs, axis=0)
             renter_unrec_mean = np.mean(renter_unrecs, axis=0)
 
-            df = pd.DataFrame({
-                "Month": range(1, years * 12 + 1),
-                "Year": [(m - 1) // 12 + 1 for m in range(1, years * 12 + 1)],
-                "Buyer Net Worth": buyer_nw_med,
-                "Renter Net Worth": renter_nw_med,
-                "Buyer NW Mean": buyer_nw_mean,
-                "Renter NW Mean": renter_nw_mean,
-                "Buyer NW Low": buyer_nw_low,
-                "Buyer NW High": buyer_nw_high,
-                "Renter NW Low": renter_nw_low,
-                "Renter NW High": renter_nw_high,
-                "Buyer Unrecoverable": buyer_unrec_med,
-                "Renter Unrecoverable": renter_unrec_med,
-                "Buyer Unrec Mean": buyer_unrec_mean,
-                "Renter Unrec Mean": renter_unrec_mean,
-                "Interest": buyer_int_med,
-                "Property Tax": buyer_tax_med,
-                "Maintenance": buyer_maint_med,
-                "Repairs": buyer_repair_med,
-                "Condo Fees": buyer_condo_med,
-                "Home Insurance": buyer_ins_med,
-                "Utilities": buyer_util_med,
-                "Rent": renter_rent_med,
-                "Rent Insurance": renter_ins_med,
-                "Rent Utilities": renter_util_med,
-                "Moving": renter_moving_med,
-                "Buy Payment": buyer_pmt_med,
-                "Rent Payment": renter_pmt_med,
-                # Smooth recurring rent cost (excludes moving spikes). Useful for charts.
-                "Rent Cost (Recurring)": (renter_rent_med + renter_ins_med + renter_util_med),
-                "Deficit": deficit_med,
-            })
+            df = pd.DataFrame(
+                {
+                    "Month": range(1, years * 12 + 1),
+                    "Year": [(m - 1) // 12 + 1 for m in range(1, years * 12 + 1)],
+                    "Buyer Net Worth": buyer_nw_med,
+                    "Renter Net Worth": renter_nw_med,
+                    "Buyer NW Mean": buyer_nw_mean,
+                    "Renter NW Mean": renter_nw_mean,
+                    "Buyer NW Low": buyer_nw_low,
+                    "Buyer NW High": buyer_nw_high,
+                    "Renter NW Low": renter_nw_low,
+                    "Renter NW High": renter_nw_high,
+                    "Buyer Unrecoverable": buyer_unrec_med,
+                    "Renter Unrecoverable": renter_unrec_med,
+                    "Buyer Unrec Mean": buyer_unrec_mean,
+                    "Renter Unrec Mean": renter_unrec_mean,
+                    "Interest": buyer_int_med,
+                    "Property Tax": buyer_tax_med,
+                    "Maintenance": buyer_maint_med,
+                    "Repairs": buyer_repair_med,
+                    "Condo Fees": buyer_condo_med,
+                    "Home Insurance": buyer_ins_med,
+                    "Utilities": buyer_util_med,
+                    "Rent": renter_rent_med,
+                    "Rent Insurance": renter_ins_med,
+                    "Rent Utilities": renter_util_med,
+                    "Moving": renter_moving_med,
+                    "Buy Payment": buyer_pmt_med,
+                    "Rent Payment": renter_pmt_med,
+                    # Smooth recurring rent cost (excludes moving spikes). Useful for charts.
+                    "Rent Cost (Recurring)": (renter_rent_med + renter_ins_med + renter_util_med),
+                    "Deficit": deficit_med,
+                }
+            )
 
             # Optional after-tax liquidation view at horizon (cash-in-hand)
             liq_win_pct = None
@@ -2650,18 +2867,63 @@ def run_simulation_core(
     else:
         df = simulate_single(
             years,
-            buyer_mo, renter_mo, apprec_decimal, mr_use, nm, pmt_use, down_use, close_use, mort_use, price_use, rent_use,
-            p_tax_rate_use, maint_rate_use, repair_rate_use, condo_use, h_ins_use, o_util_use, r_ins_use, r_util_use,
-            sell_cost_use, rent_inf_use, rent_control_frequency_years, moving_cost_use, moving_freq_use, _annual_effective_dec_to_monthly_eff(general_inf),
-            0.0, 0.0,
-            invest_diff, rent_closing, mkt_corr,
-            rate_mode, rate_reset_years_eff, rate_reset_to_eff, rate_reset_step_pp_eff,
-            rate_shock_enabled_eff, rate_shock_start_year_eff, rate_shock_duration_years_eff, rate_shock_pp_eff,
-            crisis_enabled, crisis_year, crisis_stock_dd, crisis_house_dd, crisis_duration_months,
-            budget_enabled, monthly_income, monthly_nonhousing, income_growth_pct, budget_allow_withdraw,
-            _annual_effective_dec_to_monthly_eff(float(condo_inf)), assume_sale_end, show_liquidation_view, cg_tax_end, home_sale_legal_fee,
-            mort_rate_nominal_pct_use, canadian_compounding,
-            prop_tax_growth_model, prop_tax_hybrid_addon_pct,
+            buyer_mo,
+            renter_mo,
+            apprec_decimal,
+            mr_use,
+            nm,
+            pmt_use,
+            down_use,
+            close_use,
+            mort_use,
+            price_use,
+            rent_use,
+            p_tax_rate_use,
+            maint_rate_use,
+            repair_rate_use,
+            condo_use,
+            h_ins_use,
+            o_util_use,
+            r_ins_use,
+            r_util_use,
+            sell_cost_use,
+            rent_inf_use,
+            rent_control_frequency_years,
+            moving_cost_use,
+            moving_freq_use,
+            _annual_effective_dec_to_monthly_eff(general_inf),
+            0.0,
+            0.0,
+            invest_diff,
+            rent_closing,
+            mkt_corr,
+            rate_mode,
+            rate_reset_years_eff,
+            rate_reset_to_eff,
+            rate_reset_step_pp_eff,
+            rate_shock_enabled_eff,
+            rate_shock_start_year_eff,
+            rate_shock_duration_years_eff,
+            rate_shock_pp_eff,
+            crisis_enabled,
+            crisis_year,
+            crisis_stock_dd,
+            crisis_house_dd,
+            crisis_duration_months,
+            budget_enabled,
+            monthly_income,
+            monthly_nonhousing,
+            income_growth_pct,
+            budget_allow_withdraw,
+            _annual_effective_dec_to_monthly_eff(float(condo_inf)),
+            assume_sale_end,
+            show_liquidation_view,
+            cg_tax_end,
+            home_sale_legal_fee,
+            mort_rate_nominal_pct_use,
+            canadian_compounding,
+            prop_tax_growth_model,
+            prop_tax_hybrid_addon_pct,
             investment_tax_mode,
             special_assessment_amount,
             special_assessment_month,
@@ -2680,8 +2942,14 @@ def run_simulation_core(
     # Attach Phase D metadata to df for UI consumption
     try:
         df.attrs["phase_d_foreign_buyer_tax"] = float(_fb_tax_amount)
+        df.attrs["phase_d_foreign_buyer_tax_provincial"] = float(_fb_tax_provincial)
+        df.attrs["phase_d_foreign_buyer_tax_municipal"] = float(_fb_tax_municipal)
+        df.attrs["phase_d_hbp_eligible"] = bool(hbp_enabled)
         df.attrs["phase_d_hbp_withdrawal"] = float(hbp_withdrawal)
         df.attrs["phase_d_hbp_monthly_cost"] = float(hbp_monthly_cost)
+        df.attrs["phase_d_hbp_repayment_start_month"] = int(hbp_repayment_start_month)
+        df.attrs["phase_d_hbp_repayment_end_month"] = int(hbp_repayment_end_month)
+        df.attrs["phase_d_fhsa_eligible"] = bool(fhsa_enabled)
         df.attrs["phase_d_fhsa_supplement"] = float(fhsa_supplement)
         df.attrs["phase_d_fhsa_tax_saving"] = float(fhsa_tax_saving)
         df.attrs["phase_d_ird_penalty"] = float(prepayment_penalty_amount)
@@ -2829,7 +3097,11 @@ def simulate_single(
         rent_step_years = 1
 
     # Track the quoted nominal annual mortgage rate (for resets/shocks), then derive the effective monthly rate.
-    cur_rate_nominal_pct = float(mort_rate_nominal_pct) if mort_rate_nominal_pct is not None else float(_monthly_rate_to_annual_nominal_pct(mr, bool(canadian_compounding)))
+    cur_rate_nominal_pct = (
+        float(mort_rate_nominal_pct)
+        if mort_rate_nominal_pct is not None
+        else float(_monthly_rate_to_annual_nominal_pct(mr, bool(canadian_compounding)))
+    )
     shock_was_active = False
 
     cum_b_op = 0.0
@@ -2864,11 +3136,15 @@ def simulate_single(
             stock_shock = (a * z_systemic) + (b * z_stock_idio)
             house_shock = (a * rho_sign * z_systemic) + (b * z_house_idio)
 
-            b_growth = np.exp(buyer_mo - 0.5 * ret_std_mo ** 2 + ret_std_mo * stock_shock)
-            r_growth = np.exp(renter_mo - 0.5 * ret_std_mo ** 2 + ret_std_mo * stock_shock)
+            b_growth = np.exp(buyer_mo - 0.5 * ret_std_mo**2 + ret_std_mo * stock_shock)
+            r_growth = np.exp(renter_mo - 0.5 * ret_std_mo**2 + ret_std_mo * stock_shock)
 
             monthly_sigma = apprec_std_mo
-            home_growth = np.exp(_annual_effective_dec_to_monthly_log_mu(apprec_annual_dec) - 0.5 * monthly_sigma ** 2 + monthly_sigma * house_shock)
+            home_growth = np.exp(
+                _annual_effective_dec_to_monthly_log_mu(apprec_annual_dec)
+                - 0.5 * monthly_sigma**2
+                + monthly_sigma * house_shock
+            )
         else:
             b_growth = np.exp(buyer_mo)
             r_growth = np.exp(renter_mo)
@@ -2891,7 +3167,7 @@ def simulate_single(
                 end_m = start_m + max(0, dur_m) - 1
             except (TypeError, ValueError):
                 start_m, end_m = 61, 120
-            shock_active = (start_m <= m <= end_m)
+            shock_active = start_m <= m <= end_m
 
         eff_nominal = float(cur_rate_nominal_pct) + (float(rate_shock_pp) if shock_active else 0.0)
         mr = _clamp_monthly_rate(_annual_nominal_pct_to_monthly_rate(eff_nominal, bool(canadian_compounding)))
@@ -2905,7 +3181,7 @@ def simulate_single(
         if str(prop_tax_growth_model).startswith("Market"):
             tax_base = float(c_home)
         elif str(prop_tax_growth_model).startswith("Inflation"):
-            tax_base *= (1.0 + float(inf_mo))
+            tax_base *= 1.0 + float(inf_mo)
         else:
             try:
                 addon_mo = (1.0 + float(prop_tax_hybrid_addon_pct) / 100.0) ** (1.0 / 12.0) - 1.0
@@ -2935,15 +3211,31 @@ def simulate_single(
             princ = c_mort
 
         # HBP repayment (monthly obligation within repayment window)
-        _hbp_repay = float(hbp_monthly_cost) if (
-            float(hbp_monthly_cost) > 0
-            and int(hbp_repayment_start_month) > 0
-            and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
-        ) else 0.0
+        _hbp_repay = (
+            float(hbp_monthly_cost)
+            if (
+                float(hbp_monthly_cost) > 0
+                and int(hbp_repayment_start_month) > 0
+                and int(hbp_repayment_start_month) <= m <= int(hbp_repayment_end_month)
+            )
+            else 0.0
+        )
 
-        b_out = (pmt if c_mort > 0 else 0.0) + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special + _hbp_repay
+        b_out = (
+            (pmt if c_mort > 0 else 0.0)
+            + m_tax
+            + m_maint
+            + m_repair
+            + c_condo
+            + c_h_ins
+            + c_o_util
+            + m_special
+            + _hbp_repay
+        )
         # IRD is a sale cost (not monthly cashflow); tracked separately for unrecoverable accounting.
-        _ird_cost = float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == years * 12) else 0.0
+        _ird_cost = (
+            float(prepayment_penalty_amount) if (float(prepayment_penalty_amount) > 0 and m == years * 12) else 0.0
+        )
         b_op = inte + m_tax + m_maint + m_repair + c_condo + c_h_ins + c_o_util + m_special + _hbp_repay + _ird_cost
 
         rent_paid = c_rent
@@ -2993,7 +3285,7 @@ def simulate_single(
                             b_basis = b_basis * max(0.0, (b_nw - need) / b_nw)
                         b_nw -= need
                     else:
-                        b_shortfall += (need - b_nw)
+                        b_shortfall += need - b_nw
                         b_basis = 0.0
                         b_nw = 0.0
                 else:
@@ -3011,7 +3303,7 @@ def simulate_single(
                             r_basis = r_basis * max(0.0, (r_nw - need) / r_nw)
                         r_nw -= need
                     else:
-                        r_shortfall += (need - r_nw)
+                        r_shortfall += need - r_nw
                         r_basis = 0.0
                         r_nw = 0.0
                 else:
@@ -3053,11 +3345,11 @@ def simulate_single(
                 house_dd = float(np.clip(crisis_house_dd, 0.0, 0.95))
                 b_invested = b_nw - b_cash
                 r_invested = r_nw - r_cash
-                b_invested *= (1.0 - stock_dd)
-                r_invested *= (1.0 - stock_dd)
+                b_invested *= 1.0 - stock_dd
+                r_invested *= 1.0 - stock_dd
                 b_nw = b_invested + b_cash
                 r_nw = r_invested + r_cash
-                c_home *= (1.0 - house_dd)
+                c_home *= 1.0 - house_dd
 
         if c_mort > 0:
             c_mort -= princ
@@ -3065,20 +3357,24 @@ def simulate_single(
             c_mort = 0.0
         if rent_step_years <= 1:
             if m % 12 == 0:
-                c_rent *= (1 + rent_inf_eff)
+                c_rent *= 1 + rent_inf_eff
         else:
             if m % (12 * rent_step_years) == 0:
                 c_rent *= (1 + rent_inf_eff) ** float(rent_step_years)
 
         # CPI Inflation
-        c_condo *= (1 + (condo_inf_mo if condo_inf_mo is not None else inf_mo))
-        c_h_ins *= (1 + inf_mo)
-        c_o_util *= (1 + inf_mo)
-        c_r_ins *= (1 + inf_mo)
-        c_r_util *= (1 + inf_mo)
+        c_condo *= 1 + (condo_inf_mo if condo_inf_mo is not None else inf_mo)
+        c_h_ins *= 1 + inf_mo
+        c_o_util *= 1 + inf_mo
+        c_r_ins *= 1 + inf_mo
+        c_r_util *= 1 + inf_mo
 
         exit_cost = (c_home * sell_cost) if (assume_sale_end and m == years * 12) else 0.0
-        exit_legal_fee = float(home_sale_legal_fee) if (assume_sale_end and m == years * 12 and home_sale_legal_fee is not None) else 0.0
+        exit_legal_fee = (
+            float(home_sale_legal_fee)
+            if (assume_sale_end and m == years * 12 and home_sale_legal_fee is not None)
+            else 0.0
+        )
         # IRD prepayment penalty: deducted from equity at the terminal month (a sale cost).
         _ird_deduct = _ird_cost if m == years * 12 else 0.0
         b_val = (c_home - c_mort) + b_nw - float(close) - exit_cost - exit_legal_fee - _ird_deduct
@@ -3099,8 +3395,12 @@ def simulate_single(
             b_gain = max(0.0, b_nw - b_basis)
             r_gain = max(0.0, r_nw - r_basis)
 
-            b_taxable_gain = _taxable_gain_after_reg_shelter(b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
-            r_taxable_gain = _taxable_gain_after_reg_shelter(r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room)
+            b_taxable_gain = _taxable_gain_after_reg_shelter(
+                b_gain, b_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room
+            )
+            r_taxable_gain = _taxable_gain_after_reg_shelter(
+                r_gain, r_basis, years, reg_shelter_enabled, reg_initial_room, reg_annual_room
+            )
 
             b_tax = _cg_tax_due(b_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
             r_tax = _cg_tax_due(r_taxable_gain, eff_cg, cg_inclusion_policy, cg_inclusion_threshold)
@@ -3130,37 +3430,39 @@ def simulate_single(
         cum_b_op += b_op
         cum_r_op += r_op
 
-        res.append({
-            "Month": m,
-            "Year": (m - 1) // 12 + 1,
-            "Buyer Net Worth": b_val,
-            "Renter Net Worth": r_nw,
-            "Buyer Unrecoverable": cum_b_op + close + exit_cost + exit_legal_fee,
-            "Renter Unrecoverable": cum_r_op,
-            "Buyer Home Equity": c_home - c_mort,
-            "Rent Payment": r_out,
-            "Rent Cost (Recurring)": r_out_recurring,
-            "Buy Payment": b_out,
-            "Deficit": gap,
-            "Interest": inte,
-            "Property Tax": m_tax,
-            "Maintenance": m_maint,
-            "Repairs": m_repair,
-            "Special Assessment": m_special,
-            "Condo Fees": condo_paid,
-            "Home Insurance": h_ins_paid,
-            "Utilities": o_util_paid,
-            "Rent": rent_paid,
-            "Rent Insurance": r_ins_paid,
-            "Rent Utilities": r_util_paid,
-            "Moving": m_moving,
-            "Income (Monthly)": inc_t,
-            "Buyer Net Cash": b_budget_net,
-            "Renter Net Cash": r_budget_net,
-            "Buyer Shortfall (Cum)": b_shortfall,
-            "Renter Shortfall (Cum)": r_shortfall,
-            "Buyer Liquidation NW": b_liq,
-            "Renter Liquidation NW": r_liq,
-        })
+        res.append(
+            {
+                "Month": m,
+                "Year": (m - 1) // 12 + 1,
+                "Buyer Net Worth": b_val,
+                "Renter Net Worth": r_nw,
+                "Buyer Unrecoverable": cum_b_op + close + exit_cost + exit_legal_fee,
+                "Renter Unrecoverable": cum_r_op,
+                "Buyer Home Equity": c_home - c_mort,
+                "Rent Payment": r_out,
+                "Rent Cost (Recurring)": r_out_recurring,
+                "Buy Payment": b_out,
+                "Deficit": gap,
+                "Interest": inte,
+                "Property Tax": m_tax,
+                "Maintenance": m_maint,
+                "Repairs": m_repair,
+                "Special Assessment": m_special,
+                "Condo Fees": condo_paid,
+                "Home Insurance": h_ins_paid,
+                "Utilities": o_util_paid,
+                "Rent": rent_paid,
+                "Rent Insurance": r_ins_paid,
+                "Rent Utilities": r_util_paid,
+                "Moving": m_moving,
+                "Income (Monthly)": inc_t,
+                "Buyer Net Cash": b_budget_net,
+                "Renter Net Cash": r_budget_net,
+                "Buyer Shortfall (Cum)": b_shortfall,
+                "Renter Shortfall (Cum)": r_shortfall,
+                "Buyer Liquidation NW": b_liq,
+                "Renter Liquidation NW": r_liq,
+            }
+        )
 
     return pd.DataFrame(res)
