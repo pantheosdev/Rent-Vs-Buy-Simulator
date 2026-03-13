@@ -23,6 +23,7 @@ from .policy_canada import (
     min_down_payment_canada,
     mortgage_default_insurance_sales_tax_rate,
 )
+from .purchase_derivations import enrich_cfg_with_purchase_derivations
 from .validation import validate_simulation_params
 
 
@@ -121,6 +122,17 @@ def _annual_effective_dec_to_monthly_eff(r_annual: float) -> float:
     except Exception:
         # Fallback for weird edge cases
         return r / 12.0
+
+
+def _normalize_percent_like_decimal(x, *, threshold: float = 1.0) -> float:
+    """Normalize percent-like values to decimal fractions (e.g. 2.5 -> 0.025)."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return 0.0
+    if v > float(threshold):
+        return v / 100.0
+    return v
 
 def _estimate_mc_mem_bytes(num_sims: int, months: int, arrays: int = 8, dtype_bytes: int = 4) -> int:
     """Rough memory estimate for vectorized MC path arrays."""
@@ -1328,18 +1340,11 @@ def run_heatmap_mc_batch(
     # ── cfg unit guard: auto-convert percent-like values stored as decimal fractions ──
     # general_inf, ret_std, apprec_std: engine expects decimal (0.025 = 2.5%).
     # Protect against callers who pass percent values (e.g. general_inf=2.5 instead of 0.025).
-    _cfg_general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
-    if _cfg_general_inf > 1.0:
-        cfg = dict(cfg)  # defensive copy — never mutate caller's dict
-        cfg["general_inf"] = _cfg_general_inf / 100.0
-    _cfg_ret_std = _f(cfg.get("ret_std", 0.0), 0.0)
-    if _cfg_ret_std > 1.0:
-        cfg = dict(cfg)
-        cfg["ret_std"] = _cfg_ret_std / 100.0
-    _cfg_apprec_std = _f(cfg.get("apprec_std", 0.0), 0.0)
-    if _cfg_apprec_std > 1.0:
-        cfg = dict(cfg)
-        cfg["apprec_std"] = _cfg_apprec_std / 100.0
+    cfg = dict(cfg)  # defensive copy — never mutate caller's dict
+    cfg["general_inf"] = _normalize_percent_like_decimal(cfg.get("general_inf", 0.0), threshold=1.0)
+    cfg["ret_std"] = _normalize_percent_like_decimal(cfg.get("ret_std", 0.0), threshold=1.0)
+    cfg["apprec_std"] = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
+    cfg = enrich_cfg_with_purchase_derivations(cfg, strict=False)
 
     p_tax_rate = _f(cfg.get("p_tax_rate", 0.0), 0.0)
     maint_rate = _f(cfg.get("maint_rate", 0.0), 0.0)
@@ -1547,6 +1552,8 @@ def run_heatmap_mc_batch(
         init_r = float(down) + (float(close) if bool(rent_closing) else 0.0)
         r_nw = np.full((num_sims, k), init_r, dtype=np.float32)
         b_nw = np.zeros((num_sims, k), dtype=np.float32)
+        r_cash = np.zeros((num_sims, k), dtype=np.float32)
+        b_cash = np.zeros((num_sims, k), dtype=np.float32)
 
         c_home = np.full((num_sims, k), float(price), dtype=np.float32)
         tax_base = np.full((num_sims, k), float(price), dtype=np.float32)
@@ -1690,27 +1697,58 @@ def run_heatmap_mc_batch(
                     r_nw[mask] += diff[mask]
                 if np.any(~mask):
                     b_nw[~mask] += (-diff[~mask])
+            else:
+                mask = diff > 0
+                if np.any(mask):
+                    r_nw[mask] += diff[mask]
+                    r_cash[mask] += diff[mask]
+                if np.any(~mask):
+                    b_nw[~mask] += (-diff[~mask])
+                    b_cash[~mask] += (-diff[~mask])
 
             # Apply growth
-            if isinstance(r_growth, np.ndarray):
-                # r_growth can be: (num_sims,), (k,), or (num_sims, k) depending on axis mode
-                if r_growth.ndim == 2:
-                    r_nw *= r_growth
-                else:
-                    if r_growth.shape[0] == r_nw.shape[0]:
-                        r_nw *= r_growth[:, None]
-                    elif r_growth.shape[0] == r_nw.shape[1]:
-                        r_nw *= r_growth[None, :]
+            if bool(invest_diff):
+                if isinstance(r_growth, np.ndarray):
+                    # r_growth can be: (num_sims,), (k,), or (num_sims, k) depending on axis mode
+                    if r_growth.ndim == 2:
+                        r_nw *= r_growth
                     else:
-                        r_nw *= r_growth.reshape((-1, 1))
-                # buyer growth remains per-sim
-                if isinstance(b_growth, np.ndarray):
-                    b_nw *= b_growth[:, None]
+                        if r_growth.shape[0] == r_nw.shape[0]:
+                            r_nw *= r_growth[:, None]
+                        elif r_growth.shape[0] == r_nw.shape[1]:
+                            r_nw *= r_growth[None, :]
+                        else:
+                            r_nw *= r_growth.reshape((-1, 1))
+                    # buyer growth remains per-sim
+                    if isinstance(b_growth, np.ndarray):
+                        b_nw *= b_growth[:, None]
+                    else:
+                        b_nw *= float(b_growth)
                 else:
+                    r_nw *= float(r_growth)
                     b_nw *= float(b_growth)
             else:
-                r_nw *= float(r_growth)
-                b_nw *= float(b_growth)
+                r_invested = r_nw - r_cash
+                b_invested = b_nw - b_cash
+                if isinstance(r_growth, np.ndarray):
+                    if r_growth.ndim == 2:
+                        r_invested *= r_growth
+                    else:
+                        if r_growth.shape[0] == r_invested.shape[0]:
+                            r_invested *= r_growth[:, None]
+                        elif r_growth.shape[0] == r_invested.shape[1]:
+                            r_invested *= r_growth[None, :]
+                        else:
+                            r_invested *= r_growth.reshape((-1, 1))
+                    if isinstance(b_growth, np.ndarray):
+                        b_invested *= b_growth[:, None]
+                    else:
+                        b_invested *= float(b_growth)
+                else:
+                    r_invested *= float(r_growth)
+                    b_invested *= float(b_growth)
+                r_nw = r_invested + r_cash
+                b_nw = b_invested + b_cash
             c_home *= home_growth
 
             # Crisis shock
@@ -1723,8 +1761,16 @@ def run_heatmap_mc_batch(
                 if crisis_m_start <= m < crisis_m_start + dur:
                     stock_dd = float(np.clip(crisis_stock_dd, 0.0, 0.95))
                     house_dd = float(np.clip(crisis_house_dd, 0.0, 0.95))
-                    b_nw *= (1.0 - stock_dd)
-                    r_nw *= (1.0 - stock_dd)
+                    if bool(invest_diff):
+                        b_nw *= (1.0 - stock_dd)
+                        r_nw *= (1.0 - stock_dd)
+                    else:
+                        b_invested = b_nw - b_cash
+                        r_invested = r_nw - r_cash
+                        b_invested *= (1.0 - stock_dd)
+                        r_invested *= (1.0 - stock_dd)
+                        b_nw = b_invested + b_cash
+                        r_nw = r_invested + r_cash
                     c_home *= (1.0 - house_dd)
 
             # Mortgage balance update (deterministic)
@@ -1933,21 +1979,12 @@ def run_simulation_core(
     rate = _f(cfg.get("rate", 0.0), 0.0)
     rent_inf = _f(cfg.get("rent_inf", 0.0), 0.0)
     sell_cost = _f(cfg.get("sell_cost", 0.0), 0.0)
-    # ── cfg unit guard: auto-convert percent-like values stored as decimal fractions ──
     # general_inf, ret_std, apprec_std: engine expects decimal (0.025 = 2.5%).
     # Protect against callers who pass percent values (e.g. general_inf=2.5 instead of 0.025).
-    _cfg_general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
-    if _cfg_general_inf > 1.0:
-        cfg = dict(cfg)  # defensive copy — never mutate caller's dict
-        cfg["general_inf"] = _cfg_general_inf / 100.0
-    _cfg_ret_std = _f(cfg.get("ret_std", 0.0), 0.0)
-    if _cfg_ret_std > 1.0:
-        cfg = dict(cfg)
-        cfg["ret_std"] = _cfg_ret_std / 100.0
-    _cfg_apprec_std = _f(cfg.get("apprec_std", 0.0), 0.0)
-    if _cfg_apprec_std > 1.0:
-        cfg = dict(cfg)
-        cfg["apprec_std"] = _cfg_apprec_std / 100.0
+    cfg = dict(cfg)  # defensive copy — never mutate caller's dict
+    cfg["general_inf"] = _normalize_percent_like_decimal(cfg.get("general_inf", 0.0), threshold=1.0)
+    cfg["ret_std"] = _normalize_percent_like_decimal(cfg.get("ret_std", 0.0), threshold=1.0)
+    cfg["apprec_std"] = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
 
     p_tax_rate = _f(cfg.get("p_tax_rate", 0.0), 0.0)
     maint_rate = _f(cfg.get("maint_rate", 0.0), 0.0)
@@ -2143,14 +2180,9 @@ def run_simulation_core(
     rate_shock_duration_years_eff = cfg.get("rate_shock_duration_years_eff", 5)
     rate_shock_pp_eff = cfg.get("rate_shock_pp_eff", 0.0)
 
-    general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
-    ret_std = _f(cfg.get("ret_std", 0.0), 0.0)
-    apprec_std = _f(cfg.get("apprec_std", 0.0), 0.0)
-    # Defensive: tolerate volatility inputs accidentally expressed as percent (e.g., 15 instead of 0.15)
-    if ret_std > 2.0:
-        ret_std = ret_std / 100.0
-    if apprec_std > 2.0:
-        apprec_std = apprec_std / 100.0
+    general_inf = _normalize_percent_like_decimal(cfg.get("general_inf", 0.0), threshold=1.0)
+    ret_std = _normalize_percent_like_decimal(cfg.get("ret_std", 0.0), threshold=1.0)
+    apprec_std = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
     condo_inf = _f(cfg.get("condo_inf", 0.0), 0.0)
 
     assume_sale_end = bool(cfg.get("assume_sale_end", False))
