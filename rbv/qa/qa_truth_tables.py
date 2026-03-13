@@ -256,21 +256,21 @@ def _tt_cmhc_pst_recompute() -> None:
     # insured (LTV>80%) => CMHC 4% + Ontario PST on premium (8%).
     min_down = 0.05 * 500_000.0 + 0.10 * (price - 500_000.0)
     down_pct = min_down / price
-    overrides = {"price": price, "down_pct": down_pct, "province": "Ontario", "asof_date": asof}
+    overrides = {"price": price, "down_pct": down_pct, "province": "Ontario", "asof_date": asof, "first_time": False}
     _, close_cash, mort_pmt, _ = _run_det(
         cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False, overrides=overrides
     )
 
-    _assert_close("TT-T1 close_cash (eligible)", close_cash, 102_959.89712, atol=1e-6)
+    _assert_close("TT-T1 close_cash (eligible)", close_cash, 96_734.87712, atol=1e-6)
     _assert_close("TT-T1 mort_pmt (eligible)", mort_pmt, 5595.034512233429, atol=1e-9)
 
     # Case B (ineligible): 5% down is BELOW the legal minimum at this price (no insurance should be applied).
-    overrides_bad = {"price": price, "down_pct": 0.05, "province": "Ontario", "asof_date": asof}
+    overrides_bad = {"price": price, "down_pct": 0.05, "province": "Ontario", "asof_date": asof, "first_time": False}
     _, close_cash2, mort_pmt2, _ = _run_det(
         cfg, buyer_ret_pct=0.0, renter_ret_pct=0.0, apprec_pct=0.0, invest_diff=False, overrides=overrides_bad
     )
 
-    _assert_close("TT-T2 close_cash (ineligible)", close_cash2, 74_999.95, atol=1e-6)
+    _assert_close("TT-T2 close_cash (ineligible)", close_cash2, 68_774.93, atol=1e-6)
     _assert_close("TT-T2 mort_pmt (ineligible)", mort_pmt2, 5525.24183260429, atol=1e-9)
 
 
