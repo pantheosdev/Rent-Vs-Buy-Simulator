@@ -92,9 +92,13 @@ def get_validation_warnings(cfg: dict) -> List[str]:
         price = max(0.0, float(cfg.get("price", 0.0)))
     except Exception:
         price = 0.0
+    raw_down = cfg.get("down", 0.0)
     try:
-        down = max(0.0, float(cfg.get("down", 0.0)))
+        down = float(raw_down)
     except Exception:
+        down = 0.0
+    if down < 0.0:
+        warnings.append("Down payment is negative — this is not a valid purchase scenario.")
         down = 0.0
     # Loan computation (pre‑insurance premium).  Negative loans clamp to zero.
     loan = max(0.0, price - down)
@@ -138,7 +142,7 @@ def get_validation_warnings(cfg: dict) -> List[str]:
     # Flags controlling 30‑year insured eligibility.  The config may
     # store these under various names (e.g. ``first_time_buyer``,
     # ``first_time_buyer_enabled``); we coerce any truthy value.
-    ftb = bool(cfg.get("first_time_buyer") or cfg.get("first_time_buyer_enabled"))
+    ftb = bool(cfg.get("first_time") or cfg.get("first_time_buyer") or cfg.get("first_time_buyer_enabled"))
     newb = bool(cfg.get("new_construction") or cfg.get("new_build"))
 
     if (amort_years is not None) and (price > 0.0):
@@ -153,7 +157,9 @@ def get_validation_warnings(cfg: dict) -> List[str]:
             )
 
     if bool(cfg.get("hbp_enabled", False)) and not ftb:
-        warnings.append("RRSP Home Buyers' Plan is enabled but the scenario is not marked as first-time buyer eligible.")
+        warnings.append(
+            "RRSP Home Buyers' Plan is enabled but the scenario is not marked as first-time buyer eligible."
+        )
     if bool(cfg.get("fhsa_enabled", False)) and not ftb:
         warnings.append("FHSA is enabled but the scenario is not marked as first-time buyer eligible.")
 
@@ -163,6 +169,7 @@ def get_validation_warnings(cfg: dict) -> List[str]:
 # ---------------------------------------------------------------------------
 # Rate / value clamping helpers
 # ---------------------------------------------------------------------------
+
 
 def clamp_rate(value: float, name: str, *, min_val: float = -10.0, max_val: float = 50.0) -> float:
     """Clamp a percentage rate to a reasonable range, warning if adjusted."""
@@ -186,6 +193,19 @@ def clamp_positive(value: float, name: str, *, max_val: float | None = None) -> 
     return value
 
 
+def warn_if_ambiguous_decimal(value: float, name: str, *, suspicious_above: float = 0.10) -> None:
+    """Warn when a decimal input looks implausibly high and may be a unit mix-up."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return
+    if suspicious_above < v <= 1.0:
+        _warnings.warn(
+            f"{name}={v} is being interpreted as a decimal annual rate ({v * 100:.1f}%). "
+            "If you intended percent-points, pass 0.005 for 0.5% or 2.5 for 2.5%.",
+        )
+
+
 def validate_simulation_params(
     *,
     rate_pct: float,
@@ -198,13 +218,16 @@ def validate_simulation_params(
     price: float,
     rent: float,
     down: float,
+    sell_cost: float | None = None,
 ) -> dict:
     """Validate and return clamped simulation parameters.
 
     Returns a dict with the validated values. Issues warnings for any adjustments.
     Does NOT raise exceptions.
     """
-    return {
+    warn_if_ambiguous_decimal(general_inf, "General inflation")
+
+    out = {
         "rate_pct": clamp_rate(rate_pct, "Mortgage rate", min_val=0.0, max_val=25.0),
         "buyer_ret_pct": clamp_rate(buyer_ret_pct, "Buyer investment return", min_val=-20.0, max_val=50.0),
         "renter_ret_pct": clamp_rate(renter_ret_pct, "Renter investment return", min_val=-20.0, max_val=50.0),
@@ -216,3 +239,6 @@ def validate_simulation_params(
         "rent": clamp_positive(rent, "Monthly rent", max_val=100_000.0),
         "down": clamp_positive(down, "Down payment", max_val=50_000_000.0),
     }
+    if sell_cost is not None:
+        out["sell_cost"] = clamp_rate(sell_cost * 100, "Selling cost", min_val=0.0, max_val=15.0) / 100
+    return out

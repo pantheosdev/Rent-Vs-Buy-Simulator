@@ -162,6 +162,20 @@ def _normalize_percent_like_decimal(x, *, threshold: float = 1.0) -> float:
     return v
 
 
+def _warn_if_ambiguous_decimal_input(x, name: str, *, suspicious_above: float = 0.10) -> None:
+    """Warn when a decimal annual rate looks implausibly high and may reflect unit confusion."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return
+    if suspicious_above < v <= 1.0:
+        _warnings.warn(
+            f"{name}={v} is being interpreted as a decimal annual rate ({v * 100:.1f}%). "
+            "If you intended percent-points, pass 0.005 for 0.5% or 2.5 for 2.5%.",
+            stacklevel=2,
+        )
+
+
 def _estimate_mc_mem_bytes(num_sims: int, months: int, arrays: int = 8, dtype_bytes: int = 4) -> int:
     """Rough memory estimate for vectorized MC path arrays."""
     try:
@@ -497,7 +511,9 @@ def _run_monte_carlo_vectorized(
                 reset_months = 0
             if reset_months > 0 and m > 1 and ((m - 1) % reset_months == 0):
                 reset_idx = int((m - 1) / reset_months)
-                cur_rate_nominal_pct = float(rate_reset_to) + float(rate_reset_step_pp) * max(0, reset_idx - 1)
+                cur_rate_nominal_pct = max(
+                    0.0, float(rate_reset_to) + float(rate_reset_step_pp) * max(0, reset_idx - 1)
+                )
                 rate_changed = True
 
         shock_active = False
@@ -1480,6 +1496,7 @@ def run_heatmap_mc_batch(
     # general_inf, ret_std, apprec_std: engine expects decimal (0.025 = 2.5%).
     # Protect against callers who pass percent values (e.g. general_inf=2.5 instead of 0.025).
     cfg = dict(cfg)  # defensive copy — never mutate caller's dict
+    _warn_if_ambiguous_decimal_input(cfg.get("general_inf", 0.0), "General inflation")
     cfg["general_inf"] = _normalize_percent_like_decimal(cfg.get("general_inf", 0.0), threshold=1.0)
     cfg["ret_std"] = _normalize_percent_like_decimal(cfg.get("ret_std", 0.0), threshold=1.0)
     cfg["apprec_std"] = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
@@ -1517,7 +1534,7 @@ def run_heatmap_mc_batch(
     # Inflation (kept consistent with run_simulation_core)
     general_inf = _f(cfg.get("general_inf", 0.0), 0.0)
     inf_mo = _annual_effective_dec_to_monthly_eff(general_inf)
-    condo_inf = _f(cfg.get("condo_inf", 0.0), 0.0)
+    condo_inf = _f(cfg.get("condo_inf", cfg.get("general_inf", 0.0)), 0.0)
     condo_inf_mo = _annual_effective_dec_to_monthly_eff(condo_inf)
 
     assume_sale_end = bool(cfg.get("assume_sale_end", True))
@@ -1776,8 +1793,8 @@ def run_heatmap_mc_batch(
                     reset_months = 0
                 if reset_months > 0 and m > 1 and ((m - 1) % reset_months == 0):
                     reset_idx = int((m - 1) / reset_months)
-                    cur_rate_nominal_pct = float(rate_reset_to_eff) + float(rate_reset_step_pp_eff) * max(
-                        0, reset_idx - 1
+                    cur_rate_nominal_pct = max(
+                        0.0, float(rate_reset_to_eff) + float(rate_reset_step_pp_eff) * max(0, reset_idx - 1)
                     )
                     rate_changed = True
 
@@ -2104,6 +2121,7 @@ def run_simulation_core(
             price=_f(cfg.get("price", 0.0), 0.0),
             rent=_f(cfg.get("rent", 0.0), 0.0),
             down=_f(cfg.get("down", 0.0), 0.0),
+            sell_cost=_f(cfg.get("sell_cost", 0.0), 0.0),
         )
     for _w in _validation_warns:
         _warnings.warn_explicit(_w.message, _w.category, _w.filename, _w.lineno, source=_w.source)
@@ -2118,6 +2136,8 @@ def run_simulation_core(
     cfg["rent_inf"] = _vp["rent_inf"]
     cfg["general_inf"] = _vp["general_inf"]
     cfg["years"] = _vp["years"]
+    if "sell_cost" in _vp:
+        cfg["sell_cost"] = _vp["sell_cost"]
 
     # Convert percentages to monthly decimals
     years = max(1, _i(cfg.get("years", 1), 1))
@@ -2248,55 +2268,44 @@ def run_simulation_core(
     moving_cost_use = _f(_overrides.get("moving_cost", moving_cost), moving_cost)
     moving_freq_use = _f(_overrides.get("moving_freq", moving_freq), moving_freq)
 
-    # Recompute loan + CMHC premium if down/price overridden
+    # Recompute purchase-sensitive fields canonically when overrides can change closing or financing.
     mort_use = float(mort)
     close_use = float(close)
 
-    if ("down" in _overrides) or ("down_pct" in _overrides) or ("price" in _overrides):
-        loan_use = max(float(price_use) - float(down_use), 0.0)
-        ltv_use = (loan_use / float(price_use)) if float(price_use) > 0 else 0.0
+    _purchase_sensitive_keys = {
+        "price",
+        "down",
+        "down_pct",
+        "province",
+        "toronto",
+        "first_time",
+        "asof_date",
+        "purchase_legal_fee",
+        "lawyer",
+        "home_inspection",
+        "other_closing_costs",
+        "transfer_tax_override",
+        "assessed_value",
+        "ns_deed_transfer_rate",
+        "down_payment_source",
+    }
+    _purchase_recompute = any(k in _overrides for k in _purchase_sensitive_keys)
 
-        # Mortgage loan insurance (CMHC / other insurer proxies).
-        # We key eligibility rules off an as-of date so results remain auditable over time.
-        _cfg_date_source = dict(cfg)
-        _cfg_date_source.update(_overrides)
-        asof_date = _cfg_asof_date(_cfg_date_source, default_today=True)
-
-        price_cap = insured_mortgage_price_cap(asof_date)
-        min_down = min_down_payment_canada(float(price_use), asof_date)
-
-        cmhc_r_use = 0.0
-        prem_use = 0.0
-        pst_use = 0.0
-
-        cmhc_attempt = (float(price_use) > 0.0) and (ltv_use > 0.8)
-        cmhc_eligible = (
-            cmhc_attempt and (float(price_use) < float(price_cap)) and (float(down_use) + 1e-9 >= float(min_down))
-        )
-
-        if cmhc_eligible:
-            dp_source_use = str(
-                _overrides.get("down_payment_source", cfg.get("down_payment_source", "Traditional")) or "Traditional"
-            )
-            cmhc_r_use = cmhc_premium_rate_from_ltv(float(ltv_use), dp_source_use)
-            prem_use = loan_use * float(cmhc_r_use)
-
-            # Provincial sales tax on the insurance premium is province-dependent (see policy_canada).
-            _prov_use = str(_overrides.get("province", cfg.get("province", "")) or "").strip()
-            _pst_rate_use = mortgage_default_insurance_sales_tax_rate(_prov_use, asof_date)
-            pst_use = prem_use * float(_pst_rate_use)
-
-        # Base closing costs excluding PST/QST on the insurance premium.
-        # (The UI usually pre-adds pst into `close`; when price/down are overridden we must recompute.)
+    if _purchase_recompute:
         try:
-            _close_base = float(close) - float(pst)
+            from .purchase_derivations import derive_purchase_fields
+
+            _purchase_cfg = dict(cfg)
+            for _k in _purchase_sensitive_keys:
+                if _k in _overrides and _k != "down_pct":
+                    _purchase_cfg[_k] = _overrides[_k]
+            _purchase_cfg["price"] = float(price_use)
+            _purchase_cfg["down"] = float(down_use)
+            _d_override = derive_purchase_fields(_purchase_cfg, strict=False)
+            mort_use = float(_d_override.mort)
+            close_use = float(_d_override.close)
         except Exception:
-            _close_base = float(close)
-
-        close_use = float(_close_base) + float(pst_use)
-
-        # Mortgage principal includes the premium when applicable.
-        mort_use = float(loan_use) + float(prem_use)
+            pass
 
     # Mortgage nominal annual rate (possibly overridden)
     mort_rate_nominal_pct_use = float(rate_override_pct) if rate_override_pct is not None else float(rate_use)
@@ -2362,7 +2371,7 @@ def run_simulation_core(
     general_inf = _normalize_percent_like_decimal(cfg.get("general_inf", 0.0), threshold=1.0)
     ret_std = _normalize_percent_like_decimal(cfg.get("ret_std", 0.0), threshold=1.0)
     apprec_std = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
-    condo_inf = _f(cfg.get("condo_inf", 0.0), 0.0)
+    condo_inf = _f(cfg.get("condo_inf", cfg.get("general_inf", 0.0)), 0.0)
 
     assume_sale_end = bool(cfg.get("assume_sale_end", False))
     show_liquidation_view = bool(cfg.get("show_liquidation_view", False))
@@ -2959,6 +2968,10 @@ def run_simulation_core(
         df.attrs["purchase_autoderived_pst"] = bool(_purchase_autoderived_pst)
         df.attrs["purchase_autoderived_premium"] = float(_purchase_autoderived_premium)
         df.attrs["purchase_autoderived_ltv"] = float(_purchase_autoderived_ltv)
+        if bool(is_mc) and int(num_sims) < 50:
+            df.attrs["mc_low_sim_warning"] = (
+                f"Only {int(num_sims)} simulations were run — win probability and tail outcomes may be unreliable."
+            )
     except Exception:
         pass
 
@@ -3156,7 +3169,9 @@ def simulate_single(
             reset_months = int(rate_reset_years) * 12
             if reset_months > 0 and m > 1 and ((m - 1) % reset_months == 0):
                 reset_idx = int((m - 1) / reset_months)
-                cur_rate_nominal_pct = float(rate_reset_to) + float(rate_reset_step_pp) * max(0, reset_idx - 1)
+                cur_rate_nominal_pct = max(
+                    0.0, float(rate_reset_to) + float(rate_reset_step_pp) * max(0, reset_idx - 1)
+                )
                 rate_changed = True
 
         shock_active = False
