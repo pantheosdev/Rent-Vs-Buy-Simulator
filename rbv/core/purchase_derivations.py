@@ -105,14 +105,20 @@ def derive_purchase_fields(cfg: dict, *, strict: bool = False) -> DerivedPurchas
     If ``strict`` is True, raises ValueError for invalid insured-mortgage scenarios
     (e.g., down below the minimum rule, LTV>95%, insured above the price cap).
     """
-    price = _f(cfg.get("price", 0.0), 0.0)
-    down = _f(cfg.get("down", 0.0), 0.0)
+    raw_price = _f(cfg.get("price", 0.0), 0.0)
+    raw_down = _f(cfg.get("down", 0.0), 0.0)
+    if strict and raw_price < 0.0:
+        raise ValueError("Home price cannot be negative.")
+    if strict and raw_down < 0.0:
+        raise ValueError("Down payment cannot be negative.")
+    price = max(raw_price, 0.0)
+    down = max(raw_down, 0.0)
     province = str(cfg.get("province", "Ontario") or "Ontario").strip()
     down_src = str(cfg.get("down_payment_source", "Traditional") or "Traditional")
     asof = _parse_asof_date(cfg.get("asof_date", None))
 
     # Transfer tax knobs (UI-compatible)
-    first_time = _b(cfg.get("first_time", True))
+    first_time = _b(cfg.get("first_time", False))
     toronto = _b(cfg.get("toronto", False))
     override_amt = _f(cfg.get("transfer_tax_override", 0.0), 0.0)
     assessed_value = cfg.get("assessed_value", None)
@@ -156,10 +162,7 @@ def derive_purchase_fields(cfg: dict, *, strict: bool = False) -> DerivedPurchas
         price_cap = float(insured_mortgage_price_cap(asof))
 
         if down + 1e-9 < min_down:
-            msg = (
-                f"Minimum down payment is about ${min_down:,.0f} for price ${price:,.0f} "
-                f"as of {asof.isoformat()}."
-            )
+            msg = f"Minimum down payment is about ${min_down:,.0f} for price ${price:,.0f} as of {asof.isoformat()}."
             if strict:
                 raise ValueError(msg)
         if price >= price_cap:
@@ -203,12 +206,13 @@ def derive_purchase_fields(cfg: dict, *, strict: bool = False) -> DerivedPurchas
     )
 
 
-def enrich_cfg_with_purchase_derivations(cfg: dict, *, strict: bool = False) -> dict:
+def enrich_cfg_with_purchase_derivations(cfg: dict, *, strict: bool = False, force_recompute: bool = False) -> dict:
     """Return a copy of ``cfg`` enriched with missing purchase-time derived fields.
 
     Behavior:
       - Never mutates the caller's dict.
-      - Computes and fills ``mort``/``pst``/``close`` only when missing/zero.
+      - Computes and fills ``mort``/``pst``/``close`` only when missing/zero, unless
+        ``force_recompute`` is True.
       - Always ensures ``asof_date`` is present (ISO string) for auditability.
     """
     out = dict(cfg or {})
@@ -221,17 +225,17 @@ def enrich_cfg_with_purchase_derivations(cfg: dict, *, strict: bool = False) -> 
     need_close = _f(out.get("close", 0.0), 0.0) <= 0.0
     need_pst = _f(out.get("pst", 0.0), 0.0) <= 0.0
 
-    # Only derive if something material is missing.
-    if not (need_mort or need_close or need_pst):
+    # Only derive if something material is missing, unless forced.
+    if not force_recompute and not (need_mort or need_close or need_pst):
         return out
 
     d = derive_purchase_fields(out, strict=strict)
 
-    if need_mort and d.mort > 0.0:
+    if force_recompute or (need_mort and d.mort > 0.0):
         out["mort"] = float(d.mort)
-    if need_pst and d.pst > 0.0:
+    if force_recompute or need_pst:
         out["pst"] = float(d.pst)
-    if need_close and d.close > 0.0:
+    if force_recompute or need_close:
         out["close"] = float(d.close)
 
     return out
