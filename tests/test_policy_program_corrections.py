@@ -203,3 +203,17 @@ def test_engine_string_false_does_not_enable_foreign_buyer_tax() -> None:
     assert df.attrs["phase_d_foreign_buyer_tax_provincial"] == pytest.approx(0.0)
     assert df.attrs["phase_d_foreign_buyer_tax_municipal"] == pytest.approx(0.0)
     assert df.attrs["phase_d_foreign_buyer_tax"] == pytest.approx(0.0)
+
+
+def test_engine_none_first_time_falls_back_to_first_time_buyer_flag() -> None:
+    df, _, _, _ = _run(
+        {
+            "asof_date": "2026-01-01",
+            "first_time": None,
+            "first_time_buyer": True,
+            "hbp_enabled": True,
+            "hbp_withdrawal": 60_000.0,
+        }
+    )
+    assert df.attrs["phase_d_hbp_eligible"] is True
+    assert df.attrs["phase_d_hbp_withdrawal"] == pytest.approx(60_000.0)

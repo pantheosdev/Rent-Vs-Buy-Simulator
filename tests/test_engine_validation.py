@@ -135,3 +135,20 @@ def test_string_false_program_flags_do_not_trigger_false_positive_validation_war
     messages = [str(w.message) for w in caught]
     assert not any("Home Buyers' Plan is enabled" in m for m in messages)
     assert not any("FHSA is enabled" in m for m in messages)
+
+
+def test_none_first_time_uses_first_time_buyer_fallback_without_program_warning():
+    """When first_time is None, first_time_buyer should still drive program eligibility."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        df, _close, _pmt, _win = _run(
+            {
+                "first_time": None,
+                "first_time_buyer": True,
+                "hbp_enabled": True,
+                "hbp_withdrawal": 35_000.0,
+            }
+        )
+    assert df is not None
+    messages = [str(w.message) for w in caught]
+    assert not any("Home Buyers' Plan is enabled but the scenario is not marked" in m for m in messages)

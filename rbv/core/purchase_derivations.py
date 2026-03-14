@@ -199,7 +199,7 @@ def derive_purchase_fields(cfg: dict, *, strict: bool = False) -> DerivedPurchas
     # Payment uses cfg's amortization months (nm) and nominal annual rate in percent.
     nm = int(max(1, int(cfg.get("nm", 300) or 300)))
     rate_pct = _f(cfg.get("rate", 0.0), 0.0)
-    canadian = bool(cfg.get("canadian_compounding", True))
+    canadian = _b(cfg.get("canadian_compounding", True))
     mr = _annual_nominal_pct_to_monthly_rate(float(rate_pct), bool(canadian))
     pmt = _mortgage_payment(mort, float(mr), nm)
 
