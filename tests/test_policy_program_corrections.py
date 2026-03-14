@@ -166,3 +166,61 @@ def test_engine_foreign_buyer_tax_attrs_include_toronto_municipal_component() ->
     assert df.attrs["phase_d_foreign_buyer_tax_provincial"] == pytest.approx(250_000.0)
     assert df.attrs["phase_d_foreign_buyer_tax_municipal"] == pytest.approx(100_000.0)
     assert df.attrs["phase_d_foreign_buyer_tax"] == pytest.approx(350_000.0)
+
+
+def test_engine_string_false_does_not_enable_first_time_programs() -> None:
+    df, _, _, _ = _run(
+        {
+            "asof_date": "2026-01-01",
+            "first_time": "false",
+            "hbp_enabled": True,
+            "hbp_withdrawal": 60_000.0,
+            "fhsa_enabled": True,
+            "fhsa_annual_contribution": 8_000.0,
+            "fhsa_years_contributed": 5,
+            "fhsa_return_pct": 5.0,
+            "fhsa_marginal_tax_rate_pct": 40.0,
+        }
+    )
+    assert df.attrs["phase_d_hbp_eligible"] is False
+    assert df.attrs["phase_d_hbp_withdrawal"] == pytest.approx(0.0)
+    assert df.attrs["phase_d_fhsa_eligible"] is False
+    assert df.attrs["phase_d_fhsa_supplement"] == pytest.approx(0.0)
+
+
+def test_engine_string_false_does_not_enable_foreign_buyer_tax() -> None:
+    df, _, _, _ = _run(
+        {
+            "price": 1_000_000.0,
+            "down": 200_000.0,
+            "mort": 800_000.0,
+            "province": "Ontario",
+            "toronto": True,
+            "is_foreign_buyer": "false",
+            "asof_date": "2025-01-15",
+        }
+    )
+    assert df.attrs["phase_d_foreign_buyer_tax_provincial"] == pytest.approx(0.0)
+    assert df.attrs["phase_d_foreign_buyer_tax_municipal"] == pytest.approx(0.0)
+    assert df.attrs["phase_d_foreign_buyer_tax"] == pytest.approx(0.0)
+
+
+def test_engine_first_time_key_takes_precedence_over_fallback_key() -> None:
+    """Explicit first_time=False should not be overridden by first_time_buyer=True."""
+    df, _, _, _ = _run(
+        {
+            "asof_date": "2026-01-01",
+            "first_time": False,
+            "first_time_buyer": True,
+            "hbp_enabled": True,
+            "hbp_withdrawal": 60_000.0,
+            "fhsa_enabled": True,
+            "fhsa_annual_contribution": 8_000.0,
+            "fhsa_years_contributed": 5,
+            "fhsa_return_pct": 5.0,
+            "fhsa_marginal_tax_rate_pct": 40.0,
+        }
+    )
+    assert df.attrs["phase_d_hbp_eligible"] is False
+    assert df.attrs["phase_d_hbp_withdrawal"] == pytest.approx(0.0)
+    assert df.attrs["phase_d_fhsa_eligible"] is False
