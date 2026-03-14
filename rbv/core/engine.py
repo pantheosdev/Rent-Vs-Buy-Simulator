@@ -49,6 +49,28 @@ def _i(x, default=0):
         return int(default)
 
 
+def _as_bool(x) -> bool:
+    """Parse booleans from config-like values (supports string/int forms)."""
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, (int, float)):
+        return bool(x)
+    t = str(x or "").strip().lower()
+    if t in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if t in {"0", "false", "f", "no", "n", "off", "", "none", "null"}:
+        return False
+    return bool(x)
+
+def _cfg_bool(cfg: dict, *keys: str, default=False) -> bool:
+    """Return the first non-None config key parsed as bool, else default."""
+    for k in keys:
+        if k in cfg and cfg.get(k) is not None:
+            return _as_bool(cfg.get(k))
+    return _as_bool(default)
+
+
+
 def _cfg_asof_date(cfg, default_today: bool = True):
     raw = cfg.get("asof_date", None)
     if raw:
@@ -1391,7 +1413,7 @@ def run_heatmap_mc_batch(
     if abs(rent_inf_base_dec) > 1.0:
         rent_inf_base_dec = rent_inf_base_dec / 100.0
     try:
-        if bool(cfg.get('rent_control_enabled', False)) and (cfg.get('rent_control_cap') is not None):
+        if _cfg_bool(cfg, 'rent_control_enabled', default=False) and (cfg.get('rent_control_cap') is not None):
             _cap = float(cfg.get('rent_control_cap'))
             if abs(_cap) > 1.0:
                 _cap = _cap / 100.0
@@ -1524,7 +1546,7 @@ def run_heatmap_mc_batch(
 
     # Mortgage recompute (matches run_simulation_core; price/down overrides not used for heatmap currently)
     mort_rate_nominal_pct_use = float(rate_override_pct) if rate_override_pct is not None else float(rate)
-    canadian_compounding = bool(cfg.get("canadian_compounding", True))
+    canadian_compounding = _cfg_bool(cfg, "canadian_compounding", default=True)
     mr_use = _clamp_monthly_rate(_annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding))
     if float(mort) > 0:
         pmt_use = _mortgage_payment(float(mort), float(mr_use), int(nm))
@@ -1537,7 +1559,7 @@ def run_heatmap_mc_batch(
     condo_inf = _f(cfg.get("condo_inf", cfg.get("general_inf", 0.0)), 0.0)
     condo_inf_mo = _annual_effective_dec_to_monthly_eff(condo_inf)
 
-    assume_sale_end = bool(cfg.get("assume_sale_end", True))
+    assume_sale_end = _cfg_bool(cfg, "assume_sale_end", default=True)
     home_sale_legal_fee = _f(cfg.get("home_sale_legal_fee", 0.0), 0.0)
 
     # Rent control frequency (cadence in years)
@@ -1548,7 +1570,7 @@ def run_heatmap_mc_batch(
     rate_reset_years_eff = cfg.get("rate_reset_years_eff", None)
     rate_reset_to_eff = cfg.get("rate_reset_to_eff", None)
     rate_reset_step_pp_eff = _f(cfg.get("rate_reset_step_pp_eff", 0.0), 0.0)
-    rate_shock_enabled_eff = bool(cfg.get("rate_shock_enabled_eff", False))
+    rate_shock_enabled_eff = _cfg_bool(cfg, "rate_shock_enabled_eff", default=False)
     rate_shock_start_year_eff = cfg.get("rate_shock_start_year_eff", None)
     rate_shock_duration_years_eff = cfg.get("rate_shock_duration_years_eff", None)
     rate_shock_pp_eff = _f(cfg.get("rate_shock_pp_eff", 0.0), 0.0)
@@ -2226,7 +2248,7 @@ def run_simulation_core(
     if _loan0 > 0.0 and float(mort) <= 0.0:
         # Avoid emitting warnings by default (tests/CI expect clean runs).
         # Opt-in via cfg["warn_on_autoderive_purchase_fields"]=True if desired.
-        _warn_autoderive = bool(cfg.get("warn_on_autoderive_purchase_fields", False))
+        _warn_autoderive = _cfg_bool(cfg, "warn_on_autoderive_purchase_fields", default=False)
         if _warn_autoderive:
             _warnings.warn(
                 "Engine cfg missing 'mort' (mortgage principal) while price > down. "
@@ -2310,7 +2332,7 @@ def run_simulation_core(
     # Mortgage nominal annual rate (possibly overridden)
     mort_rate_nominal_pct_use = float(rate_override_pct) if rate_override_pct is not None else float(rate_use)
 
-    canadian_compounding = bool(cfg.get("canadian_compounding", True))
+    canadian_compounding = _cfg_bool(cfg, "canadian_compounding", default=True)
     mr_use = _annual_nominal_pct_to_monthly_rate(mort_rate_nominal_pct_use, canadian_compounding)
 
     # Recompute payment from principal + effective monthly rate
@@ -2332,7 +2354,7 @@ def run_simulation_core(
         rent_inf_use = -0.99
 
     # Rent control
-    rent_control_enabled = bool(cfg.get("rent_control_enabled", False))
+    rent_control_enabled = _cfg_bool(cfg, "rent_control_enabled", default=False)
     rent_control_cap = cfg.get("rent_control_cap", None)
     if rent_control_enabled and (rent_control_cap is not None):
         rent_inf_use = min(rent_inf_use, float(rent_control_cap))
@@ -2354,7 +2376,7 @@ def run_simulation_core(
     else:
         rent_control_frequency_years = 1
 
-    use_vol = bool(cfg.get("use_volatility", False)) if force_use_volatility is None else bool(force_use_volatility)
+    use_vol = _cfg_bool(cfg, "use_volatility", default=False) if force_use_volatility is None else bool(force_use_volatility)
     num_sims = int(num_sims_override) if num_sims_override is not None else int(_i(cfg.get("num_sims", 0), 0))
     is_mc = use_vol and (not force_deterministic) and (num_sims > 1)
 
@@ -2363,7 +2385,7 @@ def run_simulation_core(
     rate_reset_years_eff = cfg.get("rate_reset_years_eff", None)
     rate_reset_to_eff = cfg.get("rate_reset_to_eff", None)
     rate_reset_step_pp_eff = cfg.get("rate_reset_step_pp_eff", 0.0)
-    rate_shock_enabled_eff = bool(cfg.get("rate_shock_enabled_eff", False))
+    rate_shock_enabled_eff = _cfg_bool(cfg, "rate_shock_enabled_eff", default=False)
     rate_shock_start_year_eff = cfg.get("rate_shock_start_year_eff", 5)
     rate_shock_duration_years_eff = cfg.get("rate_shock_duration_years_eff", 5)
     rate_shock_pp_eff = cfg.get("rate_shock_pp_eff", 0.0)
@@ -2373,9 +2395,9 @@ def run_simulation_core(
     apprec_std = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
     condo_inf = _f(cfg.get("condo_inf", cfg.get("general_inf", 0.0)), 0.0)
 
-    assume_sale_end = bool(cfg.get("assume_sale_end", False))
-    show_liquidation_view = bool(cfg.get("show_liquidation_view", False))
-    is_principal_residence_cfg = bool(cfg.get("is_principal_residence", True))
+    assume_sale_end = _cfg_bool(cfg, "assume_sale_end", default=False)
+    show_liquidation_view = _cfg_bool(cfg, "show_liquidation_view", default=False)
+    is_principal_residence_cfg = _cfg_bool(cfg, "is_principal_residence", default=True)
     cg_tax_end = _f(cfg.get("cg_tax_end", 0.0), 0.0)
     home_sale_legal_fee = _f(cfg.get("home_sale_legal_fee", 0.0), 0.0)
 
@@ -2386,23 +2408,23 @@ def run_simulation_core(
     cg_inclusion_policy = str(cfg.get("cg_inclusion_policy", "current") or "current")
     cg_inclusion_threshold = _f(cfg.get("cg_inclusion_threshold", 250000.0), 250000.0)
 
-    reg_shelter_enabled = bool(cfg.get("reg_shelter_enabled", False))
+    reg_shelter_enabled = _cfg_bool(cfg, "reg_shelter_enabled", default=False)
     reg_initial_room = _f(cfg.get("reg_initial_room", 0.0), 0.0)
     reg_annual_room = _f(cfg.get("reg_annual_room", 0.0), 0.0)
 
     # --- Phase D: Government Programs & Penalties ---
 
     # Foreign buyer tax (BC APTT / Ontario NRST / Toronto MNRST)
-    is_foreign_buyer = bool(cfg.get("is_foreign_buyer", False))
-    first_time_buyer = bool(cfg.get("first_time", cfg.get("first_time_buyer", True)))
-    new_construction = bool(cfg.get("new_construction", cfg.get("new_build", False)))
+    is_foreign_buyer = _cfg_bool(cfg, "is_foreign_buyer", default=False)
+    first_time_buyer = _cfg_bool(cfg, "first_time", "first_time_buyer", default=True)
+    new_construction = _cfg_bool(cfg, "new_construction", "new_build", default=False)
     _policy_asof = _cfg_asof_date(cfg, default_today=True)
     _fb_tax_amount = 0.0
     _fb_tax_provincial = 0.0
     _fb_tax_municipal = 0.0
     if is_foreign_buyer:
         _fb_province = str(cfg.get("province", "") or "").strip()
-        _fb_toronto = bool(cfg.get("toronto", False))
+        _fb_toronto = _cfg_bool(cfg, "toronto", default=False)
         _fb_tax_provincial = float(price_use) * float(foreign_buyer_tax_rate(_fb_province, _policy_asof))
         _fb_tax_municipal = float(price_use) * float(
             toronto_municipal_non_resident_tax_rate(
@@ -2414,7 +2436,7 @@ def run_simulation_core(
         _fb_tax_amount = _fb_tax_provincial + _fb_tax_municipal
 
     # RRSP Home Buyers' Plan (HBP)
-    hbp_enabled = bool(cfg.get("hbp_enabled", False)) and bool(first_time_buyer)
+    hbp_enabled = _cfg_bool(cfg, "hbp_enabled", default=False) and bool(first_time_buyer)
     hbp_withdrawal = 0.0
     hbp_monthly_cost = 0.0
     hbp_repayment_start_month = 0
@@ -2433,7 +2455,7 @@ def run_simulation_core(
             hbp_repayment_end_month = (_grace + HBP_REPAYMENT_YEARS) * 12
 
     # FHSA (First Home Savings Account)
-    fhsa_enabled = bool(cfg.get("fhsa_enabled", False)) and bool(first_time_buyer)
+    fhsa_enabled = _cfg_bool(cfg, "fhsa_enabled", default=False) and bool(first_time_buyer)
     fhsa_supplement = 0.0
     fhsa_tax_saving = 0.0
     if fhsa_enabled:
@@ -2487,7 +2509,7 @@ def run_simulation_core(
     close_use = max(0.0, close_use - fhsa_tax_saving)
 
     # IRD prepayment penalty
-    ird_enabled = bool(cfg.get("ird_enabled", False))
+    ird_enabled = _cfg_bool(cfg, "ird_enabled", default=False)
     prepayment_penalty_amount = 0.0
     if ird_enabled and assume_sale_end and mort_use > 0:
         _mort_term_months = _i(cfg.get("mortgage_term_months", 60), 60)
@@ -2516,7 +2538,7 @@ def run_simulation_core(
 
     if is_mc:
         # Phase 1: vectorized Monte Carlo core (faster; eliminates per-sim pandas overhead)
-        use_vectorized = bool(cfg.get("vectorized_mc", True))
+        use_vectorized = _cfg_bool(cfg, "vectorized_mc", default=True)
         months = int(years) * 12
         mem_est = _estimate_mc_mem_bytes(num_sims, months, arrays=8, dtype_bytes=4)
         # Keep a conservative ceiling to avoid OOM on very large sims/horizons

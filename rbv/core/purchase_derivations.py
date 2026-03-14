@@ -36,6 +36,15 @@ def _f(x, default: float = 0.0) -> float:
 
 
 def _b(x) -> bool:
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, (int, float)):
+        return bool(x)
+    s = str(x or "").strip().lower()
+    if s in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if s in {"0", "false", "f", "no", "n", "off", "", "none", "null"}:
+        return False
     return bool(x)
 
 
@@ -190,7 +199,7 @@ def derive_purchase_fields(cfg: dict, *, strict: bool = False) -> DerivedPurchas
     # Payment uses cfg's amortization months (nm) and nominal annual rate in percent.
     nm = int(max(1, int(cfg.get("nm", 300) or 300)))
     rate_pct = _f(cfg.get("rate", 0.0), 0.0)
-    canadian = bool(cfg.get("canadian_compounding", True))
+    canadian = _b(cfg.get("canadian_compounding", True))
     mr = _annual_nominal_pct_to_monthly_rate(float(rate_pct), bool(canadian))
     pmt = _mortgage_payment(mort, float(mr), nm)
 
@@ -231,7 +240,7 @@ def enrich_cfg_with_purchase_derivations(cfg: dict, *, strict: bool = False, for
 
     d = derive_purchase_fields(out, strict=strict)
 
-    if force_recompute or (need_mort and d.mort > 0.0):
+    if force_recompute or need_mort:
         out["mort"] = float(d.mort)
     if force_recompute or need_pst:
         out["pst"] = float(d.pst)

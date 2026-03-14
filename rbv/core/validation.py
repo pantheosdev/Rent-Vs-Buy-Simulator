@@ -68,6 +68,30 @@ def _coerce_date(value) -> _dt.date:
     return _dt.date.today()
 
 
+
+
+def _as_bool(value: object) -> bool:
+    """Parse booleans from config-like values, including common string forms."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    t = str(value or "").strip().lower()
+    if t in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if t in {"0", "false", "f", "no", "n", "off", "", "none", "null"}:
+        return False
+    return bool(value)
+
+
+def _cfg_bool(cfg: dict, *keys: str, default=False) -> bool:
+    """Return first non-None config boolean among keys, else default."""
+    for k in keys:
+        if k in cfg and cfg.get(k) is not None:
+            return _as_bool(cfg.get(k))
+    return _as_bool(default)
+
+
 def get_validation_warnings(cfg: dict) -> List[str]:
     """Return a list of human‑readable warnings for a simulation config.
 
@@ -142,8 +166,8 @@ def get_validation_warnings(cfg: dict) -> List[str]:
     # Flags controlling 30‑year insured eligibility.  The config may
     # store these under various names (e.g. ``first_time_buyer``,
     # ``first_time_buyer_enabled``); we coerce any truthy value.
-    ftb = bool(cfg.get("first_time") or cfg.get("first_time_buyer") or cfg.get("first_time_buyer_enabled"))
-    newb = bool(cfg.get("new_construction") or cfg.get("new_build"))
+    ftb = _cfg_bool(cfg, "first_time", "first_time_buyer", "first_time_buyer_enabled", default=False)
+    newb = _cfg_bool(cfg, "new_construction", "new_build", default=False)
 
     if (amort_years is not None) and (price > 0.0):
         max_insured = insured_max_amortization_years(asof_date, first_time_buyer=ftb, new_construction=newb)
@@ -156,11 +180,11 @@ def get_validation_warnings(cfg: dict) -> List[str]:
                 f"Requested amortization of {amort_years:.1f} years exceeds the maximum insured amortization of {max_insured} years for your buyer profile."
             )
 
-    if bool(cfg.get("hbp_enabled", False)) and not ftb:
+    if _cfg_bool(cfg, "hbp_enabled", default=False) and not ftb:
         warnings.append(
             "RRSP Home Buyers' Plan is enabled but the scenario is not marked as first-time buyer eligible."
         )
-    if bool(cfg.get("fhsa_enabled", False)) and not ftb:
+    if _cfg_bool(cfg, "fhsa_enabled", default=False) and not ftb:
         warnings.append("FHSA is enabled but the scenario is not marked as first-time buyer eligible.")
 
     return warnings
