@@ -7,6 +7,7 @@ import warnings
 import pytest
 
 from rbv.core.engine import run_simulation_core
+from rbv.core.validation import get_validation_warnings
 
 _BASE_CFG = {
     "years": 5,
@@ -118,3 +119,35 @@ def test_valid_inputs_no_warnings():
     # Filter to only warnings from the validation module
     val_warnings = [w for w in caught if "validation" in (w.filename or "").lower() or "Clamping" in str(w.message)]
     assert len(val_warnings) == 0, f"Unexpected validation warnings: {[str(w.message) for w in val_warnings]}"
+
+
+def test_string_false_program_flags_do_not_trigger_false_positive_validation_warnings():
+    """String "false" flags should not be treated as enabled toggles."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        df, _close, _pmt, _win = _run(
+            {
+                "first_time": "false",
+                "hbp_enabled": "false",
+                "fhsa_enabled": "false",
+            }
+        )
+    assert df is not None
+    messages = [str(w.message) for w in caught]
+    assert not any("Home Buyers' Plan is enabled" in m for m in messages)
+    assert not any("FHSA is enabled" in m for m in messages)
+
+
+def test_validation_prefers_explicit_first_time_key_over_fallback() -> None:
+    cfg = {
+        "price": 700_000.0,
+        "down": 140_000.0,
+        "nm": 360,
+        "asof_date": "2026-01-01",
+        "first_time": False,
+        "first_time_buyer": True,
+        "new_construction": True,
+        "hbp_enabled": True,
+    }
+    warnings = get_validation_warnings(cfg)
+    assert any("Home Buyers' Plan is enabled" in w for w in warnings)
