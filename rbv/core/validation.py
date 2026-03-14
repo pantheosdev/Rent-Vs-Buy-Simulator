@@ -41,6 +41,7 @@ import datetime as _dt
 import warnings as _warnings
 from typing import Iterable, List, Sequence
 
+from .coercion import as_bool
 from .policy_canada import (
     insured_max_amortization_years,
     insured_mortgage_price_cap,
@@ -66,6 +67,8 @@ def _coerce_date(value) -> _dt.date:
         except Exception:
             pass
     return _dt.date.today()
+
+
 
 
 def get_validation_warnings(cfg: dict) -> List[str]:
@@ -142,8 +145,17 @@ def get_validation_warnings(cfg: dict) -> List[str]:
     # Flags controlling 30‑year insured eligibility.  The config may
     # store these under various names (e.g. ``first_time_buyer``,
     # ``first_time_buyer_enabled``); we coerce any truthy value.
-    ftb = bool(cfg.get("first_time") or cfg.get("first_time_buyer") or cfg.get("first_time_buyer_enabled"))
-    newb = bool(cfg.get("new_construction") or cfg.get("new_build"))
+    if "first_time" in cfg:
+        ftb = as_bool(cfg.get("first_time"))
+    elif "first_time_buyer" in cfg:
+        ftb = as_bool(cfg.get("first_time_buyer"))
+    else:
+        ftb = as_bool(cfg.get("first_time_buyer_enabled"))
+
+    if "new_construction" in cfg:
+        newb = as_bool(cfg.get("new_construction"))
+    else:
+        newb = as_bool(cfg.get("new_build"))
 
     if (amort_years is not None) and (price > 0.0):
         max_insured = insured_max_amortization_years(asof_date, first_time_buyer=ftb, new_construction=newb)
@@ -156,11 +168,11 @@ def get_validation_warnings(cfg: dict) -> List[str]:
                 f"Requested amortization of {amort_years:.1f} years exceeds the maximum insured amortization of {max_insured} years for your buyer profile."
             )
 
-    if bool(cfg.get("hbp_enabled", False)) and not ftb:
+    if as_bool(cfg.get("hbp_enabled", False)) and not ftb:
         warnings.append(
             "RRSP Home Buyers' Plan is enabled but the scenario is not marked as first-time buyer eligible."
         )
-    if bool(cfg.get("fhsa_enabled", False)) and not ftb:
+    if as_bool(cfg.get("fhsa_enabled", False)) and not ftb:
         warnings.append("FHSA is enabled but the scenario is not marked as first-time buyer eligible.")
 
     return warnings

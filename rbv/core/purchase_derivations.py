@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as _dt
 from dataclasses import dataclass
 
+from .coercion import as_bool
 from .mortgage import _annual_nominal_pct_to_monthly_rate
 from .policy_canada import (
     cmhc_premium_rate_from_ltv,
@@ -33,10 +34,6 @@ def _f(x, default: float = 0.0) -> float:
         return float(x)
     except (TypeError, ValueError):
         return float(default)
-
-
-def _b(x) -> bool:
-    return bool(x)
 
 
 def _parse_asof_date(x) -> _dt.date:
@@ -118,8 +115,8 @@ def derive_purchase_fields(cfg: dict, *, strict: bool = False) -> DerivedPurchas
     asof = _parse_asof_date(cfg.get("asof_date", None))
 
     # Transfer tax knobs (UI-compatible)
-    first_time = _b(cfg.get("first_time", False))
-    toronto = _b(cfg.get("toronto", False))
+    first_time = as_bool(cfg.get("first_time", False))
+    toronto = as_bool(cfg.get("toronto", False))
     override_amt = _f(cfg.get("transfer_tax_override", 0.0), 0.0)
     assessed_value = cfg.get("assessed_value", None)
     if assessed_value is not None:
@@ -231,7 +228,7 @@ def enrich_cfg_with_purchase_derivations(cfg: dict, *, strict: bool = False, for
 
     d = derive_purchase_fields(out, strict=strict)
 
-    if force_recompute or (need_mort and d.mort > 0.0):
+    if force_recompute or need_mort:
         out["mort"] = float(d.mort)
     if force_recompute or need_pst:
         out["pst"] = float(d.pst)
