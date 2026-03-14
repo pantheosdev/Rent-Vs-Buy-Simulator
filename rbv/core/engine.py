@@ -49,6 +49,20 @@ def _i(x, default=0):
         return int(default)
 
 
+def _as_bool(x) -> bool:
+    """Parse booleans from config-like values (supports string/int forms)."""
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, (int, float)):
+        return bool(x)
+    t = str(x or "").strip().lower()
+    if t in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if t in {"0", "false", "f", "no", "n", "off", "", "none", "null"}:
+        return False
+    return bool(x)
+
+
 def _cfg_asof_date(cfg, default_today: bool = True):
     raw = cfg.get("asof_date", None)
     if raw:
@@ -2373,9 +2387,9 @@ def run_simulation_core(
     apprec_std = _normalize_percent_like_decimal(cfg.get("apprec_std", 0.0), threshold=1.0)
     condo_inf = _f(cfg.get("condo_inf", cfg.get("general_inf", 0.0)), 0.0)
 
-    assume_sale_end = bool(cfg.get("assume_sale_end", False))
-    show_liquidation_view = bool(cfg.get("show_liquidation_view", False))
-    is_principal_residence_cfg = bool(cfg.get("is_principal_residence", True))
+    assume_sale_end = _as_bool(cfg.get("assume_sale_end", False))
+    show_liquidation_view = _as_bool(cfg.get("show_liquidation_view", False))
+    is_principal_residence_cfg = _as_bool(cfg.get("is_principal_residence", True))
     cg_tax_end = _f(cfg.get("cg_tax_end", 0.0), 0.0)
     home_sale_legal_fee = _f(cfg.get("home_sale_legal_fee", 0.0), 0.0)
 
@@ -2386,23 +2400,23 @@ def run_simulation_core(
     cg_inclusion_policy = str(cfg.get("cg_inclusion_policy", "current") or "current")
     cg_inclusion_threshold = _f(cfg.get("cg_inclusion_threshold", 250000.0), 250000.0)
 
-    reg_shelter_enabled = bool(cfg.get("reg_shelter_enabled", False))
+    reg_shelter_enabled = _as_bool(cfg.get("reg_shelter_enabled", False))
     reg_initial_room = _f(cfg.get("reg_initial_room", 0.0), 0.0)
     reg_annual_room = _f(cfg.get("reg_annual_room", 0.0), 0.0)
 
     # --- Phase D: Government Programs & Penalties ---
 
     # Foreign buyer tax (BC APTT / Ontario NRST / Toronto MNRST)
-    is_foreign_buyer = bool(cfg.get("is_foreign_buyer", False))
-    first_time_buyer = bool(cfg.get("first_time", cfg.get("first_time_buyer", True)))
-    new_construction = bool(cfg.get("new_construction", cfg.get("new_build", False)))
+    is_foreign_buyer = _as_bool(cfg.get("is_foreign_buyer", False))
+    first_time_buyer = _as_bool(cfg.get("first_time", cfg.get("first_time_buyer", True)))
+    new_construction = _as_bool(cfg.get("new_construction", cfg.get("new_build", False)))
     _policy_asof = _cfg_asof_date(cfg, default_today=True)
     _fb_tax_amount = 0.0
     _fb_tax_provincial = 0.0
     _fb_tax_municipal = 0.0
     if is_foreign_buyer:
         _fb_province = str(cfg.get("province", "") or "").strip()
-        _fb_toronto = bool(cfg.get("toronto", False))
+        _fb_toronto = _as_bool(cfg.get("toronto", False))
         _fb_tax_provincial = float(price_use) * float(foreign_buyer_tax_rate(_fb_province, _policy_asof))
         _fb_tax_municipal = float(price_use) * float(
             toronto_municipal_non_resident_tax_rate(
@@ -2414,7 +2428,7 @@ def run_simulation_core(
         _fb_tax_amount = _fb_tax_provincial + _fb_tax_municipal
 
     # RRSP Home Buyers' Plan (HBP)
-    hbp_enabled = bool(cfg.get("hbp_enabled", False)) and bool(first_time_buyer)
+    hbp_enabled = _as_bool(cfg.get("hbp_enabled", False)) and bool(first_time_buyer)
     hbp_withdrawal = 0.0
     hbp_monthly_cost = 0.0
     hbp_repayment_start_month = 0
@@ -2433,7 +2447,7 @@ def run_simulation_core(
             hbp_repayment_end_month = (_grace + HBP_REPAYMENT_YEARS) * 12
 
     # FHSA (First Home Savings Account)
-    fhsa_enabled = bool(cfg.get("fhsa_enabled", False)) and bool(first_time_buyer)
+    fhsa_enabled = _as_bool(cfg.get("fhsa_enabled", False)) and bool(first_time_buyer)
     fhsa_supplement = 0.0
     fhsa_tax_saving = 0.0
     if fhsa_enabled:
